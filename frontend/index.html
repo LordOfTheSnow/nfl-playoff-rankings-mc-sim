@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NFL Monte Carlo Simulator</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-content">
+            <div class="site-title">
+                <img src="img/logos/nfl.png" alt="NFL" width="32" height="32">
+                <span>NFL Monte Carlo Playoff Simulator</span>
+            </div>
+            <nav class="main-nav">
+                <a href="#standings" class="nav-link active">Standings</a>
+                <a href="#simulate" class="nav-link">Simulate</a>
+                <a href="#results" class="nav-link">Results</a>
+            </nav>
+        </div>
+        <div class="header-disclaimer">
+            This is an independent project not affiliated with the NFL or any official NFL service. All data is sourced from publicly available APIs.
+        </div>
+    </header>
+
+    <div id="notification" class="hidden" role="alert" aria-live="polite"></div>
+    <div id="loading" class="hidden" aria-label="Loading">Loading…</div>
+
+    <main id="content"></main>
+
+    <script src="js/api.js"></script>
+    <script src="js/app.js"></script>
+    <script src="js/standings.js"></script>
+    <script src="js/schedule.js"></script>
+    <script src="js/simulation.js"></script>
+    <script src="js/charts.js"></script>
+</body>
+</html>

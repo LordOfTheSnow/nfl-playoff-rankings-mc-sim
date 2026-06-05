@@ -1,0 +1,27 @@
+[project]
+name = "nfl-monte-carlo-simulator"
+version = "0.1.0"
+description = "Monte Carlo NFL Playoff Simulator"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx==0.28.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.5",
+    "hypothesis==6.130.5",
+    "httpx==0.28.1",
+]
+
+[build-system]
+requires = ["setuptools>=75.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
