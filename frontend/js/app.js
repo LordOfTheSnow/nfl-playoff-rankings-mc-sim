@@ -112,7 +112,7 @@ const App = (() => {
     }
 
     // Known routes
-    const knownRoutes = ["standings", "simulate", "results"];
+    const knownRoutes = ["standings", "simulate", "results", "statistics"];
     if (knownRoutes.includes(hash)) {
       return { view: hash, param: null };
     }
@@ -164,8 +164,13 @@ const App = (() => {
           break;
 
         case "simulate":
-          if (typeof renderSimulation === "function") {
-            await renderSimulation(contentEl);
+          // Redirect to standings (controls are now there)
+          App.navigate("standings");
+          break;
+
+        case "statistics":
+          if (typeof renderStatistics === "function") {
+            await renderStatistics(contentEl);
           }
           break;
 

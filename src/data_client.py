@@ -214,13 +214,13 @@ def parse_espn_event(event: dict[str, Any]) -> Game:
         )
     game_status = GameStatus(_ESPN_STATUS_MAP[espn_status_name])
 
-    # Extract quarter and clock for in-progress games
+    # Extract quarter/period — for in-progress (current quarter) and completed (final period, to detect OT)
     quarter: int | None = None
     clock: str | None = None
+    period = status_obj.get("period")
+    if period is not None:
+        quarter = int(period)
     if game_status == GameStatus.IN_PROGRESS:
-        period = status_obj.get("period")
-        if period is not None:
-            quarter = int(period)
         display_clock = status_obj.get("displayClock")
         if display_clock is not None:
             clock = str(display_clock)

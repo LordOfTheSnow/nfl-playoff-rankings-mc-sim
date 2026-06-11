@@ -186,6 +186,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             self._handle_get_status()
         elif path == "/api/standings":
             self._handle_get_standings()
+        elif path == "/api/statistics":
+            self._handle_get_statistics()
         elif path.startswith("/api/team/"):
             team_name = path[len("/api/team/"):]
             self._handle_get_team(team_name)
@@ -265,6 +267,9 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
+            # Pre-compute weekly team strengths for all cutoff weeks
+            self._compute_weekly_strengths(server)
+
             response = {
                 "games_fetched": len(result.games),
                 "warnings": result.warnings,
@@ -273,6 +278,30 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
         except Exception as e:
             logger.exception("Error fetching data")
             self._send_error_response(500, "ESPN API failure", str(e))
+
+    def _compute_weekly_strengths(self, server: "NFLSimulatorServer") -> None:
+        """Pre-compute and store team strengths for each cutoff week (1-18).
+
+        This allows the team schedule page to show opponent strength at the
+        time of each game without recalculating on every page load.
+        """
+        from src.team_strength import TeamStrengthCalculator
+
+        games = server.cache.get_games(server.season_year)
+        if not games:
+            return
+
+        calculator = TeamStrengthCalculator()
+        completed = [g for g in games if g.status == GameStatus.COMPLETED]
+
+        for week in range(1, 19):
+            week_games = [g for g in completed if g.week <= week]
+            if not week_games:
+                continue
+            strengths = calculator.calculate(week_games)
+            server.cache.store_weekly_strengths(server.season_year, week, strengths)
+
+        logger.info("Pre-computed weekly strengths for weeks 1-18")
 
     def _handle_post_simulate(self) -> None:
         """Handle POST /api/simulate — run Monte Carlo simulation."""
@@ -516,6 +545,137 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             logger.exception("Error computing standings")
             self._send_error_response(500, "Error computing standings", str(e))
 
+    def _handle_get_statistics(self) -> None:
+        """Handle GET /api/statistics — return season-wide statistics."""
+        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
+
+        try:
+            games = server.cache.get_games(server.season_year)
+            if not games:
+                self._send_error_response(
+                    409,
+                    "No cached data available",
+                    "Data must be fetched first using POST /api/fetch-data",
+                )
+                return
+
+            completed = [g for g in games if g.status == GameStatus.COMPLETED
+                         and g.home_score is not None and g.away_score is not None]
+
+            total_games = len(completed)
+            home_wins = 0
+            away_wins = 0
+            ties = 0
+            total_points = 0
+            total_winner_points = 0
+            total_loser_points = 0
+            decided_games = 0
+
+            for g in completed:
+                total_points += (g.home_score or 0) + (g.away_score or 0)
+                if g.home_score > g.away_score:
+                    home_wins += 1
+                    total_winner_points += g.home_score
+                    total_loser_points += g.away_score
+                    decided_games += 1
+                elif g.away_score > g.home_score:
+                    away_wins += 1
+                    total_winner_points += g.away_score
+                    total_loser_points += g.home_score
+                    decided_games += 1
+                else:
+                    ties += 1
+
+            avg_winner_score = total_winner_points / decided_games if decided_games > 0 else 0.0
+            avg_loser_score = total_loser_points / decided_games if decided_games > 0 else 0.0
+
+            # Count overtime games (period > 4)
+            overtime_games = sum(1 for g in completed if g.quarter is not None and g.quarter > 4)
+
+            # Count one-score games (point differential <= 8)
+            one_score_games = sum(1 for g in completed if abs(g.home_score - g.away_score) <= 8)
+
+            # Compute streaks per team
+            from src.nfl_teams import ALL_TEAMS
+
+            longest_win_streak = {"team": "", "streak": 0, "from_week": 0, "to_week": 0}
+            longest_lose_streak = {"team": "", "streak": 0, "from_week": 0, "to_week": 0}
+
+            for team in ALL_TEAMS:
+                team_games = sorted(
+                    [g for g in completed if g.home_team == team or g.away_team == team],
+                    key=lambda g: (g.week, g.date),
+                )
+
+                win_streak = 0
+                lose_streak = 0
+                max_win = 0
+                max_lose = 0
+                win_start_week = 0
+                win_end_week = 0
+                lose_start_week = 0
+                lose_end_week = 0
+                cur_win_start = 0
+                cur_lose_start = 0
+
+                for g in team_games:
+                    is_home = g.home_team == team
+                    if is_home:
+                        team_won = g.home_score > g.away_score
+                        team_lost = g.home_score < g.away_score
+                    else:
+                        team_won = g.away_score > g.home_score
+                        team_lost = g.away_score < g.home_score
+
+                    if team_won:
+                        if win_streak == 0:
+                            cur_win_start = g.week
+                        win_streak += 1
+                        lose_streak = 0
+                        if win_streak > max_win:
+                            max_win = win_streak
+                            win_start_week = cur_win_start
+                            win_end_week = g.week
+                    elif team_lost:
+                        if lose_streak == 0:
+                            cur_lose_start = g.week
+                        lose_streak += 1
+                        win_streak = 0
+                        if lose_streak > max_lose:
+                            max_lose = lose_streak
+                            lose_start_week = cur_lose_start
+                            lose_end_week = g.week
+                    else:
+                        win_streak = 0
+                        lose_streak = 0
+
+                if max_win > longest_win_streak["streak"]:
+                    longest_win_streak = {"team": team, "streak": max_win, "from_week": win_start_week, "to_week": win_end_week}
+                if max_lose > longest_lose_streak["streak"]:
+                    longest_lose_streak = {"team": team, "streak": max_lose, "from_week": lose_start_week, "to_week": lose_end_week}
+
+            response = {
+                "total_games": total_games,
+                "home_wins": home_wins,
+                "home_wins_pct": round(home_wins / total_games * 100, 1) if total_games > 0 else 0,
+                "away_wins": away_wins,
+                "away_wins_pct": round(away_wins / total_games * 100, 1) if total_games > 0 else 0,
+                "ties": ties,
+                "ties_pct": round(ties / total_games * 100, 1) if total_games > 0 else 0,
+                "avg_winner_score": round(avg_winner_score),
+                "avg_loser_score": round(avg_loser_score),
+                "overtime_games": overtime_games,
+                "overtime_pct": round(overtime_games / total_games * 100, 1) if total_games > 0 else 0,
+                "one_score_games": one_score_games,
+                "one_score_pct": round(one_score_games / total_games * 100, 1) if total_games > 0 else 0,
+                "longest_win_streak": longest_win_streak,
+                "longest_lose_streak": longest_lose_streak,
+            }
+            self._send_json_response(200, response)
+        except Exception as e:
+            logger.exception("Error computing statistics")
+            self._send_error_response(500, "Error computing statistics", str(e))
+
     def _handle_get_team(self, team_name: str) -> None:
         """Handle GET /api/team/<name> — return team schedule.
 
@@ -535,6 +695,9 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
 
         try:
             games = server.cache.get_team_games(server.season_year, team_name)
+
+            # Load pre-computed weekly strengths
+            weekly_strengths = server.cache.get_weekly_strengths(server.season_year)
 
             # Compute record
             wins = 0
@@ -568,6 +731,12 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                     "status": game.status.value,
                     "date": game.date.isoformat(),
                 }
+
+                # Add opponent strength at that point in the season
+                week_strengths = weekly_strengths.get(game.week, {})
+                opp_strength = week_strengths.get(opponent)
+                if opp_strength is not None:
+                    game_data["opponent_strength"] = round(opp_strength, 3)
 
                 if game.status == GameStatus.COMPLETED:
                     game_data["home_score"] = game.home_score

@@ -43,7 +43,7 @@ source .venv/bin/activate
 python -m src
 
 # Start with a specific season and port
-python -m src --season 2025 --port 9090
+python -m src --season 2025 --port 8080
 ```
 
 Then open http://localhost:8080 in your browser.

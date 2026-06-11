@@ -434,33 +434,152 @@ function buildStatusPanel(status) {
   panel.style.marginBottom = "1.5rem";
 
   if (!status || status.total_games === 0) {
-    panel.innerHTML = '<p style="color:var(--color-text-muted)">No data fetched yet. Go to <a href="#simulate">Simulate</a> and click <strong>Fetch Data</strong> to load game data from ESPN.</p>';
+    panel.innerHTML = `
+      <p style="color:var(--color-text-muted)">No data fetched yet. Click <strong>Fetch Data</strong> to load game data from ESPN.</p>
+      <div style="margin-top:0.75rem">
+        <button id="btn-fetch-data-standings" class="btn btn-primary" type="button">Fetch Data</button>
+      </div>
+    `;
+    setTimeout(() => {
+      const btn = document.getElementById("btn-fetch-data-standings");
+      if (btn) btn.addEventListener("click", _handleFetchFromStandings);
+    }, 0);
     return panel;
   }
 
   const pctFetched = Math.round((status.total_games / status.expected_total) * 100);
+  const gamesPerWeek = status.games_per_week || {};
 
-  let html = '<h2 style="font-size:1.1rem;margin-bottom:0.5rem">Season ' + status.season_year + ' Data</h2>';
-  html += '<div style="display:flex;gap:2rem;flex-wrap:wrap;font-size:0.9rem">';
+  let html = '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:1rem">';
+
+  // Left: data status
+  html += '<div>';
+  html += '<h2 style="font-size:1.1rem;margin-bottom:0.5rem">Season ' + status.season_year + ' Data</h2>';
+  html += '<div style="display:flex;gap:1.5rem;flex-wrap:wrap;font-size:0.85rem">';
   html += '<span><strong>Weeks:</strong> ' + status.weeks_fetched + ' of 18</span>';
   html += '<span><strong>Games:</strong> ' + status.total_games + ' / ' + status.expected_total + ' (' + pctFetched + '%)</span>';
   html += '<span style="color:var(--color-success)"><strong>Completed:</strong> ' + status.completed + '</span>';
-
   if (status.in_progress > 0) {
     html += '<span style="color:var(--color-warning)"><strong>In Progress:</strong> ' + status.in_progress + '</span>';
   }
-
   if (status.scheduled > 0) {
     html += '<span style="color:var(--color-text-muted)"><strong>Scheduled:</strong> ' + status.scheduled + '</span>';
   }
+  html += '</div>';
+  if (status.last_fetch_time) {
+    const fetchDate = new Date(status.last_fetch_time);
+    html += '<p style="font-size:0.75rem;color:var(--color-text-muted);margin-top:0.25rem">Last fetched: ' + fetchDate.toLocaleString() + '</p>';
+  }
+  html += '</div>';
+
+  // Right: simulation controls
+  html += '<div>';
+  html += '<h2 style="font-size:1.1rem;margin-bottom:0.5rem">Simulation</h2>';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:1.5rem;align-items:flex-end">';
+  html += '<div class="control-field"><label for="sim-iterations-st">Iterations</label><input type="number" id="sim-iterations-st" min="100" max="1000000" value="10000" style="width:100px"></div>';
+  html += '<div class="control-field"><label for="sim-cutoff-st">Cutoff</label><select id="sim-cutoff-st" style="width:110px"><option value="">Auto</option>';
+  for (let w = 1; w <= 18; w++) { html += '<option value="' + w + '">Week ' + w + '</option>'; }
+  html += '</select></div>';
+  html += '<div class="control-field"><label for="sim-noise-st" title="Per-game strength noise: adds random variance to each simulated game outcome, modeling the unpredictability of real NFL games (\'any given Sunday\')">Noise &#9432;</label><input type="range" id="sim-noise-st" min="0" max="100" value="20" style="width:100px" title="0 = pure strength, 0.2 = moderate variance, 0.5+ = very chaotic"><span id="sim-noise-label-st" style="font-size:0.75rem;color:var(--color-text-muted);margin-left:0.4rem">0.20 moderate</span></div>';
+  html += '<button id="btn-run-sim-standings" class="btn btn-primary" type="button">Simulate</button>';
+  html += '<button id="btn-fetch-data-standings" class="btn btn-secondary" type="button">Fetch Data</button>';
+  html += '</div>';
+  html += '</div>';
 
   html += '</div>';
 
-  if (status.last_fetch_time) {
-    const fetchDate = new Date(status.last_fetch_time);
-    html += '<p style="font-size:0.8rem;color:var(--color-text-muted);margin-top:0.5rem">Last fetched: ' + fetchDate.toLocaleString() + '</p>';
-  }
+  // Total games info line
+  html += '<p id="sim-total-st" style="font-size:0.8rem;color:var(--color-text-muted);margin-top:0.5rem"></p>';
+  // Progress spinner
+  html += '<div id="sim-progress-st" style="margin-top:0.75rem;display:none;align-items:center;gap:0.75rem"><div class="spinner"></div><span style="font-size:0.9rem;color:var(--color-text-muted)">Running simulation…</span></div>';
 
   panel.innerHTML = html;
+
+  // Wire up event listeners after DOM insert
+  setTimeout(() => {
+    const iterInput = document.getElementById("sim-iterations-st");
+    const cutoffSel = document.getElementById("sim-cutoff-st");
+    const noiseSl = document.getElementById("sim-noise-st");
+    const runBtn = document.getElementById("btn-run-sim-standings");
+    const fetchBtn = document.getElementById("btn-fetch-data-standings");
+    const totalEl = document.getElementById("sim-total-st");
+
+    function updateTotal() {
+      const iters = parseInt(iterInput.value, 10) || 10000;
+      const cutoff = cutoffSel.value ? parseInt(cutoffSel.value, 10) : 18;
+      let gamesToSim = 0;
+      for (const [wk, cnt] of Object.entries(gamesPerWeek)) {
+        if (parseInt(wk, 10) > cutoff) gamesToSim += cnt;
+      }
+      if (gamesToSim > 0) {
+        totalEl.textContent = gamesToSim + ' games × ' + iters.toLocaleString() + ' iterations = ' + (gamesToSim * iters).toLocaleString() + ' game simulations';
+      } else {
+        totalEl.textContent = 'No games to simulate at this cutoff';
+      }
+    }
+
+    if (iterInput) iterInput.addEventListener("input", updateTotal);
+    if (cutoffSel) cutoffSel.addEventListener("change", updateTotal);
+    updateTotal();
+
+    // Noise label update
+    if (noiseSl) noiseSl.addEventListener("input", () => {
+      const val = (parseInt(noiseSl.value, 10) / 100).toFixed(2);
+      const label = parseFloat(val) <= 0.05 ? "none" : parseFloat(val) <= 0.15 ? "low" : parseFloat(val) <= 0.25 ? "moderate" : parseFloat(val) <= 0.4 ? "high" : "chaotic";
+      const labelEl = document.getElementById("sim-noise-label-st");
+      if (labelEl) labelEl.textContent = val + " " + label;
+    });
+
+    if (runBtn) runBtn.addEventListener("click", async () => {
+      const iterations = parseInt(iterInput.value, 10) || 10000;
+      const cutoffWeek = cutoffSel.value ? parseInt(cutoffSel.value, 10) : null;
+      const noise = parseInt(noiseSl.value, 10) / 100;
+
+      if (iterations < 100 || iterations > 1000000) {
+        App.showError("Iterations must be between 100 and 1,000,000.");
+        return;
+      }
+
+      const progressEl = document.getElementById("sim-progress-st");
+      progressEl.style.display = "flex";
+      runBtn.disabled = true;
+
+      try {
+        const results = await API.runSimulation(iterations, cutoffWeek, noise);
+        _simulationResults = results;
+        App.showInfo("Simulation complete.");
+        App.navigate("results");
+      } catch (err) {
+        App.showError(err.message || "Simulation failed.");
+      } finally {
+        progressEl.style.display = "none";
+        runBtn.disabled = false;
+      }
+    });
+
+    if (fetchBtn) fetchBtn.addEventListener("click", _handleFetchFromStandings);
+  }, 0);
+
   return panel;
+}
+
+/**
+ * Handle fetch data from the standings page.
+ */
+async function _handleFetchFromStandings() {
+  const btn = document.getElementById("btn-fetch-data-standings");
+  if (btn) btn.disabled = true;
+  App.showLoading();
+  try {
+    const result = await API.fetchData();
+    App.showInfo("Data fetched: " + result.games_fetched + " games loaded.");
+    // Reload standings to show updated data
+    const contentEl = document.getElementById("content");
+    if (contentEl) await renderStandings(contentEl);
+  } catch (err) {
+    App.showError(err.message || "Failed to fetch data.");
+  } finally {
+    App.hideLoading();
+    if (btn) btn.disabled = false;
+  }
 }

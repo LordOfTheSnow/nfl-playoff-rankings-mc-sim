@@ -87,7 +87,7 @@ function renderScheduleContent(contentEl, data) {
   // Table header
   const thead = document.createElement("thead");
   const headerRow = document.createElement("tr");
-  const columns = ["Week", "Opponent", "Home/Away", "Score", "Result/Status"];
+  const columns = ["Week", "Opponent", "Opp Str", "Home/Away", "Score", "Result/Status"];
   columns.forEach(function (col) {
     const th = document.createElement("th");
     th.textContent = col;
@@ -123,7 +123,7 @@ function renderScheduleContent(contentEl, data) {
       byeWeekCell.textContent = byeWeek;
       byeRow.appendChild(byeWeekCell);
       const byeLabel = document.createElement("td");
-      byeLabel.colSpan = 4;
+      byeLabel.colSpan = 5;
       byeLabel.textContent = "BYE WEEK";
       byeLabel.style.fontWeight = "600";
       byeLabel.style.color = "var(--color-text-muted)";
@@ -159,7 +159,7 @@ function renderScheduleContent(contentEl, data) {
     byeWeekCell.textContent = byeWeek;
     byeRow.appendChild(byeWeekCell);
     const byeLabel = document.createElement("td");
-    byeLabel.colSpan = 4;
+    byeLabel.colSpan = 5;
     byeLabel.textContent = "BYE WEEK";
     byeLabel.style.fontWeight = "600";
     byeLabel.style.color = "var(--color-text-muted)";
@@ -214,6 +214,13 @@ function renderCompletedGameRow(row, game) {
   oppCell.textContent = game.opponent;
   row.appendChild(oppCell);
 
+  // Opponent Strength
+  const strCell = document.createElement("td");
+  strCell.textContent = game.opponent_strength != null ? game.opponent_strength.toFixed(3) : "—";
+  strCell.style.fontSize = "0.85rem";
+  strCell.style.color = "var(--color-text-muted)";
+  row.appendChild(strCell);
+
   // Home/Away
   const locCell = document.createElement("td");
   locCell.textContent = game.home ? "Home" : "Away";
@@ -250,6 +257,13 @@ function renderInProgressGameRow(row, game) {
   const oppCell = document.createElement("td");
   oppCell.textContent = game.opponent;
   row.appendChild(oppCell);
+
+  // Opponent Strength
+  const strCell = document.createElement("td");
+  strCell.textContent = game.opponent_strength != null ? game.opponent_strength.toFixed(3) : "—";
+  strCell.style.fontSize = "0.85rem";
+  strCell.style.color = "var(--color-text-muted)";
+  row.appendChild(strCell);
 
   // Home/Away
   const locCell = document.createElement("td");
@@ -288,6 +302,13 @@ function renderScheduledGameRow(row, game) {
   const oppCell = document.createElement("td");
   oppCell.textContent = game.opponent;
   row.appendChild(oppCell);
+
+  // Opponent Strength
+  const strCell = document.createElement("td");
+  strCell.textContent = game.opponent_strength != null ? game.opponent_strength.toFixed(3) : "—";
+  strCell.style.fontSize = "0.85rem";
+  strCell.style.color = "var(--color-text-muted)";
+  row.appendChild(strCell);
 
   // Home/Away
   const locCell = document.createElement("td");

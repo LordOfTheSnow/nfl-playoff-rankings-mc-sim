@@ -113,11 +113,22 @@ const API = (() => {
     return request(`/api/team/${encodeURIComponent(name)}`);
   }
 
+  /**
+   * Get season-wide statistics.
+   * GET /api/statistics
+   *
+   * @returns {Promise<Object>} Statistics data.
+   */
+  function getStatistics() {
+    return request("/api/statistics");
+  }
+
   return {
     fetchStatus,
     fetchData,
     runSimulation,
     getStandings,
     getTeamSchedule,
+    getStatistics,
   };
 })();

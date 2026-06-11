@@ -79,6 +79,14 @@ class Cache:
                 games_count INTEGER NOT NULL,
                 success INTEGER NOT NULL DEFAULT 1
             );
+
+            CREATE TABLE IF NOT EXISTS weekly_strengths (
+                year INTEGER NOT NULL,
+                week INTEGER NOT NULL,
+                team TEXT NOT NULL,
+                strength REAL NOT NULL,
+                PRIMARY KEY (year, week, team)
+            );
         """)
         self._conn.commit()
 
@@ -165,7 +173,7 @@ class Cache:
                     away_score=row["away_score"],
                     home_points=row["home_points"],
                     away_points=row["away_points"],
-                    quarter=row["quarter"],
+                    quarter=int(row["quarter"]) if row["quarter"] is not None else None,
                     clock=row["clock"],
                 )
             )
@@ -203,11 +211,48 @@ class Cache:
                     away_score=row["away_score"],
                     home_points=row["home_points"],
                     away_points=row["away_points"],
-                    quarter=row["quarter"],
+                    quarter=int(row["quarter"]) if row["quarter"] is not None else None,
                     clock=row["clock"],
                 )
             )
         return games
+
+    def store_weekly_strengths(self, year: int, week: int, strengths: dict[str, float]) -> None:
+        """Store pre-computed team strengths for a given cutoff week.
+
+        Args:
+            year: Season year.
+            week: Cutoff week (strengths computed from games 1..week).
+            strengths: Mapping of team name to strength rating.
+        """
+        for team, strength in strengths.items():
+            self._conn.execute(
+                """INSERT OR REPLACE INTO weekly_strengths (year, week, team, strength)
+                   VALUES (?, ?, ?, ?)""",
+                (year, week, team, strength),
+            )
+        self._conn.commit()
+
+    def get_weekly_strengths(self, year: int) -> dict[int, dict[str, float]]:
+        """Retrieve all pre-computed weekly strengths for a season.
+
+        Args:
+            year: Season year.
+
+        Returns:
+            Mapping of week -> {team -> strength}.
+        """
+        cursor = self._conn.execute(
+            "SELECT week, team, strength FROM weekly_strengths WHERE year = ?",
+            (year,),
+        )
+        result: dict[int, dict[str, float]] = {}
+        for row in cursor:
+            week = row[0]
+            if week not in result:
+                result[week] = {}
+            result[week][row[1]] = row[2]
+        return result
 
     def is_fresh(self, year: int, week: int) -> bool:
         """Check if cached data for a given year/week is still fresh.
