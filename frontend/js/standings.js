@@ -546,7 +546,7 @@ function buildStatusPanel(status) {
 
       try {
         const results = await API.runSimulation(iterations, cutoffWeek, noise);
-        _simulationResults = results;
+        window._simulationResults = results;
         App.showInfo("Simulation complete.");
         App.navigate("results");
       } catch (err) {

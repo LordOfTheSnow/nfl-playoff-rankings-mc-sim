@@ -123,6 +123,45 @@ const API = (() => {
     return request("/api/statistics");
   }
 
+  /**
+   * Analyze playoff path for a specific team.
+   * POST /api/analyze-path
+   *
+   * @param {string} team - Team name.
+   * @param {number} iterations - Number of iterations for the path analysis.
+   * @param {number|null} cutoffWeek - Cutoff week or null for auto.
+   * @param {number} noise - Noise parameter.
+   * @returns {Promise<Object>} Path analysis data.
+   */
+  function analyzePath(team, iterations, cutoffWeek, noise) {
+    const body = { team, iterations };
+    if (cutoffWeek != null) body.cutoff_week = cutoffWeek;
+    if (noise != null) body.noise = noise;
+    return request("/api/analyze-path", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  /**
+   * Find guaranteed playoff path for a team.
+   * POST /api/guaranteed-path
+   *
+   * @param {string} team - Team name.
+   * @param {number|null} cutoffWeek - Cutoff week or null for auto.
+   * @returns {Promise<Object>} Guaranteed path data.
+   */
+  function guaranteedPath(team, cutoffWeek) {
+    const body = { team };
+    if (cutoffWeek != null) body.cutoff_week = cutoffWeek;
+    return request("/api/guaranteed-path", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
   return {
     fetchStatus,
     fetchData,
@@ -130,5 +169,7 @@ const API = (() => {
     getStandings,
     getTeamSchedule,
     getStatistics,
+    analyzePath,
+    guaranteedPath,
   };
 })();

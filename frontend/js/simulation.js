@@ -12,7 +12,7 @@
 "use strict";
 
 /** Module-level storage for the latest simulation results. */
-let _simulationResults = null;
+window._simulationResults = null;
 
 /**
  * Render the simulation controls view.
@@ -173,7 +173,7 @@ async function _handleRunSimulation() {
 
   try {
     const results = await API.runSimulation(iterations, cutoffWeek, noise);
-    _simulationResults = results;
+    window._simulationResults = results;
     App.showInfo("Simulation complete.");
     App.navigate("results");
   } catch (err) {
@@ -212,7 +212,7 @@ async function _handleFetchData() {
  * @param {HTMLElement} contentEl - The main content container element.
  */
 async function renderResults(contentEl) {
-  if (!_simulationResults) {
+  if (!window._simulationResults) {
     contentEl.innerHTML = `
       <div class="empty-state">
         <p>No simulation results available.</p>
@@ -222,7 +222,7 @@ async function renderResults(contentEl) {
     return;
   }
 
-  const results = _simulationResults;
+  const results = window._simulationResults;
 
   // Build the results page
   let html = "";
@@ -284,10 +284,11 @@ function _renderPlayoffProbabilityTables(teamResults) {
     });
 
     html += `<div class="results-section">
-      <h2>${conf} Playoff Probabilities</h2>
+      <h2><img src="img/logos/${conf.toLowerCase()}.png" alt="${conf}" width="24" height="24" style="vertical-align:middle;margin-right:0.5rem">${conf} Playoff Probabilities</h2>
       <table class="probability-table" aria-label="${conf} playoff probabilities">
         <thead>
           <tr>
+            <th>#</th>
             <th class="team-name">Team</th>
             <th>Division</th>
             <th>Playoff %</th>
@@ -296,10 +297,13 @@ function _renderPlayoffProbabilityTables(teamResults) {
         </thead>
         <tbody>`;
 
-    for (const team of teams) {
+    for (let idx = 0; idx < teams.length; idx++) {
+      const team = teams[idx];
       const logoId = TEAM_LOGO_IDS[team.team] || "";
       const logoHtml = logoId ? `<img src="img/logos/${logoId}.png" alt="" width="20" height="20" style="vertical-align:middle;margin-right:0.4rem">` : "";
-      html += `<tr>
+      const borderStyle = idx === 7 ? ' style="border-top:2px solid var(--color-primary)"' : '';
+      html += `<tr${borderStyle}>
+        <td class="numeric">${idx + 1}</td>
         <td class="team-name">
           ${logoHtml}<a href="#" data-team-click="${_escapeHtml(team.team)}" class="team-link">${_escapeHtml(team.team)}</a>
         </td>
@@ -336,7 +340,7 @@ function _renderSeedingMatrix(teamResults) {
     });
 
     html += `<div class="results-section">
-      <h2>${conf} Seeding Probabilities</h2>
+      <h2><img src="img/logos/${conf.toLowerCase()}.png" alt="${conf}" width="24" height="24" style="vertical-align:middle;margin-right:0.5rem">${conf} Seeding Probabilities</h2>
       <table class="probability-table" aria-label="${conf} seeding probability matrix">
         <thead>
           <tr>
@@ -474,51 +478,177 @@ function _showTeamDetail(teamName, results) {
     html += `</tbody></table></div>`;
   }
 
-  // Playoff path analysis
-  const pathData = results.playoff_paths && results.playoff_paths[teamName];
-  if (pathData && pathData.path) {
-    html += `<div class="controls-panel">
+  // Playoff path analysis - on-demand button
+  if (teamData.playoff_probability < 75) {
+    html += `<div class="controls-panel" id="path-section-${_escapeHtml(teamName)}">
       <h3>Playoff Path</h3>
       <p style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:0.75rem">
-        Based on ${pathData.qualifying_trials} qualifying trials out of ${results.iterations_run.toLocaleString()} simulations.
-        This shows the most likely combination of game outcomes needed for ${_escapeHtml(teamName)} to make the playoffs.
+        Analyze what game outcomes are needed for ${_escapeHtml(teamName)} to make the playoffs.
       </p>
-      <table class="probability-table">
-        <thead><tr><th>Week</th><th>Game</th><th>Needed Result</th><th>Confidence</th></tr></thead><tbody>`;
-
-    for (const g of pathData.path) {
-      const winner = g.is_tie ? "Tie" : _escapeHtml(g.required_winner || "");
-      const matchup = _escapeHtml(g.home_team) + " vs " + _escapeHtml(g.away_team);
-      const isOwn = g.involves_team;
-      const rowStyle = isOwn ? ' style="font-weight:600;background-color:var(--color-division-leader-bg)"' : '';
-      const confLabel = g.frequency >= 95 ? "Essential" : g.frequency >= 80 ? "Very likely needed" : "Likely needed";
-      html += `<tr${rowStyle}>
-        <td class="numeric">${g.week}</td>
-        <td>${matchup}</td>
-        <td><strong>${winner}</strong> wins</td>
-        <td class="numeric">${g.frequency}% <span style="font-size:0.75rem;color:var(--color-text-muted)">(${confLabel})</span></td>
-      </tr>`;
-    }
-
-    html += `</tbody></table>
-      <p style="font-size:0.8rem;color:var(--color-text-muted);margin-top:0.75rem;line-height:1.5">
-        <strong>How to read:</strong> Games highlighted in blue are ${_escapeHtml(teamName)}'s own games.
-        "Confidence" shows how often this outcome appeared across all qualifying trials.
-        Higher % = more essential. Not every game listed needs to go this way — but the more that do, the better the chances.
-      </p>
-    </div>`;
-  } else if (teamData.playoff_probability < 75) {
-    html += `<div class="controls-panel">
-      <h3>Playoff Path</h3>
-      <p style="font-size:0.85rem;color:var(--color-text-muted)">
-        Not enough qualifying trials to compute a reliable path. Try increasing the number of iterations.
-      </p>
+      <button id="btn-analyze-path" class="btn btn-secondary" type="button" data-team="${_escapeHtml(teamName)}">
+        Analyze Playoff Path
+      </button>
+      <button id="btn-guaranteed-path" class="btn btn-secondary" type="button" data-team="${_escapeHtml(teamName)}" style="margin-left:0.5rem">
+        Find Guaranteed Path
+      </button>
+      <div id="path-spinner" style="display:none;margin-top:0.5rem;align-items:center;gap:0.5rem">
+        <div class="spinner"></div><span style="font-size:0.85rem;color:var(--color-text-muted)">Running path analysis…</span>
+      </div>
+      <div id="path-results"></div>
     </div>`;
   }
 
   panel.innerHTML = html;
   panel.hidden = false;
   panel.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  // Wire up the analyze button
+  const analyzeBtn = document.getElementById("btn-analyze-path");
+  if (analyzeBtn) {
+    analyzeBtn.addEventListener("click", async () => {
+      const spinner = document.getElementById("path-spinner");
+      const resultsDiv = document.getElementById("path-results");
+      analyzeBtn.disabled = true;
+      spinner.style.display = "flex";
+
+      try {
+        // Use higher iterations and same cutoff as last simulation
+        const cutoff = results.cutoff_week_used || null;
+        const pathData = await API.analyzePath(teamName, 5000, cutoff, 0.2);
+        spinner.style.display = "none";
+        resultsDiv.innerHTML = _renderPathResults(pathData);
+      } catch (err) {
+        spinner.style.display = "none";
+        resultsDiv.innerHTML = `<p style="color:var(--color-accent);margin-top:0.5rem">${err.message || "Path analysis failed."}</p>`;
+      } finally {
+        analyzeBtn.disabled = false;
+      }
+    });
+  }
+  // Wire up the guaranteed path button
+  const guaranteedBtn = document.getElementById("btn-guaranteed-path");
+  if (guaranteedBtn) {
+    guaranteedBtn.addEventListener("click", async () => {
+      const spinner = document.getElementById("path-spinner");
+      const resultsDiv = document.getElementById("path-results");
+      guaranteedBtn.disabled = true;
+      spinner.style.display = "flex";
+
+      try {
+        const cutoff = results.cutoff_week_used || null;
+        const pathData = await API.guaranteedPath(teamName, cutoff);
+        spinner.style.display = "none";
+        resultsDiv.innerHTML = _renderGuaranteedPath(pathData);
+      } catch (err) {
+        spinner.style.display = "none";
+        resultsDiv.innerHTML = `<p style="color:var(--color-accent);margin-top:0.5rem">${err.message || "Guaranteed path analysis failed."}</p>`;
+      } finally {
+        guaranteedBtn.disabled = false;
+      }
+    });
+  }
+}
+
+/**
+ * Render guaranteed path results as HTML.
+ */
+function _renderGuaranteedPath(data) {
+  let html = `<div style="margin-top:0.75rem">`;
+
+  if (!data.found_path) {
+    html += `<p style="color:var(--color-text-muted)">${data.message}</p>`;
+    if (data.team_must_win && data.team_must_win.length > 0) {
+      html += `<p style="margin-top:0.5rem;font-size:0.85rem"><strong>At minimum, the team must win:</strong></p>
+        <ul style="font-size:0.85rem;margin-top:0.25rem">`;
+      for (const g of data.team_must_win) {
+        html += `<li>Week ${g.week}: vs ${_escapeHtml(g.opponent)}</li>`;
+      }
+      html += `</ul>`;
+    }
+    html += `</div>`;
+    return html;
+  }
+
+  html += `<p style="color:var(--color-success);font-weight:600;margin-bottom:0.75rem">${data.message}</p>`;
+
+  // Team's own games
+  if (data.team_must_win && data.team_must_win.length > 0) {
+    html += `<h4 style="font-size:0.9rem;margin-bottom:0.5rem">Team must win all remaining games:</h4>
+      <table class="probability-table" style="margin-bottom:1rem">
+        <thead><tr><th>Week</th><th>Opponent</th></tr></thead><tbody>`;
+    for (const g of data.team_must_win) {
+      html += `<tr style="background-color:var(--color-division-leader-bg)">
+        <td class="numeric">${g.week}</td>
+        <td>${_escapeHtml(g.opponent)}</td>
+      </tr>`;
+    }
+    html += `</tbody></table>`;
+  }
+
+  // Required other outcomes
+  if (data.required_outcomes && data.required_outcomes.length > 0) {
+    html += `<h4 style="font-size:0.9rem;margin-bottom:0.5rem">Other required results:</h4>
+      <table class="probability-table">
+        <thead><tr><th>Week</th><th>Game</th><th>Required Winner</th><th>Required Loser</th></tr></thead><tbody>`;
+    for (const g of data.required_outcomes) {
+      html += `<tr>
+        <td class="numeric">${g.week}</td>
+        <td>${_escapeHtml(g.home_team)} vs ${_escapeHtml(g.away_team)}</td>
+        <td style="color:var(--color-success);font-weight:600">${_escapeHtml(g.required_winner)}</td>
+        <td style="color:var(--color-accent)">${_escapeHtml(g.required_loser)}</td>
+      </tr>`;
+    }
+    html += `</tbody></table>`;
+  }
+
+  if (data.verified) {
+    html += `<p style="font-size:0.8rem;color:var(--color-success);margin-top:0.75rem">✓ Verified: if all these outcomes happen, the team is guaranteed a playoff spot regardless of other game results.</p>`;
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+/**
+ * Render path analysis results as HTML.
+ */
+function _renderPathResults(pathData) {
+  if (!pathData.path || pathData.path.length === 0) {
+    return `<p style="margin-top:0.75rem;color:var(--color-text-muted)">${pathData.message || "No clear path found. The team may need very specific combinations that vary too much across trials."}</p>`;
+  }
+
+  let html = `<p style="font-size:0.85rem;color:var(--color-text-muted);margin:0.75rem 0 0.5rem">
+    Based on ${pathData.qualifying_trials} qualifying trials (${pathData.playoff_probability}% probability). Only games with causal impact are shown.
+  </p>`;
+
+  html += `<table class="probability-table" style="margin-top:0.5rem">
+    <thead><tr><th>Week</th><th>Game</th><th>Needed Result</th><th>Confidence</th></tr></thead><tbody>`;
+
+  for (const g of pathData.path) {
+    const winner = g.is_tie ? "Tie" : _escapeHtml(g.required_winner || "");
+    const matchup = _escapeHtml(g.home_team) + " vs " + _escapeHtml(g.away_team);
+    const isOwn = g.involves_team;
+    const rowStyle = isOwn ? ' style="font-weight:600;background-color:var(--color-division-leader-bg)"' : '';
+    html += `<tr${rowStyle}>
+      <td class="numeric">${g.week}</td>
+      <td>${matchup}</td>
+      <td><strong>${winner}</strong> wins</td>
+      <td class="numeric">${g.frequency}%</td>
+    </tr>`;
+  }
+
+  html += `</tbody></table>
+    <p style="font-size:0.8rem;color:var(--color-text-muted);margin-top:0.75rem;line-height:1.6">
+      <strong>How to read:</strong> Games highlighted in blue are the team's own games.
+      The confidence % shows how often this outcome occurred across all qualifying simulation trials.
+      <br>• <strong>100%</strong> = happened in every qualifying trial — essentially mandatory.
+      <br>• <strong>75–99%</strong> = needed in most paths, but a few alternative routes exist without it.
+      <br>• <strong>60–75%</strong> = helpful in the majority of paths, but other outcomes can compensate.
+      <br><br>Only games where flipping the result would actually change the team's playoff status are shown (causality-filtered).
+      If a game shows 76.5% confidence, it means in 23.5% of qualifying trials the opposite result happened but the team still made the playoffs via a different combination.
+    </p>`;
+
+  return html;
 }
 
 /**

@@ -112,7 +112,6 @@ def _serialize_simulation_result(result: SimulationResult) -> dict[str, Any]:
         "team_strengths": team_strengths,
         "fixed_games": result.fixed_games_count,
         "simulated_games": result.simulated_games_count,
-        "playoff_paths": result.playoff_paths,
     }
 
 
@@ -205,6 +204,10 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             self._handle_post_fetch_data()
         elif path == "/api/simulate":
             self._handle_post_simulate()
+        elif path == "/api/analyze-path":
+            self._handle_post_analyze_path()
+        elif path == "/api/guaranteed-path":
+            self._handle_post_guaranteed_path()
         elif path.startswith("/api/"):
             self._send_error_response(404, "Endpoint not found", f"No handler for POST {path}")
         else:
@@ -303,6 +306,99 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             server.cache.store_weekly_strengths(server.season_year, week, strengths)
 
         logger.info("Pre-computed weekly strengths for weeks 1-18")
+
+    def _handle_post_analyze_path(self) -> None:
+        """Handle POST /api/analyze-path — on-demand playoff path analysis for a team."""
+        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
+
+        body = self._parse_json_body()
+        if body is None:
+            self._send_error_response(400, "Invalid JSON in request body", "")
+            return
+
+        team = body.get("team")
+        iterations = body.get("iterations", 1000)
+        cutoff_week = body.get("cutoff_week", None)
+        noise = body.get("noise", 0.2)
+
+        if not team or team not in ALL_TEAMS:
+            self._send_error_response(400, "Invalid team name", f"Valid teams: {', '.join(sorted(ALL_TEAMS))}")
+            return
+
+        if not isinstance(iterations, int) or iterations < 100 or iterations > 1_000_000:
+            self._send_error_response(400, "Invalid iterations", "Must be 100-1,000,000")
+            return
+
+        games = server.cache.get_games(server.season_year)
+        if not games:
+            self._send_error_response(409, "No cached data", "Fetch data first")
+            return
+
+        try:
+            config = SimulationConfig(
+                iterations=iterations,
+                cutoff_week=cutoff_week,
+                noise=float(noise),
+            )
+            simulator = Simulator(config)
+            result = simulator.analyze_path(team, games)
+            self._send_json_response(200, result)
+        except ValueError as e:
+            self._send_error_response(400, "Invalid parameters", str(e))
+        except Exception as e:
+            logger.exception("Error analyzing path")
+            self._send_error_response(500, "Path analysis error", str(e))
+
+    def _handle_post_guaranteed_path(self) -> None:
+        """Handle POST /api/guaranteed-path — find a deterministic path to playoffs."""
+        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
+
+        body = self._parse_json_body()
+        if body is None:
+            self._send_error_response(400, "Invalid JSON", "")
+            return
+
+        team = body.get("team")
+        cutoff_week = body.get("cutoff_week")
+
+        if not team or team not in ALL_TEAMS:
+            self._send_error_response(400, "Invalid team name", "")
+            return
+
+        if cutoff_week is not None and (not isinstance(cutoff_week, int) or cutoff_week < 1 or cutoff_week > 18):
+            self._send_error_response(400, "Invalid cutoff_week", "Must be 1-18")
+            return
+
+        games = server.cache.get_games(server.season_year)
+        if not games:
+            self._send_error_response(409, "No cached data", "Fetch data first")
+            return
+
+        # Auto-detect cutoff if not provided
+        if cutoff_week is None:
+            for week in range(18, 0, -1):
+                week_games = [g for g in games if g.week == week]
+                if week_games and all(g.status == GameStatus.COMPLETED for g in week_games):
+                    cutoff_week = week
+                    break
+            if cutoff_week is None:
+                cutoff_week = 0
+
+        try:
+            from src.elimination import find_guaranteed_path
+            result = find_guaranteed_path(team, games, cutoff_week)
+            response = {
+                "team": result.team,
+                "found_path": result.found_path,
+                "message": result.message,
+                "required_outcomes": result.required_outcomes,
+                "team_must_win": result.team_must_win,
+                "verified": result.verified,
+            }
+            self._send_json_response(200, response)
+        except Exception as e:
+            logger.exception("Error computing guaranteed path")
+            self._send_error_response(500, "Guaranteed path error", str(e))
 
     def _handle_post_simulate(self) -> None:
         """Handle POST /api/simulate — run Monte Carlo simulation."""
