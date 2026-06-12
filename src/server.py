@@ -112,6 +112,7 @@ def _serialize_simulation_result(result: SimulationResult) -> dict[str, Any]:
         "team_strengths": team_strengths,
         "fixed_games": result.fixed_games_count,
         "simulated_games": result.simulated_games_count,
+        "playoff_paths": result.playoff_paths,
     }
 
 

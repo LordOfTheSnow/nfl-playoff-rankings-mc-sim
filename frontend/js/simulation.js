@@ -474,6 +474,48 @@ function _showTeamDetail(teamName, results) {
     html += `</tbody></table></div>`;
   }
 
+  // Playoff path analysis
+  const pathData = results.playoff_paths && results.playoff_paths[teamName];
+  if (pathData && pathData.path) {
+    html += `<div class="controls-panel">
+      <h3>Playoff Path</h3>
+      <p style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:0.75rem">
+        Based on ${pathData.qualifying_trials} qualifying trials out of ${results.iterations_run.toLocaleString()} simulations.
+        This shows the most likely combination of game outcomes needed for ${_escapeHtml(teamName)} to make the playoffs.
+      </p>
+      <table class="probability-table">
+        <thead><tr><th>Week</th><th>Game</th><th>Needed Result</th><th>Confidence</th></tr></thead><tbody>`;
+
+    for (const g of pathData.path) {
+      const winner = g.is_tie ? "Tie" : _escapeHtml(g.required_winner || "");
+      const matchup = _escapeHtml(g.home_team) + " vs " + _escapeHtml(g.away_team);
+      const isOwn = g.involves_team;
+      const rowStyle = isOwn ? ' style="font-weight:600;background-color:var(--color-division-leader-bg)"' : '';
+      const confLabel = g.frequency >= 95 ? "Essential" : g.frequency >= 80 ? "Very likely needed" : "Likely needed";
+      html += `<tr${rowStyle}>
+        <td class="numeric">${g.week}</td>
+        <td>${matchup}</td>
+        <td><strong>${winner}</strong> wins</td>
+        <td class="numeric">${g.frequency}% <span style="font-size:0.75rem;color:var(--color-text-muted)">(${confLabel})</span></td>
+      </tr>`;
+    }
+
+    html += `</tbody></table>
+      <p style="font-size:0.8rem;color:var(--color-text-muted);margin-top:0.75rem;line-height:1.5">
+        <strong>How to read:</strong> Games highlighted in blue are ${_escapeHtml(teamName)}'s own games.
+        "Confidence" shows how often this outcome appeared across all qualifying trials.
+        Higher % = more essential. Not every game listed needs to go this way — but the more that do, the better the chances.
+      </p>
+    </div>`;
+  } else if (teamData.playoff_probability < 75) {
+    html += `<div class="controls-panel">
+      <h3>Playoff Path</h3>
+      <p style="font-size:0.85rem;color:var(--color-text-muted)">
+        Not enough qualifying trials to compute a reliable path. Try increasing the number of iterations.
+      </p>
+    </div>`;
+  }
+
   panel.innerHTML = html;
   panel.hidden = false;
   panel.scrollIntoView({ behavior: "smooth", block: "start" });

@@ -155,6 +155,7 @@ class SimulationResult:
     team_strengths: dict[str, float]
     fixed_games_count: int = 0
     simulated_games_count: int = 0
+    playoff_paths: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +222,12 @@ class Simulator:
 
         iterations = self._config.iterations
 
+        # Track qualifying trial outcomes for playoff path analysis
+        # Key: team name, Value: list of outcome sets where team qualified
+        qualifying_outcomes: dict[str, list[list[tuple[str, str | None, bool]]]] = {
+            team: [] for team in ALL_TEAMS
+        }
+
         # Trial loop
         for _trial in range(iterations):
             # Simulate remaining games
@@ -242,6 +249,16 @@ class Simulator:
                 division_champion_counts,
                 scenario_tracker,
             )
+
+            # Record simulated outcomes for teams that made playoffs
+            # (only store for teams with < 50% current rate to save memory)
+            for seeds_list in (bracket.afc_seeds, bracket.nfc_seeds):
+                for standing in seeds_list:
+                    team = standing.team
+                    # Only store if we have fewer than 500 qualifying trials
+                    # (to cap memory usage)
+                    if len(qualifying_outcomes[team]) < 500:
+                        qualifying_outcomes[team].append(simulated_outcomes)
 
         # Aggregate probabilities
         team_results = self._aggregate_results(
@@ -268,6 +285,11 @@ class Simulator:
         # Determine low confidence
         low_confidence = iterations < 1000
 
+        # Compute playoff paths for teams with low probability (< 50%)
+        playoff_paths = self._compute_playoff_paths(
+            qualifying_outcomes, playoff_counts, iterations, games_to_simulate
+        )
+
         return SimulationResult(
             team_results=team_results,
             scenarios=scenarios,
@@ -277,6 +299,7 @@ class Simulator:
             team_strengths=strengths,
             fixed_games_count=len(fixed_games),
             simulated_games_count=len(games_to_simulate),
+            playoff_paths=playoff_paths,
         )
 
     def _determine_cutoff_week(self, games: list[Game]) -> int:
@@ -577,6 +600,107 @@ class Simulator:
                 break
 
         return results
+
+    def _compute_playoff_paths(
+        self,
+        qualifying_outcomes: dict[str, list[list[tuple[str, str | None, bool]]]],
+        playoff_counts: dict[str, int],
+        iterations: int,
+        games_to_simulate: list[Game],
+    ) -> dict[str, dict[str, Any]]:
+        """Compute playoff path analysis for low-probability teams.
+
+        For teams with playoff probability < 50% and at least 5 qualifying trials,
+        finds the most representative qualifying scenario and presents it as a
+        complete "path to the playoffs" — listing all relevant game outcomes
+        that need to happen.
+
+        Args:
+            qualifying_outcomes: Mapping of team → list of outcome sets where team qualified.
+            playoff_counts: Total playoff appearances per team.
+            iterations: Total iterations run.
+            games_to_simulate: Games that were simulated.
+
+        Returns:
+            Mapping of team name → path analysis with the most common qualifying scenario.
+        """
+        paths: dict[str, dict[str, Any]] = {}
+
+        # Build game_id → Game lookup
+        game_lookup: dict[str, Game] = {g.game_id: g for g in games_to_simulate}
+
+        for team, trial_outcomes in qualifying_outcomes.items():
+            prob = playoff_counts[team] / iterations if iterations > 0 else 0.0
+
+            # Only compute paths for teams < 75% probability with enough qualifying trials
+            if prob >= 0.75 or len(trial_outcomes) < 5:
+                continue
+
+            num_trials = len(trial_outcomes)
+
+            # Find the team's conference
+            team_conf = get_team_conference(team)
+
+            # Identify relevant games: those involving teams in the same conference
+            # (these are the ones that affect playoff positioning)
+            relevant_game_ids: set[str] = set()
+            for g in games_to_simulate:
+                home_conf = get_team_conference(g.home_team)
+                away_conf = get_team_conference(g.away_team)
+                # Include if either team is in the same conference
+                if home_conf == team_conf or away_conf == team_conf:
+                    relevant_game_ids.add(g.game_id)
+
+            # Count outcome frequencies per game across qualifying trials
+            game_outcome_counts: dict[str, dict[str, int]] = {}
+            for outcomes in trial_outcomes:
+                for game_id, winner, is_tie in outcomes:
+                    if game_id not in relevant_game_ids:
+                        continue
+                    if game_id not in game_outcome_counts:
+                        game_outcome_counts[game_id] = {}
+                    key = "tie" if is_tie else (winner or "unknown")
+                    game_outcome_counts[game_id][key] = game_outcome_counts[game_id].get(key, 0) + 1
+
+            # Build the "most likely path": for each relevant game, pick the most
+            # common outcome among qualifying trials, but only include games where
+            # the dominant outcome appears in >60% of trials (otherwise it's noise)
+            path_games: list[dict[str, Any]] = []
+
+            for game_id, outcomes in game_outcome_counts.items():
+                game = game_lookup.get(game_id)
+                if not game:
+                    continue
+
+                most_common = max(outcomes.items(), key=lambda x: x[1])
+                outcome_winner = most_common[0]
+                outcome_count = most_common[1]
+                pct = outcome_count / num_trials
+
+                if pct < 0.6:
+                    continue
+
+                path_games.append({
+                    "week": game.week,
+                    "home_team": game.home_team,
+                    "away_team": game.away_team,
+                    "required_winner": outcome_winner if outcome_winner != "tie" else None,
+                    "is_tie": outcome_winner == "tie",
+                    "frequency": round(pct * 100, 1),
+                    "involves_team": game.home_team == team or game.away_team == team,
+                })
+
+            # Sort: team's own games first, then by week, then by frequency desc
+            path_games.sort(key=lambda x: (not x["involves_team"], x["week"], -x["frequency"]))
+
+            if path_games:
+                paths[team] = {
+                    "qualifying_trials": num_trials,
+                    "playoff_probability": round(prob * 100, 1),
+                    "path": path_games,
+                }
+
+        return paths
 
     def _compute_all_impact_games(
         self,

@@ -1,6 +1,6 @@
-# NFL Playoffs Monte Carlo Simulator
+# NFL Monte Carlo Playoff Ranking Simulator
 
-A web application that predicts NFL playoff outcomes using Monte Carlo simulation. It fetches real game data from ESPN's public API, computes strength-of-schedule-weighted team ratings, simulates remaining games, applies official NFL tiebreaker rules, and presents probability distributions through an interactive browser UI.
+A web application that predicts NFL playoff probabilites using Monte Carlo simulation. It fetches real game data from ESPN's public API, computes strength-of-schedule-weighted team ratings, simulates remaining games, applies official NFL tiebreaker rules, and presents probability distributions through an interactive browser UI.
 
 > **Work in Progress** — This project is under active development. Features may change and some functionality is incomplete.
 
@@ -48,10 +48,20 @@ python -m src --season 2025 --port 8080
 
 Then open http://localhost:8080 in your browser.
 
-1. Go to **Simulate** and click **Fetch Data** to pull game data from ESPN
-2. View current standings on the **Standings** page
-3. Configure simulation parameters and click **Run Simulation**
-4. View results on the **Results** page
+1. Click **Fetch Data** on the Standings page to pull game data from ESPN
+2. View current standings grouped by conference and division
+3. Configure simulation parameters (iterations, cutoff week, noise) and click **Simulate**
+4. View results on the **Results** page — click any team for details
+
+## Playoff Path Analysis
+
+When viewing simulation results, clicking a team with < 75% playoff probability shows a "Playoff Path" — the combination of game outcomes most commonly associated with that team making the playoffs.
+
+- **Team's own games** (highlighted) appear first — these are typically essential wins
+- **Other conference games** show which competitors need to lose
+- **Confidence %** indicates how often that outcome appeared across qualifying trials (higher = more critical)
+
+Note: This is a statistical analysis, not a deterministic "checklist." For very low-probability teams (< 5%), the path is based on few qualifying trials and may be noisy. More simulation iterations produce more reliable paths.
 
 ## Running Tests
 
