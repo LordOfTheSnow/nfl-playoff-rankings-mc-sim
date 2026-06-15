@@ -71,8 +71,9 @@ class TeamStrengthCalculator:
     """
 
     CONVERGENCE_THRESHOLD: float = 0.001
-    MAX_ITERATIONS: int = 100
+    MAX_ITERATIONS: int = 200
     DAMPENING_K: int = 8  # Games needed before trusting the rating fully
+    RELAXATION_FACTOR: float = 0.5  # Blend old and new ratings to dampen oscillation
 
     def calculate(self, completed_games: list[Game]) -> dict[str, float]:
         """Calculate team strength ratings from completed games.
@@ -128,29 +129,48 @@ class TeamStrengthCalculator:
         ratings = self._bootstrap_ratings(teams, games)
 
         # Iteratively compute ratings until convergence
+        deltas = []  # Track convergence history
         for iteration in range(self.MAX_ITERATIONS):
             new_ratings = self._iterate(ratings, games)
+            
+            # Apply relaxation to dampen oscillation
+            relaxed_ratings = {
+                team: self.RELAXATION_FACTOR * new_ratings[team] + (1 - self.RELAXATION_FACTOR) * ratings[team]
+                for team in ratings
+            }
 
             # Check convergence
-            max_delta = self._max_delta(ratings, new_ratings)
+            max_delta = self._max_delta(ratings, relaxed_ratings)
+            deltas.append(max_delta)
             if max_delta < self.CONVERGENCE_THRESHOLD:
                 logger.debug(
                     "Team strength converged after %d iterations (max delta: %.6f)",
                     iteration + 1,
                     max_delta,
                 )
-                return self._apply_dampening(new_ratings, games_per_team)
+                return self._apply_dampening(relaxed_ratings, games_per_team)
 
-            ratings = new_ratings
+            ratings = relaxed_ratings
 
         # Max iterations reached without convergence
+        final_relaxed = {
+            team: self.RELAXATION_FACTOR * self._iterate(ratings, games)[team] + (1 - self.RELAXATION_FACTOR) * ratings[team]
+            for team in ratings
+        }
+        final_delta = self._max_delta(ratings, final_relaxed)
+        avg_last_10_deltas = sum(deltas[-10:]) / min(10, len(deltas)) if deltas else final_delta
+        convergence_rate = (deltas[0] - final_delta) / self.MAX_ITERATIONS if deltas else 0
+        
         logger.warning(
             "Team strength calculation did not converge within %d iterations "
-            "(max delta: %.6f). Using final iteration ratings.",
+            "(final max delta: %.6f, avg last 10: %.6f, rate: %.9f/iter). "
+            "Using final iteration ratings.",
             self.MAX_ITERATIONS,
-            self._max_delta(ratings, self._iterate(ratings, games)),
+            final_delta,
+            avg_last_10_deltas,
+            convergence_rate,
         )
-        return self._apply_dampening(ratings, games_per_team)
+        return self._apply_dampening(final_relaxed, games_per_team)
 
     def _initial_ratings(self, teams: set[str]) -> dict[str, float]:
         """Initialize all teams with a rating of 1.0.

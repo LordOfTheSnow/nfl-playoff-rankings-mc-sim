@@ -46,3 +46,4 @@ Thumbs.db
 .env
 .env.local
 .envrc
+.kiro/settings/mcp.json

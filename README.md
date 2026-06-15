@@ -23,7 +23,7 @@ Requires Python 3.11+.
 ```bash
 # Clone the repository
 git clone https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim.git
-cd nfl-playoffs-monte-carlo-simulator
+cd nfl-playoff-rankings-mc-sim
 
 # Create virtual environment
 python3 -m venv .venv
@@ -52,6 +52,42 @@ Then open http://localhost:8080 in your browser.
 2. View current standings grouped by conference and division
 3. Configure simulation parameters (iterations, cutoff week, noise) and click **Simulate**
 4. View results on the **Results** page — click any team for details
+
+## Team Strength Ratings
+
+The simulator computes team strength using an iterative strength-of-schedule algorithm. Ratings reflect not just win percentage, but the quality of opponents beaten.
+
+### Algorithm
+
+1. Initialize all teams with win-percentage-based ratings (normalized to average 1.0)
+2. For each iteration:
+   - Compute each team's new rating as a weighted win ratio: wins against strong opponents count more than wins against weak ones
+   - Rating = (sum of opponent ratings for wins) / (sum of all opponent ratings)
+   - Ties contribute half credit
+3. Normalize ratings so the league average stays at 1.0
+4. Apply relaxation: blend 50% new ratings with 50% previous ratings to prevent oscillation
+5. Check convergence: if max |new − old| < 0.001, stop
+
+The relaxation step is critical. Without it, the interdependent ratings form feedback loops (beating a strong team raises your rating, which raises theirs for having played you) that cause oscillation rather than convergence.
+
+### Bayesian dampening
+
+After convergence, ratings are dampened toward the league average (1.0) based on sample size:
+
+```
+dampened = (games / (games + K)) * raw_rating + (K / (games + K)) * 1.0
+```
+
+With K=8 (default):
+- 2 games played → 80% average, 20% calculated (mostly regression to mean)
+- 8 games played → 50/50 blend
+- 17 games (full season) → 68% calculated, 32% average
+
+This prevents unrealistic extreme ratings early in the season when a 2-0 start against weak opponents could otherwise produce inflated playoff probabilities.
+
+### Output
+
+Ratings are normalized so the average across all teams is 1.0. A rating of 1.5 means that team is estimated to be 50% stronger than average; 0.7 means 30% weaker. These ratings are used as inputs to the Monte Carlo simulation to set win probabilities for unplayed games.
 
 ## Playoff Path Analysis
 
