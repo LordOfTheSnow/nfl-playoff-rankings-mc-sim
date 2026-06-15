@@ -355,6 +355,29 @@ This plan implements a Python web application that predicts NFL playoff outcomes
 - [x] 13. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
+- [ ] 14. Implement parallel simulation execution
+  - [ ] 14.1 Refactor simulator to support batch execution
+    - Extract the per-trial logic into a standalone function that can run in a worker process
+    - Ensure the function accepts serializable arguments (games, strengths, config) and returns a serializable result dict (playoff_counts, seed_counts, scenario_counts)
+    - Add `num_workers` parameter to `SimulationConfig` (default: `None` meaning use `os.cpu_count()`)
+    - _Requirements: 15.1, 15.2, 15.6_
+
+  - [ ] 14.2 Implement multiprocessing distribution and result merging
+    - Split total iterations into approximately equal batches (one per worker)
+    - Use `concurrent.futures.ProcessPoolExecutor` to run batches in parallel
+    - Generate independent random seeds for each worker (derived from parent RNG)
+    - Implement `_merge_results()` — sum playoff counts, seed matrices, and scenario counters across workers
+    - Fall back to single-process execution when `num_workers == 1` or only 1 CPU available
+    - Handle worker failures by catching exceptions and reporting errors
+    - _Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.7, 15.8_
+
+  - [ ] 14.3 Test parallel simulation correctness
+    - Verify that single-worker and multi-worker runs produce statistically equivalent results (same probability distributions within expected Monte Carlo variance)
+    - Verify that total iteration count across workers equals the requested count
+    - Verify fallback to single-process on 1-core systems
+    - Verify error handling when a worker process fails
+    - _Requirements: 15.5, 15.7, 15.8_
+
 ## Notes
 
 - Tasks marked with `*` are optional and can be skipped for faster MVP

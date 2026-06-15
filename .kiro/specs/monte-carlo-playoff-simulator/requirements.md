@@ -257,3 +257,19 @@ A web application with a Python backend and an HTML/JavaScript frontend that use
 5. THE application SHALL NOT expose any secrets, credentials, or internal paths in HTTP responses when accessed from the internet
 6. THE application SHOULD support basic access restriction (e.g., HTTP Basic Auth or IP allowlist) to prevent unauthorized public access to the simulation endpoints
 7. THE application SHALL serve all static assets (HTML, CSS, JS, images) locally without requiring external CDN access at runtime (team logos are already cached locally)
+
+### Requirement 15: Parallel Simulation Execution
+
+**User Story:** As a user, I want the Monte Carlo simulation to utilize multiple CPU cores, so that simulations complete faster on multi-core machines.
+
+#### Acceptance Criteria
+
+1. WHEN a simulation is triggered with more than one available CPU core, THE Simulator SHALL distribute simulation trials across multiple worker processes using Python's `multiprocessing` or `concurrent.futures.ProcessPoolExecutor`
+2. THE Simulator SHALL split the total iteration count into approximately equal batches, one per worker process, and run them in parallel
+3. WHEN all worker processes complete, THE Simulator SHALL merge their results by summing playoff counts, seeding matrices, and scenario counters to produce a single unified `SimulationResult`
+4. THE Simulator SHALL ensure that each worker process uses an independent random number generator state so that trials are not correlated across workers
+5. THE Simulator SHALL produce statistically equivalent results whether run with 1 worker or N workers (same probability distributions within expected variance)
+6. THE Simulator SHALL default to using `os.cpu_count()` workers, with an optional configuration parameter to override the worker count
+7. IF the system has only 1 CPU core available, THEN THE Simulator SHALL fall back to single-process execution without overhead
+8. THE Simulator SHALL handle worker process failures gracefully by reporting an error rather than producing partial or corrupted results
+

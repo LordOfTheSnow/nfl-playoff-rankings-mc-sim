@@ -140,6 +140,10 @@ source .venv/bin/activate
 pytest tests/ -v
 ```
 
+## ToDo
+
+- **Parallel simulation using multiprocessing**: The Monte Carlo simulation currently runs single-threaded. Since each trial is independent, the workload is embarrassingly parallel and can be distributed across CPU cores using Python's `multiprocessing` or `concurrent.futures.ProcessPoolExecutor`. Expected near-linear speedup (e.g., ~4x on 4 cores). Implementation involves splitting iterations into batches per worker, running them in parallel, and merging the result counters (playoff counts, seeding matrices, scenario tracking).
+
 ## Disclaimer
 
 This is an independent project not affiliated with the NFL or any official NFL service. All data is sourced from publicly available APIs.

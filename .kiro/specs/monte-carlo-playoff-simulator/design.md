@@ -1114,3 +1114,66 @@ Internet → nginx (TLS, auth) → Python backend (localhost:8080)
 - [ ] Review error responses for information leakage
 - [ ] Add rate limiting considerations for the simulate endpoint
 - [ ] Document deployment steps in README
+
+## Future: Parallel Simulation Execution
+
+The Monte Carlo simulation is embarrassingly parallel — each trial is completely independent. This makes it an ideal candidate for multiprocessing.
+
+### Design
+
+```python
+from concurrent.futures import ProcessPoolExecutor
+import os
+
+def _run_batch(args: tuple) -> dict:
+    """Worker function: runs a batch of simulation trials in a separate process.
+    
+    Args:
+        args: Tuple of (games, strengths, batch_size, tie_prob, noise, seed)
+    
+    Returns:
+        Dict with playoff_counts, seed_counts, scenario_counts for merging.
+    """
+    ...
+
+class Simulator:
+    def run(self, all_games: list[Game]) -> SimulationResult:
+        num_workers = self.config.num_workers or os.cpu_count() or 1
+        
+        if num_workers <= 1:
+            return self._run_single(all_games)
+        
+        batch_size = self.config.iterations // num_workers
+        remainder = self.config.iterations % num_workers
+        
+        batches = [
+            (fixed_games, remaining_games, strengths, batch_size + (1 if i < remainder else 0), 
+             self.config.tie_probability, random_seed_for_worker_i)
+            for i in range(num_workers)
+        ]
+        
+        with ProcessPoolExecutor(max_workers=num_workers) as pool:
+            results = list(pool.map(_run_batch, batches))
+        
+        return self._merge_results(results)
+```
+
+### Key Considerations
+
+- **Data serialization**: Game data and team strengths are small (~50KB) and serialized once per worker via pickle
+- **Random state**: Each worker gets an independent seed derived from the parent's RNG to avoid correlated trials
+- **Result merging**: Sum counters (playoff_counts, seed_matrices) across workers; merge scenario dicts by key
+- **Overhead**: Process startup cost (~50-100ms) is amortized over thousands of trials per worker
+- **Fallback**: Single-core mode avoids ProcessPoolExecutor entirely (no overhead)
+- **Error handling**: If any worker raises, the entire simulation reports an error rather than returning partial results
+
+### Expected Speedup
+
+| Cores | Iterations | Approx. Time (vs single-core) |
+|-------|-----------|-------------------------------|
+| 1     | 10,000    | 1.0x (baseline)               |
+| 4     | 10,000    | ~3.5x faster                  |
+| 8     | 10,000    | ~6.5x faster                  |
+| 16    | 10,000    | ~12x faster                   |
+
+Sub-linear scaling due to process spawn overhead and result merging, but the per-trial work (simulate all remaining games + full standings/tiebreakers) is substantial enough to dwarf the overhead.
