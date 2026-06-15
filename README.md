@@ -22,7 +22,7 @@ Requires Python 3.11+.
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/nfl-playoffs-monte-carlo-simulator.git
+git clone https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim.git
 cd nfl-playoffs-monte-carlo-simulator
 
 # Create virtual environment
