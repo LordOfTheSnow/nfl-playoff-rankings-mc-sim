@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-27
+
+### Added
+
+- Tooltip on Iterations control explaining trial count and performance tradeoff
+- Tooltip on Cutoff Week control explaining how it determines which games are real vs simulated
+- Heatmap coloring on team detail seed distribution table for better visual clarity
+- `.numeric-inline` CSS class for right-aligned numbers that stay on the same baseline as surrounding text
+
+### Changed
+
+- Standings column "TB" renamed to full "Tiebreaker" header
+- Tiebreaker legend updated to list all 7 possible tiebreaker steps (H2H, Div, Conf, SoV, SoS, Pts, Alpha)
+- Seeding probability tables (main and team detail) now use `table-bordered` for clearer cell boundaries
+- Playoff path buttons wrapped in flex container to prevent full-width stretching
+- Path analysis tables use `width:auto` to shrink-fit content instead of spanning full page width
+- Week and Confidence columns in path tables right-aligned with `numeric-inline` for proper vertical alignment
+
+### Fixed
+
+- Playoff path "Team must win" and "Required outcomes" tables no longer stretch across full page width
+- Week values in path tables now vertically align with other cells (removed monospace font mismatch)
+- Confidence percentages in path tables vertically align with row content
+
 ## [0.2.0] - 2026-06-27
 
 ### Changed
@@ -78,6 +102,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/releases/tag/v0.1.0

@@ -159,6 +159,11 @@ td.numeric {
     font-size: 0.85rem;
 }
 
+.numeric-inline {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
 /* --- Game Result Colors --- */
 .game-result--win {
     color: var(--color-success);

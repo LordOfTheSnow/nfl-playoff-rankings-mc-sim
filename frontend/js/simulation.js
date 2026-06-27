@@ -362,7 +362,7 @@ function _renderSeedingMatrix(teamResults) {
 
     html += `<div class="results-section">
       <h2><img src="img/logos/${conf.toLowerCase()}.png" alt="${conf}" width="24" height="24" style="vertical-align:middle;margin-right:0.5rem">${conf} Seeding Probabilities</h2>
-      <table class="table table-striped table-hover" aria-label="${conf} seeding probability matrix">
+      <table class="table table-bordered table-hover" aria-label="${conf} seeding probability matrix">
         <thead>
           <tr>
             <th class="team-name">Team</th>
@@ -465,7 +465,7 @@ function _showTeamDetail(teamName, results) {
   // Seed distribution
   html += `<div class="card card-body mb-3">
     <h3>Seed Distribution</h3>
-    <table class="table table-striped table-hover" aria-label="Seed distribution for ${_escapeHtml(teamName)}">
+    <table class="table table-bordered table-hover" aria-label="Seed distribution for ${_escapeHtml(teamName)}">
       <thead><tr>`;
   for (let s = 1; s <= 7; s++) {
     html += `<th>Seed ${s}</th>`;
@@ -474,7 +474,11 @@ function _showTeamDetail(teamName, results) {
   const seeds = teamData.seed_probabilities || {};
   for (let s = 1; s <= 7; s++) {
     const prob = seeds[String(s)] || 0;
-    html += `<td class="numeric">${prob.toFixed(1)}%</td>`;
+    const intensity = Math.min(prob / 50, 1);
+    const bgColor = prob > 0
+      ? `rgba(27, 58, 107, ${(intensity * 0.3).toFixed(2)})`
+      : "transparent";
+    html += `<td class="numeric" style="background-color:${bgColor};text-align:center">${prob.toFixed(1)}%</td>`;
   }
   html += `</tr></tbody></table></div>`;
 
@@ -490,7 +494,7 @@ function _showTeamDetail(teamName, results) {
     const impactGames = teamData.impact_games.slice(0, 5);
     for (const game of impactGames) {
       html += `<tr>
-        <td class="numeric">${game.week || "—"}</td>
+        <td>${game.week || "—"}</td>
         <td>${_escapeHtml(game.home_team || "")} vs ${_escapeHtml(game.away_team || "")}</td>
         <td class="numeric">${game.impact != null ? game.impact.toFixed(1) + "%" : "—"}</td>
       </tr>`;
@@ -506,12 +510,14 @@ function _showTeamDetail(teamName, results) {
       <p style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:0.75rem">
         Analyze what game outcomes are needed for ${_escapeHtml(teamName)} to make the playoffs.
       </p>
-      <button id="btn-analyze-path" class="btn btn-secondary" type="button" data-team="${_escapeHtml(teamName)}">
-        Analyze Playoff Path
-      </button>
-      <button id="btn-guaranteed-path" class="btn btn-secondary" type="button" data-team="${_escapeHtml(teamName)}" style="margin-left:0.5rem">
-        Find Guaranteed Path
-      </button>
+      <div class="d-flex gap-2 flex-wrap">
+        <button id="btn-analyze-path" class="btn btn-secondary" type="button" data-team="${_escapeHtml(teamName)}">
+          Analyze Playoff Path
+        </button>
+        <button id="btn-guaranteed-path" class="btn btn-secondary" type="button" data-team="${_escapeHtml(teamName)}">
+          Find Guaranteed Path
+        </button>
+      </div>
       <div id="path-spinner" style="display:none;margin-top:0.5rem;align-items:center;gap:0.5rem">
         <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading…</span></div><span style="font-size:0.85rem;color:var(--color-text-muted)">Running path analysis…</span>
       </div>
@@ -595,11 +601,11 @@ function _renderGuaranteedPath(data) {
   // Team's own games
   if (data.team_must_win && data.team_must_win.length > 0) {
     html += `<h4 style="font-size:0.9rem;margin-bottom:0.5rem">Team must win all remaining games:</h4>
-      <table class="table table-striped table-hover" style="margin-bottom:1rem">
+      <table class="table table-striped table-hover" style="margin-bottom:1rem;width:auto">
         <thead><tr><th>Week</th><th>Opponent</th></tr></thead><tbody>`;
     for (const g of data.team_must_win) {
       html += `<tr style="background-color:var(--color-division-leader-bg)">
-        <td class="numeric">${g.week}</td>
+        <td>${g.week}</td>
         <td>${_escapeHtml(g.opponent)}</td>
       </tr>`;
     }
@@ -609,11 +615,11 @@ function _renderGuaranteedPath(data) {
   // Required other outcomes
   if (data.required_outcomes && data.required_outcomes.length > 0) {
     html += `<h4 style="font-size:0.9rem;margin-bottom:0.5rem">Other required results:</h4>
-      <table class="table table-striped table-hover">
+      <table class="table table-striped table-hover" style="width:auto">
         <thead><tr><th>Week</th><th>Game</th><th>Required Winner</th><th>Required Loser</th></tr></thead><tbody>`;
     for (const g of data.required_outcomes) {
       html += `<tr>
-        <td class="numeric">${g.week}</td>
+        <td>${g.week}</td>
         <td>${_escapeHtml(g.home_team)} vs ${_escapeHtml(g.away_team)}</td>
         <td style="color:var(--color-success);font-weight:600">${_escapeHtml(g.required_winner)}</td>
         <td style="color:var(--color-accent)">${_escapeHtml(g.required_loser)}</td>
@@ -642,8 +648,8 @@ function _renderPathResults(pathData) {
     Based on ${pathData.qualifying_trials} qualifying trials (${pathData.playoff_probability}% probability). Only games with causal impact are shown.
   </p>`;
 
-  html += `<table class="table table-striped table-hover" style="margin-top:0.5rem">
-    <thead><tr><th>Week</th><th>Game</th><th>Needed Result</th><th>Confidence</th></tr></thead><tbody>`;
+  html += `<table class="table table-striped table-hover" style="margin-top:0.5rem;width:auto">
+    <thead><tr><th class="numeric-inline">Week</th><th>Game</th><th>Needed Result</th><th class="numeric-inline">Confidence</th></tr></thead><tbody>`;
 
   for (const g of pathData.path) {
     const winner = g.is_tie ? "Tie" : _escapeHtml(g.required_winner || "");
@@ -651,10 +657,10 @@ function _renderPathResults(pathData) {
     const isOwn = g.involves_team;
     const rowStyle = isOwn ? ' style="font-weight:600;background-color:var(--color-division-leader-bg)"' : '';
     html += `<tr${rowStyle}>
-      <td class="numeric">${g.week}</td>
+      <td class="numeric-inline">${g.week}</td>
       <td>${matchup}</td>
       <td><strong>${winner}</strong> wins</td>
-      <td class="numeric">${g.frequency}%</td>
+      <td class="numeric-inline">${g.frequency}%</td>
     </tr>`;
   }
 

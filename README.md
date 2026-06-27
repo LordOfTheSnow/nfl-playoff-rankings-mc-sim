@@ -1,6 +1,6 @@
 # NFL Monte Carlo Playoff Ranking Simulator
 
-**v0.1.0**
+**v0.2.1**
 
 A web application that predicts NFL playoff probabilites using Monte Carlo simulation. It fetches real game data from ESPN's public API, computes strength-of-schedule-weighted team ratings, simulates remaining games, applies official NFL tiebreaker rules, and presents probability distributions through an interactive browser UI.
 
@@ -12,12 +12,13 @@ A web application that predicts NFL playoff probabilites using Monte Carlo simul
 - Iterative team strength ratings with Bayesian dampening
 - Monte Carlo simulation with configurable iterations, cutoff week, and game noise
 - Parallel simulation across multiple CPU cores for faster execution
-- Full NFL tiebreaker implementation (head-to-head, division/conference record, strength of victory/schedule, point-based steps)
+- Full NFL tiebreaker implementation (head-to-head, division/conference record, strength of victory/schedule, point-based steps) with proper step labeling in standings display
 - Interactive standings view with team logos and tiebreaker annotations
-- Team schedule view with bye week display
+- Team schedule view with bye week display and per-week team strength tracking
 - Simulation results: playoff probabilities, seeding matrix, top scenarios
 - Local SQLite caching with TTL policies
-- No external dependencies at runtime (all assets served locally)
+- Responsive UI built on Bootstrap 5.3.3 (CDN) with NFL-branded styling
+- No external runtime dependencies beyond httpx (for ESPN API calls)
 
 ## Setup
 

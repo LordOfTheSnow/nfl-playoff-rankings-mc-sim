@@ -474,8 +474,8 @@ function buildStatusPanel(status) {
   html += '<div>';
   html += '<h2 style="font-size:1.1rem;margin-bottom:0.5rem">Simulation</h2>';
   html += '<div style="display:flex;flex-wrap:wrap;gap:1.5rem;align-items:flex-end">';
-  html += '<div class="control-field"><label for="sim-iterations-st">Iterations</label><input type="number" id="sim-iterations-st" class="form-control" min="100" max="1000000" value="' + (parseInt(localStorage.getItem('sim-iterations'), 10) || 10000) + '" style="width:130px"></div>';
-  html += '<div class="control-field"><label for="sim-cutoff-st">Cutoff</label><select id="sim-cutoff-st" class="form-select" style="width:auto;min-width:110px"><option value="">Auto</option>';
+  html += '<div class="control-field"><label for="sim-iterations-st" title="Number of Monte Carlo trials to run. More iterations = more accurate probabilities but longer runtime. 10,000 is a good balance; 100,000+ for high precision.">Iterations &#9432;</label><input type="number" id="sim-iterations-st" class="form-control" min="100" max="1000000" value="' + (parseInt(localStorage.getItem('sim-iterations'), 10) || 10000) + '" style="width:130px" title="100–1,000,000 simulation trials"></div>';
+  html += '<div class="control-field"><label for="sim-cutoff-st" title="Games up to and including this week use real results. Games after this week are simulated. Auto = latest completed week.">Cutoff &#9432;</label><select id="sim-cutoff-st" class="form-select" style="width:auto;min-width:110px" title="Games after this week will be simulated using team strength ratings"><option value="">Auto</option>';
   for (let w = 1; w <= 18; w++) { html += '<option value="' + w + '"' + (localStorage.getItem('sim-cutoff') == w ? ' selected' : '') + '>Week ' + w + '</option>'; }
   html += '</select></div>';
   const savedNoise = localStorage.getItem('sim-noise') || '20';
