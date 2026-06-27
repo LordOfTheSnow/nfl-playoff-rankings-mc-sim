@@ -136,7 +136,7 @@ async function renderStandings(contentEl) {
     "Conf = Conference Record, " +
     "GB = Games Behind Division Leader, " +
     "Str = Team Strength Rating (1.000 = league average), " +
-    "TB = Tiebreaker Used (H2H = Head-to-Head, Conf = Conference Record)";
+    "Tiebreaker = H2H (Head-to-Head), Div (Division Record), Conf (Conference Record), SoV (Strength of Victory), SoS (Strength of Schedule), Pts (Net Points), Alpha (Alphabetical)";
   contentEl.appendChild(legend);
 }
 
@@ -147,25 +147,25 @@ async function renderStandings(contentEl) {
  */
 function buildFilterBar() {
   const bar = document.createElement("div");
-  bar.className = "filter-bar";
+  bar.className = "card card-body mb-3 d-flex flex-row align-items-center gap-3";
 
   const label = document.createElement("span");
-  label.className = "filter-label";
+  label.className = "text-muted";
   label.textContent = "Conference:";
   bar.appendChild(label);
 
   const filters = ["All", "AFC", "NFC"];
   for (const filter of filters) {
     const btn = document.createElement("button");
-    btn.className = "filter-btn" + (filter === "All" ? " active" : "");
+    btn.className = filter === "All" ? "btn btn-sm btn-primary" : "btn btn-sm btn-outline-primary";
     btn.textContent = filter;
     btn.setAttribute("data-filter", filter);
     btn.addEventListener("click", function () {
       // Update active state
-      bar.querySelectorAll(".filter-btn").forEach(function (b) {
-        b.classList.remove("active");
+      bar.querySelectorAll("[data-filter]").forEach(function (b) {
+        b.className = "btn btn-sm btn-outline-primary";
       });
-      btn.classList.add("active");
+      btn.className = "btn btn-sm btn-primary";
       // Apply filter
       applyConferenceFilter(filter, bar.parentElement);
     });
@@ -241,10 +241,10 @@ function buildConferenceSection(conferenceName, divisions) {
  */
 function buildDivisionSection(divisionName, teams) {
   const section = document.createElement("div");
-  section.className = "division-section";
+  section.className = "card mb-3";
 
   const header = document.createElement("div");
-  header.className = "division-header";
+  header.className = "card-header text-uppercase text-muted fw-semibold small";
   header.textContent = divisionName;
   section.appendChild(header);
 
@@ -252,7 +252,7 @@ function buildDivisionSection(divisionName, teams) {
   const sorted = teams;
 
   const table = document.createElement("table");
-  table.className = "standings-table";
+  table.className = "table table-striped table-hover standings-table mb-0";
 
   // Table header
   const thead = document.createElement("thead");
@@ -267,14 +267,14 @@ function buildDivisionSection(divisionName, teams) {
     { label: "Conf", cls: "numeric" },
     { label: "GB", cls: "numeric" },
     { label: "Str", cls: "numeric" },
-    { label: "TB", cls: "" },
+    { label: "Tiebreaker", cls: "numeric-left" },
   ];
 
   for (const col of columns) {
     const th = document.createElement("th");
     th.textContent = col.label;
-    if (col.cls === "numeric") {
-      th.className = "numeric";
+    if (col.cls) {
+      th.className = col.cls;
     }
     headerRow.appendChild(th);
   }
@@ -391,9 +391,8 @@ function buildTeamRow(team, isLeader) {
 
   // Tiebreaker
   const tbCell = document.createElement("td");
+  tbCell.className = "numeric-left";
   tbCell.textContent = team.tiebreaker || "";
-  tbCell.style.fontSize = "0.8rem";
-  tbCell.style.color = "var(--color-text-muted)";
   row.appendChild(tbCell);
 
   return row;
@@ -430,8 +429,7 @@ function formatGamesBehind(gb) {
  */
 function buildStatusPanel(status) {
   const panel = document.createElement("div");
-  panel.className = "controls-panel";
-  panel.style.marginBottom = "1.5rem";
+  panel.className = "card card-body mb-3";
 
   if (!status || status.total_games === 0) {
     panel.innerHTML = `
@@ -476,17 +474,17 @@ function buildStatusPanel(status) {
   html += '<div>';
   html += '<h2 style="font-size:1.1rem;margin-bottom:0.5rem">Simulation</h2>';
   html += '<div style="display:flex;flex-wrap:wrap;gap:1.5rem;align-items:flex-end">';
-  html += '<div class="control-field"><label for="sim-iterations-st">Iterations</label><input type="number" id="sim-iterations-st" min="100" max="1000000" value="' + (parseInt(localStorage.getItem('sim-iterations'), 10) || 10000) + '" style="width:100px"></div>';
-  html += '<div class="control-field"><label for="sim-cutoff-st">Cutoff</label><select id="sim-cutoff-st" style="width:110px"><option value="">Auto</option>';
+  html += '<div class="control-field"><label for="sim-iterations-st">Iterations</label><input type="number" id="sim-iterations-st" class="form-control" min="100" max="1000000" value="' + (parseInt(localStorage.getItem('sim-iterations'), 10) || 10000) + '" style="width:130px"></div>';
+  html += '<div class="control-field"><label for="sim-cutoff-st">Cutoff</label><select id="sim-cutoff-st" class="form-select" style="width:auto;min-width:110px"><option value="">Auto</option>';
   for (let w = 1; w <= 18; w++) { html += '<option value="' + w + '"' + (localStorage.getItem('sim-cutoff') == w ? ' selected' : '') + '>Week ' + w + '</option>'; }
   html += '</select></div>';
   const savedNoise = localStorage.getItem('sim-noise') || '20';
   const noiseVal = (parseInt(savedNoise, 10) / 100).toFixed(2);
   const noiseLabel = parseFloat(noiseVal) <= 0.05 ? "none" : parseFloat(noiseVal) <= 0.15 ? "low" : parseFloat(noiseVal) <= 0.25 ? "moderate" : parseFloat(noiseVal) <= 0.4 ? "high" : "chaotic";
-  html += '<div class="control-field"><label for="sim-noise-st" title="Per-game strength noise: adds random variance to each simulated game outcome, modeling the unpredictability of real NFL games (\'any given Sunday\')">Noise &#9432;</label><input type="range" id="sim-noise-st" min="0" max="100" value="' + savedNoise + '" style="width:100px" title="0 = pure strength, 0.2 = moderate variance, 0.5+ = very chaotic"><span id="sim-noise-label-st" style="font-size:0.75rem;color:var(--color-text-muted);margin-left:0.4rem">' + noiseVal + ' ' + noiseLabel + '</span></div>';
+  html += '<div class="control-field"><label for="sim-noise-st" title="Per-game strength noise: adds random variance to each simulated game outcome, modeling the unpredictability of real NFL games (\'any given Sunday\')">Noise &#9432;</label><input type="range" id="sim-noise-st" class="form-range" min="0" max="100" value="' + savedNoise + '" style="width:120px" title="0 = pure strength, 0.2 = moderate variance, 0.5+ = very chaotic"><div id="sim-noise-label-st" style="font-size:0.75rem;color:var(--color-text-muted)">' + noiseVal + ' — ' + noiseLabel + '</div></div>';
   const cpuCount = (status && status.cpu_count) ? status.cpu_count : 4;
   const savedWorkers = parseInt(localStorage.getItem('sim-workers'), 10) || cpuCount;
-  html += '<div class="control-field"><label for="sim-workers-st" title="Parallel CPU cores: each Monte Carlo trial is independent, so batches run simultaneously across cores. More workers = faster simulation (near-linear speedup). Uses Python multiprocessing to bypass the GIL.">Workers &#9432;</label><input type="range" id="sim-workers-st" min="1" max="' + cpuCount + '" value="' + savedWorkers + '" style="width:80px" title="1 = single-process (no overhead), max = all available CPU cores running trial batches in parallel"><span id="sim-workers-label-st" style="font-size:0.75rem;color:var(--color-text-muted);margin-left:0.4rem">' + savedWorkers + (savedWorkers === 1 ? ' core' : ' cores') + '</span></div>';
+  html += '<div class="control-field"><label for="sim-workers-st" title="Parallel CPU cores: each Monte Carlo trial is independent, so batches run simultaneously across cores. More workers = faster simulation (near-linear speedup). Uses Python multiprocessing to bypass the GIL.">Workers &#9432;</label><input type="range" id="sim-workers-st" class="form-range" min="1" max="' + cpuCount + '" value="' + savedWorkers + '" style="width:120px" title="1 = single-process (no overhead), max = all available CPU cores running trial batches in parallel"><div id="sim-workers-label-st" style="font-size:0.75rem;color:var(--color-text-muted)">' + savedWorkers + (savedWorkers === 1 ? ' core' : ' cores') + '</div></div>';
   html += '<button id="btn-run-sim-standings" class="btn btn-primary" type="button">Simulate</button>';
   html += '<button id="btn-fetch-data-standings" class="btn btn-secondary" type="button">Fetch Data</button>';
   html += '</div>';
@@ -497,7 +495,7 @@ function buildStatusPanel(status) {
   // Total games info line
   html += '<p id="sim-total-st" style="font-size:0.8rem;color:var(--color-text-muted);margin-top:0.5rem"></p>';
   // Progress spinner
-  html += '<div id="sim-progress-st" style="margin-top:0.75rem;display:none;align-items:center;gap:0.75rem"><div class="spinner"></div><span style="font-size:0.9rem;color:var(--color-text-muted)">Running simulation…</span></div>';
+  html += '<div id="sim-progress-st" style="margin-top:0.75rem;display:none;align-items:center;gap:0.75rem"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Running simulation…</span></div><span style="font-size:0.9rem;color:var(--color-text-muted)">Running simulation…</span></div>';
 
   panel.innerHTML = html;
 
@@ -537,7 +535,7 @@ function buildStatusPanel(status) {
       const val = (parseInt(noiseSl.value, 10) / 100).toFixed(2);
       const label = parseFloat(val) <= 0.05 ? "none" : parseFloat(val) <= 0.15 ? "low" : parseFloat(val) <= 0.25 ? "moderate" : parseFloat(val) <= 0.4 ? "high" : "chaotic";
       const labelEl = document.getElementById("sim-noise-label-st");
-      if (labelEl) labelEl.textContent = val + " " + label;
+      if (labelEl) labelEl.textContent = val + " — " + label;
       localStorage.setItem('sim-noise', noiseSl.value);
     });
 

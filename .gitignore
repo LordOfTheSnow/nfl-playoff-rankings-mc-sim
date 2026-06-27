@@ -38,6 +38,9 @@ htmlcov/
 .coverage.*
 coverage.xml
 
+# Node.js (frontend tests)
+node_modules/
+
 # OS files
 .DS_Store
 Thumbs.db
@@ -47,3 +50,6 @@ Thumbs.db
 .env.local
 .envrc
 .kiro/settings/mcp.json
+
+# Playwright MCP screenshots/snapshots
+.playwright-mcp/

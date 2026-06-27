@@ -27,16 +27,18 @@ const App = (() => {
 
   /**
    * Display an error message in the notification area.
-   * Does not reload the page.
+   * Renders a Bootstrap alert-danger dismissible alert.
    *
    * @param {string} message - The error message to display.
    */
   function showError(message) {
     if (!notificationEl) return;
-    notificationEl.textContent = message;
-    notificationEl.classList.add("visible");
-    notificationEl.classList.add("error");
-    notificationEl.classList.remove("hidden");
+    notificationEl.innerHTML =
+      '<div class="alert alert-danger alert-dismissible fade show" role="alert">' +
+      message +
+      '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>' +
+      '</div>';
+    notificationEl.classList.remove("d-none");
 
     // Auto-hide after 8 seconds
     if (notificationTimeout) {
@@ -49,15 +51,18 @@ const App = (() => {
 
   /**
    * Display an informational message in the notification area.
+   * Renders a Bootstrap alert-info dismissible alert.
    *
    * @param {string} message - The info message to display.
    */
   function showInfo(message) {
     if (!notificationEl) return;
-    notificationEl.textContent = message;
-    notificationEl.classList.add("visible");
-    notificationEl.classList.remove("error");
-    notificationEl.classList.remove("hidden");
+    notificationEl.innerHTML =
+      '<div class="alert alert-info alert-dismissible fade show" role="alert">' +
+      message +
+      '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>' +
+      '</div>';
+    notificationEl.classList.remove("d-none");
 
     if (notificationTimeout) {
       clearTimeout(notificationTimeout);
@@ -72,8 +77,8 @@ const App = (() => {
    */
   function hideNotification() {
     if (!notificationEl) return;
-    notificationEl.classList.remove("visible");
-    notificationEl.classList.add("hidden");
+    notificationEl.classList.add("d-none");
+    notificationEl.innerHTML = "";
     if (notificationTimeout) {
       clearTimeout(notificationTimeout);
       notificationTimeout = null;
@@ -82,11 +87,17 @@ const App = (() => {
 
   /**
    * Show the loading/progress indicator.
+   * Renders a Bootstrap spinner-border inside a fixed overlay.
    */
   function showLoading() {
     if (!loadingEl) return;
-    loadingEl.classList.add("visible");
-    loadingEl.classList.remove("hidden");
+    loadingEl.innerHTML =
+      '<div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background:rgba(0,0,0,0.5);z-index:1055">' +
+      '<div class="spinner-border text-primary" role="status">' +
+      '<span class="visually-hidden">Loading…</span>' +
+      '</div>' +
+      '</div>';
+    loadingEl.classList.remove("d-none");
   }
 
   /**
@@ -94,8 +105,8 @@ const App = (() => {
    */
   function hideLoading() {
     if (!loadingEl) return;
-    loadingEl.classList.remove("visible");
-    loadingEl.classList.add("hidden");
+    loadingEl.classList.add("d-none");
+    loadingEl.innerHTML = "";
   }
 
   /**
@@ -123,6 +134,7 @@ const App = (() => {
 
   /**
    * Update the active state of navigation links based on the current route.
+   * Sets Bootstrap `active` class and `aria-current="page"` on the matching link.
    *
    * @param {string} activeView - The current view name.
    */
@@ -134,8 +146,10 @@ const App = (() => {
 
       if (linkView === activeView) {
         link.classList.add("active");
+        link.setAttribute("aria-current", "page");
       } else {
         link.classList.remove("active");
+        link.removeAttribute("aria-current");
       }
     });
   }
@@ -209,7 +223,7 @@ const App = (() => {
     contentEl = document.getElementById("content");
     notificationEl = document.getElementById("notification");
     loadingEl = document.getElementById("loading");
-    navLinks = document.querySelectorAll("nav a[href^='#']");
+    navLinks = document.querySelectorAll(".navbar-nav .nav-link");
 
     // Listen for hash changes
     window.addEventListener("hashchange", route);

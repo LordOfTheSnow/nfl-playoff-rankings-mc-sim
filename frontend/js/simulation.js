@@ -33,18 +33,18 @@ async function renderSimulation(contentEl) {
   }
 
   contentEl.innerHTML = `
-    <div class="controls-panel">
+    <div class="card card-body mb-3">
       <h2>Simulation Controls</h2>
-      <div class="control-group">
-        <div class="control-field">
+      <div class="row g-3 align-items-end">
+        <div class="col-auto">
           <label for="sim-iterations">Iterations</label>
-          <input type="number" id="sim-iterations" min="100" max="1000000" value="10000"
+          <input type="number" id="sim-iterations" class="form-control" min="100" max="1000000" value="10000"
                  aria-describedby="iterations-help">
           <span id="iterations-help" class="cutoff-label">100 to 1,000,000 trials</span>
         </div>
-        <div class="control-field">
+        <div class="col-auto">
           <label for="sim-cutoff-week">Cutoff Week</label>
-          <select id="sim-cutoff-week" aria-describedby="cutoff-help">
+          <select id="sim-cutoff-week" class="form-select" aria-describedby="cutoff-help">
             <option value="">Auto (latest completed)</option>
             ${Array.from({ length: 18 }, (_, i) => i + 1)
               .map((w) => `<option value="${w}">Week ${w}</option>`)
@@ -54,35 +54,39 @@ async function renderSimulation(contentEl) {
             Games after the cutoff week will be simulated
           </span>
         </div>
-        <div class="control-field">
+        <div class="col-auto">
           <label for="sim-noise">Game Noise</label>
-          <input type="range" id="sim-noise" min="0" max="100" value="20"
+          <input type="range" id="sim-noise" class="form-range" min="0" max="100" value="20"
                  aria-describedby="noise-help" style="min-width:160px">
           <span id="noise-help" class="cutoff-label">0.20 — moderate variance</span>
         </div>
-        <div class="control-field">
+        <div class="col-auto">
           <label for="sim-workers" title="Parallel CPU cores: each Monte Carlo trial is independent, so batches run simultaneously across cores. More workers = faster simulation (near-linear speedup). Uses Python multiprocessing to bypass the GIL.">Workers &#9432;</label>
-          <input type="range" id="sim-workers" min="1" max="${status && status.cpu_count ? status.cpu_count : 4}" value="${localStorage.getItem('sim-workers') || (status && status.cpu_count ? status.cpu_count : 4)}"
+          <input type="range" id="sim-workers" class="form-range" min="1" max="${status && status.cpu_count ? status.cpu_count : 4}" value="${localStorage.getItem('sim-workers') || (status && status.cpu_count ? status.cpu_count : 4)}"
                  aria-describedby="workers-help" style="min-width:160px"
                  title="1 = single-process (no overhead), max = all available CPU cores running trial batches in parallel">
           <span id="workers-help" class="cutoff-label">${localStorage.getItem('sim-workers') || (status && status.cpu_count ? status.cpu_count : 4)} cores</span>
         </div>
       </div>
-      <div class="control-group">
-        <button id="btn-run-simulation" class="btn btn-primary" type="button">
-          Run Simulation
-        </button>
-        <button id="btn-fetch-data" class="btn btn-secondary" type="button">
-          Fetch Data
-        </button>
+      <div class="row g-3 align-items-end mt-2">
+        <div class="col-auto">
+          <button id="btn-run-simulation" class="btn btn-primary" type="button">
+            Run Simulation
+          </button>
+        </div>
+        <div class="col-auto">
+          <button id="btn-fetch-data" class="btn btn-secondary" type="button">
+            Fetch Data
+          </button>
+        </div>
       </div>
       <p id="sim-total-games" class="cutoff-label" style="margin-top:1rem;font-size:0.9rem" aria-live="polite"></p>
     </div>
-    <div id="sim-progress" class="progress-indicator" hidden>
-      <div class="spinner" aria-hidden="true"></div>
-      <span class="progress-text">Running simulation…</span>
+    <div id="sim-progress-overlay" class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center d-none" style="background:rgba(0,0,0,0.5);z-index:1055">
+      <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Running simulation…</span>
+      </div>
     </div>
-    <div id="sim-progress-overlay" class="progress-overlay" hidden></div>
   `;
 
   // Wire up cutoff week label updates
@@ -163,7 +167,6 @@ async function renderSimulation(contentEl) {
 async function _handleRunSimulation() {
   const iterationsInput = document.getElementById("sim-iterations");
   const cutoffSelect = document.getElementById("sim-cutoff-week");
-  const progressEl = document.getElementById("sim-progress");
   const overlayEl = document.getElementById("sim-progress-overlay");
   const runBtn = document.getElementById("btn-run-simulation");
 
@@ -186,9 +189,8 @@ async function _handleRunSimulation() {
   const workersInput = document.getElementById("sim-workers");
   const numWorkers = parseInt(workersInput.value, 10);
 
-  // Show progress
-  progressEl.hidden = false;
-  overlayEl.hidden = false;
+  // Show progress overlay
+  overlayEl.classList.remove("d-none");
   runBtn.disabled = true;
 
   try {
@@ -199,8 +201,7 @@ async function _handleRunSimulation() {
   } catch (err) {
     App.showError(err.message || "Simulation failed.");
   } finally {
-    progressEl.hidden = true;
-    overlayEl.hidden = true;
+    overlayEl.classList.add("d-none");
     runBtn.disabled = false;
   }
 }
@@ -248,7 +249,7 @@ async function renderResults(contentEl) {
   let html = "";
 
   // Metadata header
-  html += `<div class="controls-panel">
+  html += `<div class="card card-body mb-3">
     <h2>Simulation Results</h2>
     <p class="cutoff-label">
       ${results.iterations_run.toLocaleString()} iterations | Cutoff week: ${results.cutoff_week_used}
@@ -305,7 +306,7 @@ function _renderPlayoffProbabilityTables(teamResults) {
 
     html += `<div class="results-section">
       <h2><img src="img/logos/${conf.toLowerCase()}.png" alt="${conf}" width="24" height="24" style="vertical-align:middle;margin-right:0.5rem">${conf} Playoff Probabilities</h2>
-      <table class="probability-table" aria-label="${conf} playoff probabilities">
+      <table class="table table-striped table-hover" aria-label="${conf} playoff probabilities">
         <thead>
           <tr>
             <th>#</th>
@@ -361,7 +362,7 @@ function _renderSeedingMatrix(teamResults) {
 
     html += `<div class="results-section">
       <h2><img src="img/logos/${conf.toLowerCase()}.png" alt="${conf}" width="24" height="24" style="vertical-align:middle;margin-right:0.5rem">${conf} Seeding Probabilities</h2>
-      <table class="probability-table" aria-label="${conf} seeding probability matrix">
+      <table class="table table-striped table-hover" aria-label="${conf} seeding probability matrix">
         <thead>
           <tr>
             <th class="team-name">Team</th>
@@ -454,7 +455,7 @@ function _showTeamDetail(teamName, results) {
   let html = `<h2>${_escapeHtml(teamName)} — Details</h2>`;
 
   // Team summary
-  html += `<div class="controls-panel">
+  html += `<div class="card card-body mb-3">
     <p><strong>Conference:</strong> ${_escapeHtml(teamData.conference)} | 
        <strong>Division:</strong> ${_escapeHtml(teamData.division)}</p>
     <p><strong>Playoff Probability:</strong> ${teamData.playoff_probability.toFixed(1)}% | 
@@ -462,9 +463,9 @@ function _showTeamDetail(teamName, results) {
   </div>`;
 
   // Seed distribution
-  html += `<div class="controls-panel">
+  html += `<div class="card card-body mb-3">
     <h3>Seed Distribution</h3>
-    <table class="probability-table" aria-label="Seed distribution for ${_escapeHtml(teamName)}">
+    <table class="table table-striped table-hover" aria-label="Seed distribution for ${_escapeHtml(teamName)}">
       <thead><tr>`;
   for (let s = 1; s <= 7; s++) {
     html += `<th>Seed ${s}</th>`;
@@ -479,9 +480,9 @@ function _showTeamDetail(teamName, results) {
 
   // Impact games (if available in team data)
   if (teamData.impact_games && teamData.impact_games.length > 0) {
-    html += `<div class="controls-panel">
+    html += `<div class="card card-body mb-3">
       <h3>Top 5 Impact Games</h3>
-      <table class="probability-table" aria-label="Impact games for ${_escapeHtml(teamName)}">
+      <table class="table table-striped table-hover" aria-label="Impact games for ${_escapeHtml(teamName)}">
         <thead><tr>
           <th>Week</th><th>Matchup</th><th>Impact</th>
         </tr></thead><tbody>`;
@@ -500,7 +501,7 @@ function _showTeamDetail(teamName, results) {
 
   // Playoff path analysis - on-demand button
   if (teamData.playoff_probability < 75) {
-    html += `<div class="controls-panel" id="path-section-${_escapeHtml(teamName)}">
+    html += `<div class="card card-body mb-3" id="path-section-${_escapeHtml(teamName)}">
       <h3>Playoff Path</h3>
       <p style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:0.75rem">
         Analyze what game outcomes are needed for ${_escapeHtml(teamName)} to make the playoffs.
@@ -512,7 +513,7 @@ function _showTeamDetail(teamName, results) {
         Find Guaranteed Path
       </button>
       <div id="path-spinner" style="display:none;margin-top:0.5rem;align-items:center;gap:0.5rem">
-        <div class="spinner"></div><span style="font-size:0.85rem;color:var(--color-text-muted)">Running path analysis…</span>
+        <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading…</span></div><span style="font-size:0.85rem;color:var(--color-text-muted)">Running path analysis…</span>
       </div>
       <div id="path-results"></div>
     </div>`;
@@ -594,7 +595,7 @@ function _renderGuaranteedPath(data) {
   // Team's own games
   if (data.team_must_win && data.team_must_win.length > 0) {
     html += `<h4 style="font-size:0.9rem;margin-bottom:0.5rem">Team must win all remaining games:</h4>
-      <table class="probability-table" style="margin-bottom:1rem">
+      <table class="table table-striped table-hover" style="margin-bottom:1rem">
         <thead><tr><th>Week</th><th>Opponent</th></tr></thead><tbody>`;
     for (const g of data.team_must_win) {
       html += `<tr style="background-color:var(--color-division-leader-bg)">
@@ -608,7 +609,7 @@ function _renderGuaranteedPath(data) {
   // Required other outcomes
   if (data.required_outcomes && data.required_outcomes.length > 0) {
     html += `<h4 style="font-size:0.9rem;margin-bottom:0.5rem">Other required results:</h4>
-      <table class="probability-table">
+      <table class="table table-striped table-hover">
         <thead><tr><th>Week</th><th>Game</th><th>Required Winner</th><th>Required Loser</th></tr></thead><tbody>`;
     for (const g of data.required_outcomes) {
       html += `<tr>
@@ -641,7 +642,7 @@ function _renderPathResults(pathData) {
     Based on ${pathData.qualifying_trials} qualifying trials (${pathData.playoff_probability}% probability). Only games with causal impact are shown.
   </p>`;
 
-  html += `<table class="probability-table" style="margin-top:0.5rem">
+  html += `<table class="table table-striped table-hover" style="margin-top:0.5rem">
     <thead><tr><th>Week</th><th>Game</th><th>Needed Result</th><th>Confidence</th></tr></thead><tbody>`;
 
   for (const g of pathData.path) {

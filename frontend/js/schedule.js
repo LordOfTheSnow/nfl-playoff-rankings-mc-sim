@@ -59,7 +59,18 @@ function renderScheduleContent(contentEl, data) {
   header.className = "team-header";
 
   const teamTitle = document.createElement("h2");
-  teamTitle.textContent = team;
+  const logoId = typeof TEAM_LOGO_IDS !== "undefined" ? TEAM_LOGO_IDS[team] : null;
+  if (logoId) {
+    const logo = document.createElement("img");
+    logo.src = "img/logos/" + logoId + ".png";
+    logo.alt = team + " logo";
+    logo.width = 28;
+    logo.height = 28;
+    logo.style.verticalAlign = "middle";
+    logo.style.marginRight = "0.5rem";
+    teamTitle.appendChild(logo);
+  }
+  teamTitle.appendChild(document.createTextNode(team));
   header.appendChild(teamTitle);
 
   const recordSpan = document.createElement("span");
@@ -82,12 +93,12 @@ function renderScheduleContent(contentEl, data) {
 
   // Schedule table
   const table = document.createElement("table");
-  table.className = "schedule-table";
+  table.className = "table table-hover schedule-table";
 
   // Table header
   const thead = document.createElement("thead");
   const headerRow = document.createElement("tr");
-  const columns = ["Week", "Opponent", "Opp Str", "Home/Away", "Score", "Result/Status"];
+  const columns = ["Week", "Opponent", "Opp Str", "Home/Away", "Score", "Result/Status", "Team Str"];
   columns.forEach(function (col) {
     const th = document.createElement("th");
     th.textContent = col;
@@ -123,7 +134,7 @@ function renderScheduleContent(contentEl, data) {
       byeWeekCell.textContent = byeWeek;
       byeRow.appendChild(byeWeekCell);
       const byeLabel = document.createElement("td");
-      byeLabel.colSpan = 5;
+      byeLabel.colSpan = 6;
       byeLabel.textContent = "BYE WEEK";
       byeLabel.style.fontWeight = "600";
       byeLabel.style.color = "var(--color-text-muted)";
@@ -159,7 +170,7 @@ function renderScheduleContent(contentEl, data) {
     byeWeekCell.textContent = byeWeek;
     byeRow.appendChild(byeWeekCell);
     const byeLabel = document.createElement("td");
-    byeLabel.colSpan = 5;
+    byeLabel.colSpan = 6;
     byeLabel.textContent = "BYE WEEK";
     byeLabel.style.fontWeight = "600";
     byeLabel.style.color = "var(--color-text-muted)";
@@ -170,6 +181,16 @@ function renderScheduleContent(contentEl, data) {
 
   table.appendChild(tbody);
   contentEl.appendChild(table);
+
+  // Legend
+  const legend = document.createElement("div");
+  legend.style.cssText = "margin-top:1rem;padding:0.75rem 1rem;background:var(--color-surface);border-radius:var(--radius-sm);box-shadow:var(--shadow-sm);font-size:0.8rem;color:var(--color-text-muted);line-height:1.8";
+  legend.innerHTML =
+    "<strong>Legend:</strong> " +
+    "<strong>Opp Str</strong> = Opponent strength rating at that week (1.000 = league average; higher = stronger opponent). " +
+    "<strong>Team Str</strong> = This team's strength rating at that week. " +
+    "Strength is recalculated weekly based on cumulative results and strength of schedule — values change as the season progresses.";
+  contentEl.appendChild(legend);
 }
 
 /**
@@ -237,6 +258,13 @@ function renderCompletedGameRow(row, game) {
   resultCell.textContent = resultText;
   resultCell.className = getResultClass(game.result);
   row.appendChild(resultCell);
+
+  // Team Strength
+  const teamStrCell = document.createElement("td");
+  teamStrCell.textContent = game.team_strength != null ? game.team_strength.toFixed(3) : "—";
+  teamStrCell.style.fontSize = "0.85rem";
+  teamStrCell.style.color = "var(--color-text-muted)";
+  row.appendChild(teamStrCell);
 }
 
 /**
@@ -282,6 +310,13 @@ function renderInProgressGameRow(row, game) {
   const clockText = game.clock || "";
   statusCell.textContent = quarterText + (clockText ? " " + clockText : "");
   row.appendChild(statusCell);
+
+  // Team Strength
+  const teamStrCell = document.createElement("td");
+  teamStrCell.textContent = game.team_strength != null ? game.team_strength.toFixed(3) : "—";
+  teamStrCell.style.fontSize = "0.85rem";
+  teamStrCell.style.color = "var(--color-text-muted)";
+  row.appendChild(teamStrCell);
 }
 
 /**
@@ -325,6 +360,13 @@ function renderScheduledGameRow(row, game) {
   dateCell.className = "game-status--scheduled";
   dateCell.textContent = game.date ? formatDate(game.date) : "TBD";
   row.appendChild(dateCell);
+
+  // Team Strength
+  const teamStrCell = document.createElement("td");
+  teamStrCell.textContent = game.team_strength != null ? game.team_strength.toFixed(3) : "—";
+  teamStrCell.style.fontSize = "0.85rem";
+  teamStrCell.style.color = "var(--color-text-muted)";
+  row.appendChild(teamStrCell);
 }
 
 /**

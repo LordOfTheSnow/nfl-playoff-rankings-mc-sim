@@ -36,11 +36,11 @@ async function renderStatistics(contentEl) {
   const loseLogo = loseLogoId ? `<img src="img/logos/${loseLogoId}.png" alt="" width="20" height="20" style="vertical-align:middle;margin-right:0.3rem">` : "";
 
   contentEl.innerHTML = `
-    <div class="controls-panel" style="margin-bottom:1.5rem">
+    <div class="card card-body mb-3">
       <h2 style="margin-bottom:1rem">Season Statistics</h2>
       <p class="cutoff-label" style="margin-bottom:1.5rem">Based on ${data.total_games} completed games</p>
 
-      <table class="probability-table" style="max-width:600px">
+      <table class="table table-striped table-hover" style="max-width:600px">
         <thead>
           <tr>
             <th style="text-align:left">Statistic</th>

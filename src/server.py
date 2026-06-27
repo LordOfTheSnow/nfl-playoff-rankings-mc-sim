@@ -551,11 +551,18 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             def _division_tiebreak_sort(
                 div_teams: list[dict[str, Any]],
             ) -> list[dict[str, Any]]:
-                """Sort division teams using simplified NFL tiebreaker order."""
-                from src.data_client import GameStatus as GS
+                """Sort division teams using simplified NFL tiebreaker order.
 
-                # Group by win percentage
-                from itertools import groupby
+                Tiebreaker steps (in order):
+                1. H2H - Head-to-head record among tied teams
+                2. Div - Division record
+                3. Conf - Conference record
+                4. SoV - Strength of victory (win% of teams beaten)
+                5. SoS - Strength of schedule (win% of all opponents)
+                6. Pts - Net points (points for minus points against)
+                7. Alpha - Alphabetical (final fallback)
+                """
+                from src.data_client import GameStatus as GS
 
                 # First sort by win% descending for grouping
                 div_teams_sorted = sorted(
@@ -575,8 +582,10 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                     if len(group) == 1:
                         result.append(group[0])
                     else:
-                        # Break ties using head-to-head among tied teams
+                        # Compute tiebreaker metrics for each tied team
                         team_names = [t["team"] for t in group]
+
+                        # Step 1: Head-to-head records
                         h2h_records: dict[str, tuple[int, int]] = {}
                         for t in team_names:
                             wins = 0
@@ -598,33 +607,113 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                                             losses += 1
                             h2h_records[t] = (wins, losses)
 
-                        # Determine which tiebreaker resolved the tie
-                        h2h_wps = {}
+                        h2h_wps: dict[str, float] = {}
                         for t in team_names:
                             hw, hl = h2h_records[t]
                             h2h_total = hw + hl
                             h2h_wps[t] = hw / h2h_total if h2h_total > 0 else 0.5
 
-                        h2h_values = list(h2h_wps.values())
-                        if len(set(h2h_values)) == len(h2h_values):
-                            tiebreaker_label = "H2H"
-                        else:
-                            tiebreaker_label = "Conf"
+                        # Step 2: Division record win%
+                        div_wps: dict[str, float] = {}
+                        for td in group:
+                            dr = td["division_record"].split("-")
+                            dw, dl, dt = int(dr[0]), int(dr[1]), int(dr[2])
+                            d_total = dw + dl + dt
+                            div_wps[td["team"]] = (dw + 0.5 * dt) / d_total if d_total > 0 else 0.0
 
-                        # Sort by h2h win% desc, then conference record, then point diff, then alpha
-                        def _tie_sort_key(td: dict[str, Any]) -> tuple:
-                            t = td["team"]
-                            hw, hl = h2h_records.get(t, (0, 0))
-                            h2h_total = hw + hl
-                            h2h_wp = hw / h2h_total if h2h_total > 0 else 0.5
+                        # Step 3: Conference record win%
+                        conf_wps: dict[str, float] = {}
+                        for td in group:
                             cr = td["conference_record"].split("-")
                             cw, cl, ct = int(cr[0]), int(cr[1]), int(cr[2])
-                            conf_total = cw + cl + ct
-                            conf_wp = (cw + 0.5 * ct) / conf_total if conf_total > 0 else 0.0
+                            c_total = cw + cl + ct
+                            conf_wps[td["team"]] = (cw + 0.5 * ct) / c_total if c_total > 0 else 0.0
+
+                        # Step 4: Strength of victory
+                        sov: dict[str, float] = {}
+                        for t in team_names:
+                            beaten_teams: list[str] = []
+                            for g in games:
+                                if g.status != GS.COMPLETED:
+                                    continue
+                                if g.home_score is None or g.away_score is None:
+                                    continue
+                                if g.home_team == t and g.home_score > g.away_score:
+                                    beaten_teams.append(g.away_team)
+                                elif g.away_team == t and g.away_score > g.home_score:
+                                    beaten_teams.append(g.home_team)
+                            if beaten_teams:
+                                beaten_wps = []
+                                for bt in beaten_teams:
+                                    bt_data = next((td for td in all_team_data if td["team"] == bt), None)
+                                    if bt_data:
+                                        beaten_wps.append(bt_data["win_percentage"])
+                                sov[t] = sum(beaten_wps) / len(beaten_wps) if beaten_wps else 0.0
+                            else:
+                                sov[t] = 0.0
+
+                        # Step 5: Strength of schedule
+                        sos: dict[str, float] = {}
+                        for t in team_names:
+                            opp_teams: list[str] = []
+                            for g in games:
+                                if g.status != GS.COMPLETED:
+                                    continue
+                                if g.home_team == t:
+                                    opp_teams.append(g.away_team)
+                                elif g.away_team == t:
+                                    opp_teams.append(g.home_team)
+                            if opp_teams:
+                                opp_wps = []
+                                for ot in opp_teams:
+                                    ot_data = next((td for td in all_team_data if td["team"] == ot), None)
+                                    if ot_data:
+                                        opp_wps.append(ot_data["win_percentage"])
+                                sos[t] = sum(opp_wps) / len(opp_wps) if opp_wps else 0.0
+                            else:
+                                sos[t] = 0.0
+
+                        # Step 6: Net points
+                        net_pts: dict[str, int] = {}
+                        for t in team_names:
                             ts = next((st for st in standings if st.team == t), None)
                             pf = ts.points_for or 0 if ts else 0
                             pa = ts.points_against or 0 if ts else 0
-                            return (-h2h_wp, -conf_wp, -(pf - pa), t)
+                            net_pts[t] = pf - pa
+
+                        # Determine which step actually breaks the tie
+                        def _values_differentiate(vals: dict[str, float | int]) -> bool:
+                            """Check if values produce a unique ordering (no ties)."""
+                            v_list = list(vals.values())
+                            return len(set(v_list)) == len(v_list)
+
+                        if _values_differentiate(h2h_wps):
+                            tiebreaker_label = "H2H"
+                        elif _values_differentiate(div_wps):
+                            tiebreaker_label = "Div"
+                        elif _values_differentiate(conf_wps):
+                            tiebreaker_label = "Conf"
+                        elif _values_differentiate(sov):
+                            tiebreaker_label = "SoV"
+                        elif _values_differentiate(sos):
+                            tiebreaker_label = "SoS"
+                        elif _values_differentiate(net_pts):
+                            tiebreaker_label = "Pts"
+                        else:
+                            tiebreaker_label = "Alpha"
+
+                        # Sort using all steps as a composite key
+                        def _tie_sort_key(td: dict[str, Any]) -> tuple:
+                            t = td["team"]
+                            return (
+                                -h2h_wps[t],
+                                -div_wps[t],
+                                -conf_wps[t],
+                                -sov[t],
+                                -sos[t],
+                                -net_pts[t],
+                                t,  # alphabetical fallback
+                            )
 
                         group.sort(key=_tie_sort_key)
 
@@ -634,13 +723,29 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                             hw, hl = h2h_records[t]
                             if tiebreaker_label == "H2H":
                                 td["tiebreaker"] = f"H2H {hw}-{hl}"
+                            elif tiebreaker_label == "Div":
+                                td["tiebreaker"] = f"Div {td['division_record']}"
+                            elif tiebreaker_label == "Conf":
+                                td["tiebreaker"] = f"Conf {td['conference_record']}"
+                            elif tiebreaker_label == "SoV":
+                                td["tiebreaker"] = f"SoV {sov[t]:.3f}"
+                            elif tiebreaker_label == "SoS":
+                                td["tiebreaker"] = f"SoS {sos[t]:.3f}"
+                            elif tiebreaker_label == "Pts":
+                                sign = "+" if net_pts[t] > 0 else ""
+                                td["tiebreaker"] = f"Pts {sign}{net_pts[t]}"
                             else:
-                                cr = td["conference_record"]
-                                td["tiebreaker"] = f"Conf {cr}"
+                                td["tiebreaker"] = "Alpha"
 
                         result.extend(group)
 
                 return result
+
+            # Build flat list of all team data for SoV/SoS lookups
+            all_team_data: list[dict[str, Any]] = []
+            for conf_name in conferences:
+                for div_name in conferences[conf_name]:
+                    all_team_data.extend(conferences[conf_name][div_name])
 
             for conf_name in conferences:
                 for div_name in conferences[conf_name]:
@@ -860,6 +965,11 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 opp_strength = week_strengths.get(opponent)
                 if opp_strength is not None:
                     game_data["opponent_strength"] = round(opp_strength, 3)
+
+                # Add team's own strength at that point in the season
+                team_strength = week_strengths.get(team_name)
+                if team_strength is not None:
+                    game_data["team_strength"] = round(team_strength, 3)
 
                 if game.status == GameStatus.COMPLETED:
                     game_data["home_score"] = game.home_score
