@@ -15,6 +15,7 @@ import argparse
 import json
 import logging
 import mimetypes
+import os
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -239,6 +240,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             expected_total = 272
 
             response = {
+                "version": server.version,
                 "last_fetch_time": cache_status.get("last_fetch_time"),
                 "games_cached": cache_status.get("games_cached", 0),
                 "season_year": server.season_year,
@@ -250,6 +252,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 "weeks_fetched": len(weeks_with_games),
                 "weeks_with_games": weeks_with_games,
                 "games_per_week": games_per_week,
+                "cpu_count": os.cpu_count() or 1,
             }
             self._send_json_response(200, response)
         except Exception as e:
@@ -414,6 +417,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
         iterations = body.get("iterations", 10000)
         cutoff_week = body.get("cutoff_week", None)
         noise = body.get("noise", 0.2)
+        num_workers = body.get("num_workers", None)
 
         # Validate iterations
         if not isinstance(iterations, int) or iterations < 100 or iterations > 1_000_000:
@@ -443,6 +447,16 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        # Validate num_workers
+        if num_workers is not None:
+            if not isinstance(num_workers, int) or num_workers < 1:
+                self._send_error_response(
+                    400,
+                    "Invalid num_workers parameter",
+                    "num_workers must be a positive integer",
+                )
+                return
+
         # Check if cached data exists
         games = server.cache.get_games(server.season_year)
         if not games:
@@ -459,9 +473,21 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 iterations=iterations,
                 cutoff_week=cutoff_week,
                 noise=float(noise),
+                num_workers=num_workers,
             )
             simulator = Simulator(config)
+
+            import time
+            t0 = time.perf_counter()
             result = simulator.run(games)
+            elapsed = time.perf_counter() - t0
+            logger.info(
+                "Simulation completed: %d iterations, %d workers, %.2fs (%.1f iter/s)",
+                iterations,
+                num_workers or os.cpu_count() or 1,
+                elapsed,
+                iterations / elapsed if elapsed > 0 else 0,
+            )
 
             response = _serialize_simulation_result(result)
             self._send_json_response(200, response)
@@ -987,6 +1013,13 @@ class NFLSimulatorServer(HTTPServer):
         self.static_dir: str = static_dir
         self.cache: Cache = Cache()
         self.data_client: DataClient = DataClient(self.cache)
+
+        # Read version from package metadata
+        try:
+            from importlib.metadata import version
+            self.version: str = version("nfl-monte-carlo-simulator")
+        except Exception:
+            self.version = "unknown"
 
         server_address = ("", port)
         super().__init__(server_address, NFLRequestHandler)

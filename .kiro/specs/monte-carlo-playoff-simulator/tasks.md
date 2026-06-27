@@ -355,28 +355,40 @@ This plan implements a Python web application that predicts NFL playoff outcomes
 - [x] 13. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 14. Implement parallel simulation execution
-  - [ ] 14.1 Refactor simulator to support batch execution
-    - Extract the per-trial logic into a standalone function that can run in a worker process
-    - Ensure the function accepts serializable arguments (games, strengths, config) and returns a serializable result dict (playoff_counts, seed_counts, scenario_counts)
-    - Add `num_workers` parameter to `SimulationConfig` (default: `None` meaning use `os.cpu_count()`)
+- [x] 14. Implement parallel simulation execution
+  - [x] 14.1 Refactor simulator to support batch execution
+    - Extracted per-trial logic into `_run_trial_batch()` module-level function (picklable for multiprocessing)
+    - Added `_simulate_game_standalone()` using explicit `random.Random` instance (no global state)
+    - Added `num_workers` parameter to `SimulationConfig` (default: `None` = `os.cpu_count()`)
+    - Added validation: must be positive integer or None
     - _Requirements: 15.1, 15.2, 15.6_
 
-  - [ ] 14.2 Implement multiprocessing distribution and result merging
-    - Split total iterations into approximately equal batches (one per worker)
-    - Use `concurrent.futures.ProcessPoolExecutor` to run batches in parallel
-    - Generate independent random seeds for each worker (derived from parent RNG)
-    - Implement `_merge_results()` — sum playoff counts, seed matrices, and scenario counters across workers
-    - Fall back to single-process execution when `num_workers == 1` or only 1 CPU available
-    - Handle worker failures by catching exceptions and reporting errors
+  - [x] 14.2 Implement multiprocessing distribution and result merging
+    - `_split_iterations()` distributes work evenly across workers (with remainder)
+    - Uses `concurrent.futures.ProcessPoolExecutor` with explicit `fork` context on Unix, `spawn` on Windows
+    - Each worker gets an independent seed derived from parent RNG
+    - `_merge_batch_results()` sums playoff counts, seed matrices, scenario counters across workers
+    - Falls back to single-process when `num_workers == 1`
+    - Worker failures caught and re-raised as `RuntimeError`
+    - Also parallelized `_compute_all_impact_games()` (distributes teams across workers)
     - _Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.7, 15.8_
 
-  - [ ] 14.3 Test parallel simulation correctness
-    - Verify that single-worker and multi-worker runs produce statistically equivalent results (same probability distributions within expected Monte Carlo variance)
-    - Verify that total iteration count across workers equals the requested count
-    - Verify fallback to single-process on 1-core systems
-    - Verify error handling when a worker process fails
+  - [x] 14.3 Test parallel simulation correctness
+    - Tests for `_split_iterations` (even, uneven, single, more-workers-than-iterations)
+    - Tests for `_run_trial_batch` (correct structure, deterministic seeds, different seeds differ)
+    - Tests for `_merge_batch_results` (sums correctly, handles empty)
+    - Tests for `SimulationConfig` validation (valid, None, zero, negative num_workers)
+    - Integration tests: single-worker invariants, multi-worker invariants, statistical equivalence, cpu_count auto-detect, capping
     - _Requirements: 15.5, 15.7, 15.8_
+
+  - [x] 14.4 Add frontend UI for worker configuration
+    - Added Workers slider to standings page simulation controls and `#simulate` page
+    - Slider max capped at server-reported `cpu_count` (from `GET /api/status`)
+    - Value persisted in `localStorage` across page navigations
+    - Tooltip explains parallelism (fork, GIL bypass, near-linear speedup)
+    - `POST /api/simulate` accepts optional `num_workers` parameter
+    - Server logs iterations, workers, elapsed time, and throughput per simulation
+    - _Requirements: 15.6_
 
 ## Notes
 

@@ -476,11 +476,17 @@ function buildStatusPanel(status) {
   html += '<div>';
   html += '<h2 style="font-size:1.1rem;margin-bottom:0.5rem">Simulation</h2>';
   html += '<div style="display:flex;flex-wrap:wrap;gap:1.5rem;align-items:flex-end">';
-  html += '<div class="control-field"><label for="sim-iterations-st">Iterations</label><input type="number" id="sim-iterations-st" min="100" max="1000000" value="10000" style="width:100px"></div>';
+  html += '<div class="control-field"><label for="sim-iterations-st">Iterations</label><input type="number" id="sim-iterations-st" min="100" max="1000000" value="' + (parseInt(localStorage.getItem('sim-iterations'), 10) || 10000) + '" style="width:100px"></div>';
   html += '<div class="control-field"><label for="sim-cutoff-st">Cutoff</label><select id="sim-cutoff-st" style="width:110px"><option value="">Auto</option>';
-  for (let w = 1; w <= 18; w++) { html += '<option value="' + w + '">Week ' + w + '</option>'; }
+  for (let w = 1; w <= 18; w++) { html += '<option value="' + w + '"' + (localStorage.getItem('sim-cutoff') == w ? ' selected' : '') + '>Week ' + w + '</option>'; }
   html += '</select></div>';
-  html += '<div class="control-field"><label for="sim-noise-st" title="Per-game strength noise: adds random variance to each simulated game outcome, modeling the unpredictability of real NFL games (\'any given Sunday\')">Noise &#9432;</label><input type="range" id="sim-noise-st" min="0" max="100" value="20" style="width:100px" title="0 = pure strength, 0.2 = moderate variance, 0.5+ = very chaotic"><span id="sim-noise-label-st" style="font-size:0.75rem;color:var(--color-text-muted);margin-left:0.4rem">0.20 moderate</span></div>';
+  const savedNoise = localStorage.getItem('sim-noise') || '20';
+  const noiseVal = (parseInt(savedNoise, 10) / 100).toFixed(2);
+  const noiseLabel = parseFloat(noiseVal) <= 0.05 ? "none" : parseFloat(noiseVal) <= 0.15 ? "low" : parseFloat(noiseVal) <= 0.25 ? "moderate" : parseFloat(noiseVal) <= 0.4 ? "high" : "chaotic";
+  html += '<div class="control-field"><label for="sim-noise-st" title="Per-game strength noise: adds random variance to each simulated game outcome, modeling the unpredictability of real NFL games (\'any given Sunday\')">Noise &#9432;</label><input type="range" id="sim-noise-st" min="0" max="100" value="' + savedNoise + '" style="width:100px" title="0 = pure strength, 0.2 = moderate variance, 0.5+ = very chaotic"><span id="sim-noise-label-st" style="font-size:0.75rem;color:var(--color-text-muted);margin-left:0.4rem">' + noiseVal + ' ' + noiseLabel + '</span></div>';
+  const cpuCount = (status && status.cpu_count) ? status.cpu_count : 4;
+  const savedWorkers = parseInt(localStorage.getItem('sim-workers'), 10) || cpuCount;
+  html += '<div class="control-field"><label for="sim-workers-st" title="Parallel CPU cores: each Monte Carlo trial is independent, so batches run simultaneously across cores. More workers = faster simulation (near-linear speedup). Uses Python multiprocessing to bypass the GIL.">Workers &#9432;</label><input type="range" id="sim-workers-st" min="1" max="' + cpuCount + '" value="' + savedWorkers + '" style="width:80px" title="1 = single-process (no overhead), max = all available CPU cores running trial batches in parallel"><span id="sim-workers-label-st" style="font-size:0.75rem;color:var(--color-text-muted);margin-left:0.4rem">' + savedWorkers + (savedWorkers === 1 ? ' core' : ' cores') + '</span></div>';
   html += '<button id="btn-run-sim-standings" class="btn btn-primary" type="button">Simulate</button>';
   html += '<button id="btn-fetch-data-standings" class="btn btn-secondary" type="button">Fetch Data</button>';
   html += '</div>';
@@ -522,18 +528,33 @@ function buildStatusPanel(status) {
     if (cutoffSel) cutoffSel.addEventListener("change", updateTotal);
     updateTotal();
 
+    // Persist values on change
+    if (iterInput) iterInput.addEventListener("change", () => localStorage.setItem('sim-iterations', iterInput.value));
+    if (cutoffSel) cutoffSel.addEventListener("change", () => localStorage.setItem('sim-cutoff', cutoffSel.value));
+
     // Noise label update
     if (noiseSl) noiseSl.addEventListener("input", () => {
       const val = (parseInt(noiseSl.value, 10) / 100).toFixed(2);
       const label = parseFloat(val) <= 0.05 ? "none" : parseFloat(val) <= 0.15 ? "low" : parseFloat(val) <= 0.25 ? "moderate" : parseFloat(val) <= 0.4 ? "high" : "chaotic";
       const labelEl = document.getElementById("sim-noise-label-st");
       if (labelEl) labelEl.textContent = val + " " + label;
+      localStorage.setItem('sim-noise', noiseSl.value);
+    });
+
+    // Workers label update
+    const workersSl = document.getElementById("sim-workers-st");
+    if (workersSl) workersSl.addEventListener("input", () => {
+      const val = parseInt(workersSl.value, 10);
+      const labelEl = document.getElementById("sim-workers-label-st");
+      if (labelEl) labelEl.textContent = val === 1 ? "1 core" : val + " cores";
+      localStorage.setItem('sim-workers', val);
     });
 
     if (runBtn) runBtn.addEventListener("click", async () => {
       const iterations = parseInt(iterInput.value, 10) || 10000;
       const cutoffWeek = cutoffSel.value ? parseInt(cutoffSel.value, 10) : null;
       const noise = parseInt(noiseSl.value, 10) / 100;
+      const numWorkers = workersSl ? parseInt(workersSl.value, 10) : null;
 
       if (iterations < 100 || iterations > 1000000) {
         App.showError("Iterations must be between 100 and 1,000,000.");
@@ -545,7 +566,7 @@ function buildStatusPanel(status) {
       runBtn.disabled = true;
 
       try {
-        const results = await API.runSimulation(iterations, cutoffWeek, noise);
+        const results = await API.runSimulation(iterations, cutoffWeek, noise, numWorkers);
         window._simulationResults = results;
         App.showInfo("Simulation complete.");
         App.navigate("results");

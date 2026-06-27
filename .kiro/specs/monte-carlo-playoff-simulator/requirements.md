@@ -262,14 +262,23 @@ A web application with a Python backend and an HTML/JavaScript frontend that use
 
 **User Story:** As a user, I want the Monte Carlo simulation to utilize multiple CPU cores, so that simulations complete faster on multi-core machines.
 
+**Status:** Implemented
+
 #### Acceptance Criteria
 
-1. WHEN a simulation is triggered with more than one available CPU core, THE Simulator SHALL distribute simulation trials across multiple worker processes using Python's `multiprocessing` or `concurrent.futures.ProcessPoolExecutor`
-2. THE Simulator SHALL split the total iteration count into approximately equal batches, one per worker process, and run them in parallel
-3. WHEN all worker processes complete, THE Simulator SHALL merge their results by summing playoff counts, seeding matrices, and scenario counters to produce a single unified `SimulationResult`
-4. THE Simulator SHALL ensure that each worker process uses an independent random number generator state so that trials are not correlated across workers
-5. THE Simulator SHALL produce statistically equivalent results whether run with 1 worker or N workers (same probability distributions within expected variance)
-6. THE Simulator SHALL default to using `os.cpu_count()` workers, with an optional configuration parameter to override the worker count
-7. IF the system has only 1 CPU core available, THEN THE Simulator SHALL fall back to single-process execution without overhead
-8. THE Simulator SHALL handle worker process failures gracefully by reporting an error rather than producing partial or corrupted results
+1. ✅ WHEN a simulation is triggered with more than one available CPU core, THE Simulator SHALL distribute simulation trials across multiple worker processes using Python's `concurrent.futures.ProcessPoolExecutor`
+2. ✅ THE Simulator SHALL split the total iteration count into approximately equal batches, one per worker process, and run them in parallel
+3. ✅ WHEN all worker processes complete, THE Simulator SHALL merge their results by summing playoff counts, seeding matrices, and scenario counters to produce a single unified `SimulationResult`
+4. ✅ THE Simulator SHALL ensure that each worker process uses an independent random number generator state so that trials are not correlated across workers
+5. ✅ THE Simulator SHALL produce statistically equivalent results whether run with 1 worker or N workers (same probability distributions within expected variance)
+6. ✅ THE Simulator SHALL default to using `os.cpu_count()` workers, with an optional configuration parameter to override the worker count
+7. ✅ IF the system has only 1 CPU core available, THEN THE Simulator SHALL fall back to single-process execution without overhead
+8. ✅ THE Simulator SHALL handle worker process failures gracefully by reporting an error rather than producing partial or corrupted results
+
+#### Implementation Notes
+
+- Uses `multiprocessing.get_context("fork")` on Unix for fast copy-on-write worker creation, `spawn` on Windows for compatibility
+- Impact games analysis also parallelized (teams distributed across workers)
+- Frontend exposes a Workers slider capped at `cpu_count`, persisted in `localStorage`
+- Server logs worker count, elapsed time, and throughput per simulation run
 

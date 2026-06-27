@@ -75,15 +75,19 @@ const API = (() => {
    * @param {number} iterations - Number of simulation trials (100–1,000,000).
    * @param {number|null} cutoffWeek - Cutoff week (1–18) or null for auto-detect.
    * @param {number|null} noise - Per-game strength noise (0.0–1.0) or null for default.
+   * @param {number|null} numWorkers - Number of parallel workers or null for auto-detect.
    * @returns {Promise<Object>} Simulation results (team_results, scenarios, etc.).
    */
-  function runSimulation(iterations, cutoffWeek, noise) {
+  function runSimulation(iterations, cutoffWeek, noise, numWorkers) {
     const body = { iterations };
     if (cutoffWeek != null) {
       body.cutoff_week = cutoffWeek;
     }
     if (noise != null) {
       body.noise = noise;
+    }
+    if (numWorkers != null) {
+      body.num_workers = numWorkers;
     }
     return request("/api/simulate", {
       method: "POST",

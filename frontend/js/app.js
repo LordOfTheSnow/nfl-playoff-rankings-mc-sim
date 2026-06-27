@@ -214,6 +214,14 @@ const App = (() => {
     // Listen for hash changes
     window.addEventListener("hashchange", route);
 
+    // Display version from server
+    API.fetchStatus().then(status => {
+      const versionEl = document.getElementById("app-version");
+      if (versionEl && status && status.version) {
+        versionEl.textContent = "v" + status.version;
+      }
+    }).catch(() => {});
+
     // Initial route
     route();
   }

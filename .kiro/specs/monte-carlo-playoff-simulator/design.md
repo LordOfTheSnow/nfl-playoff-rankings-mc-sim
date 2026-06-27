@@ -1115,65 +1115,77 @@ Internet → nginx (TLS, auth) → Python backend (localhost:8080)
 - [ ] Add rate limiting considerations for the simulate endpoint
 - [ ] Document deployment steps in README
 
-## Future: Parallel Simulation Execution
+## Parallel Simulation Execution
 
-The Monte Carlo simulation is embarrassingly parallel — each trial is completely independent. This makes it an ideal candidate for multiprocessing.
+The Monte Carlo simulation is embarrassingly parallel — each trial is completely independent. The implementation uses Python's `multiprocessing` via `ProcessPoolExecutor` for both the main trial loop and impact games analysis.
 
-### Design
+### Implementation
 
 ```python
+import multiprocessing
+import sys
 from concurrent.futures import ProcessPoolExecutor
-import os
 
-def _run_batch(args: tuple) -> dict:
-    """Worker function: runs a batch of simulation trials in a separate process.
-    
-    Args:
-        args: Tuple of (games, strengths, batch_size, tie_prob, noise, seed)
-    
-    Returns:
-        Dict with playoff_counts, seed_counts, scenario_counts for merging.
-    """
+# Platform-aware context: fork on Unix (fast COW), spawn on Windows
+if sys.platform == "win32":
+    _mp_context = multiprocessing.get_context("spawn")
+else:
+    _mp_context = multiprocessing.get_context("fork")
+
+
+def _run_trial_batch(all_games, games_to_simulate, strengths,
+                     batch_iterations, tie_probability, noise, seed) -> dict:
+    """Worker function: runs a batch of trials in a separate process.
+    Uses an independent random.Random(seed) instance per worker."""
     ...
 
 class Simulator:
     def run(self, all_games: list[Game]) -> SimulationResult:
-        num_workers = self.config.num_workers or os.cpu_count() or 1
-        
+        num_workers = self._config.num_workers or os.cpu_count() or 1
+        num_workers = min(num_workers, self._config.iterations)
+
         if num_workers <= 1:
-            return self._run_single(all_games)
-        
-        batch_size = self.config.iterations // num_workers
-        remainder = self.config.iterations % num_workers
-        
-        batches = [
-            (fixed_games, remaining_games, strengths, batch_size + (1 if i < remainder else 0), 
-             self.config.tie_probability, random_seed_for_worker_i)
-            for i in range(num_workers)
-        ]
-        
-        with ProcessPoolExecutor(max_workers=num_workers) as pool:
-            results = list(pool.map(_run_batch, batches))
-        
-        return self._merge_results(results)
+            # Single-process: no multiprocessing overhead
+            batch_result = _run_trial_batch(...)
+        else:
+            batch_sizes = _split_iterations(iterations, num_workers)
+            seeds = [random.randint(0, 2**63 - 1) for _ in range(num_workers)]
+
+            with ProcessPoolExecutor(max_workers=num_workers,
+                                     mp_context=_mp_context) as pool:
+                batch_results = list(pool.map(_run_trial_batch_wrapper, args))
+
+            merged = _merge_batch_results(batch_results)
+
+        # Impact games also parallelized (one team per worker)
+        with ProcessPoolExecutor(...) as pool:
+            impact_results = list(pool.map(_compute_team_impact_worker, ...))
 ```
 
-### Key Considerations
+### Key Design Decisions
 
-- **Data serialization**: Game data and team strengths are small (~50KB) and serialized once per worker via pickle
-- **Random state**: Each worker gets an independent seed derived from the parent's RNG to avoid correlated trials
-- **Result merging**: Sum counters (playoff_counts, seed_matrices) across workers; merge scenario dicts by key
-- **Overhead**: Process startup cost (~50-100ms) is amortized over thousands of trials per worker
-- **Fallback**: Single-core mode avoids ProcessPoolExecutor entirely (no overhead)
-- **Error handling**: If any worker raises, the entire simulation reports an error rather than returning partial results
+- **Explicit fork context on Unix**: Python 3.14 changed the Linux default to `forkserver`. We explicitly use `fork` for efficiency (COW memory, no re-import).
+- **Spawn on Windows**: `fork` is unavailable on Windows. `spawn` re-imports modules but produces identical results.
+- **Independent RNG per worker**: Each worker gets its own `random.Random(seed)` to avoid correlation between batches.
+- **Module-level worker functions**: Required for pickle serialization by `ProcessPoolExecutor`.
+- **Graceful fallback**: `num_workers=1` skips multiprocessing entirely (zero overhead).
+- **Impact games parallelized**: Teams are distributed across workers, each computing their own impact scores independently.
 
-### Expected Speedup
+### Performance Characteristics
 
-| Cores | Iterations | Approx. Time (vs single-core) |
-|-------|-----------|-------------------------------|
-| 1     | 10,000    | 1.0x (baseline)               |
-| 4     | 10,000    | ~3.5x faster                  |
-| 8     | 10,000    | ~6.5x faster                  |
-| 16    | 10,000    | ~12x faster                   |
+| Cores | 10k iterations (cutoff wk 14) | Speedup |
+|-------|-------------------------------|---------|
+| 1     | ~64s                          | 1.0x    |
+| 4     | ~22s                          | 2.9x   |
 
-Sub-linear scaling due to process spawn overhead and result merging, but the per-trial work (simulate all remaining games + full standings/tiebreakers) is substantial enough to dwarf the overhead.
+Sub-linear scaling due to:
+- Process startup overhead (~50–100ms per worker)
+- Result serialization and merging
+- Impact games computation has uneven team distribution (some teams have more remaining games)
+
+### Frontend Integration
+
+- `GET /api/status` returns `cpu_count` so the UI can cap the Workers slider
+- `POST /api/simulate` accepts optional `num_workers` in request body
+- Slider value persisted in `localStorage` across page navigations
+- Server logs worker count, elapsed time, and throughput per simulation

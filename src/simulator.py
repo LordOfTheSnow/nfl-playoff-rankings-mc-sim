@@ -5,13 +5,20 @@ Each trial simulates all remaining/unplayed games, computes standings
 using the NFL's official tiebreaker rules, and records which teams
 make the playoffs and at which seed.
 
-Requirements: 5.1-5.13, 6.1-6.5
+Supports parallel execution via multiprocessing: since each trial is
+independent, iteration batches are distributed across worker processes
+for near-linear speedup on multi-core machines.
+
+Requirements: 5.1-5.13, 6.1-6.5, 15.1-15.8
 """
 
 from __future__ import annotations
 
 import logging
+import multiprocessing
+import os
 import random
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -25,6 +32,15 @@ from src.standings import (
 from src.team_strength import TeamStrengthCalculator
 
 logger = logging.getLogger(__name__)
+
+# Use 'fork' start method on Unix for efficiency (child inherits parent memory
+# via copy-on-write, no re-import overhead). On Windows, 'fork' is unavailable
+# so we fall back to the default start method ('spawn').
+import sys
+if sys.platform == "win32":
+    _mp_context = multiprocessing.get_context("spawn")
+else:
+    _mp_context = multiprocessing.get_context("fork")
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +62,8 @@ class SimulationConfig:
             0.0 = no noise (deterministic strengths), 0.2 = moderate "any given
             Sunday" variance, 0.5 = high chaos. The jitter is independent per
             game and per trial, modeling game-to-game performance fluctuation.
+        num_workers: Number of worker processes for parallel simulation.
+            None = auto-detect using os.cpu_count(). 1 = single-process (no overhead).
         MIN_ITERATIONS: Class-level minimum allowed iterations.
         MAX_ITERATIONS: Class-level maximum allowed iterations.
     """
@@ -54,6 +72,7 @@ class SimulationConfig:
     tie_probability: float = 0.005
     cutoff_week: int | None = None
     noise: float = 0.2
+    num_workers: int | None = None
 
     MIN_ITERATIONS: int = field(default=100, init=False, repr=False)
     MAX_ITERATIONS: int = field(default=1_000_000, init=False, repr=False)
@@ -92,6 +111,11 @@ class SimulationConfig:
             raise ValueError(
                 f"noise must be a number between 0.0 and 1.0, got {self.noise}"
             )
+        if self.num_workers is not None:
+            if not isinstance(self.num_workers, int) or self.num_workers < 1:
+                raise ValueError(
+                    f"num_workers must be a positive integer, got {self.num_workers!r}"
+                )
 
 
 @dataclass
@@ -158,6 +182,328 @@ class SimulationResult:
 
 
 # ---------------------------------------------------------------------------
+# Parallel Execution Support
+# ---------------------------------------------------------------------------
+
+
+def _split_iterations(total: int, num_workers: int) -> list[int]:
+    """Split total iterations into approximately equal batches.
+
+    Distributes remainder across the first workers so no worker
+    gets more than one extra iteration.
+
+    Args:
+        total: Total number of iterations to distribute.
+        num_workers: Number of workers.
+
+    Returns:
+        List of batch sizes, one per worker.
+    """
+    base = total // num_workers
+    remainder = total % num_workers
+    return [base + (1 if i < remainder else 0) for i in range(num_workers)]
+
+
+def _simulate_game_standalone(
+    home_team: str,
+    away_team: str,
+    strengths: dict[str, float],
+    tie_prob: float,
+    noise: float,
+    rng: random.Random,
+) -> tuple[str | None, bool]:
+    """Simulate a single game outcome (standalone, uses explicit RNG).
+
+    Args:
+        home_team: Home team name.
+        away_team: Away team name.
+        strengths: Team strength ratings.
+        tie_prob: Probability of a tie.
+        noise: Log-normal noise sigma for per-game jitter.
+        rng: Random instance for this worker.
+
+    Returns:
+        Tuple of (winning_team_or_None, is_tie).
+    """
+    roll = rng.random()
+
+    if roll < tie_prob:
+        return (None, True)
+
+    home_strength = strengths.get(home_team, 1.0)
+    away_strength = strengths.get(away_team, 1.0)
+
+    if noise > 0:
+        home_strength *= rng.lognormvariate(0, noise)
+        away_strength *= rng.lognormvariate(0, noise)
+
+    total_strength = home_strength + away_strength
+    if total_strength <= 0:
+        home_win_prob = 0.5
+    else:
+        home_win_prob = home_strength / total_strength
+
+    threshold = tie_prob + (1.0 - tie_prob) * home_win_prob
+    if roll < threshold:
+        return (home_team, False)
+    else:
+        return (away_team, False)
+
+
+def _run_trial_batch(
+    all_games: list[Game],
+    games_to_simulate: list[Game],
+    strengths: dict[str, float],
+    batch_iterations: int,
+    tie_probability: float,
+    noise: float,
+    seed: int | None,
+) -> dict:
+    """Run a batch of simulation trials (can execute in a worker process).
+
+    This is the core trial loop, extracted as a module-level function so it
+    can be pickled and sent to worker processes.
+
+    Args:
+        all_games: Complete list of games for the season.
+        games_to_simulate: Games that need to be simulated each trial.
+        strengths: Pre-computed team strength ratings.
+        batch_iterations: Number of trials to run in this batch.
+        tie_probability: Probability of a tie per game.
+        noise: Per-game strength noise sigma.
+        seed: Random seed for this worker (None for unseeded).
+
+    Returns:
+        Dict with playoff_counts, seed_counts, division_champion_counts,
+        scenario_tracker.
+    """
+    from src.nfl_teams import ALL_TEAMS
+
+    # Each worker gets its own RNG seeded independently
+    rng = random.Random(seed)
+
+    # Initialize tracking structures
+    playoff_counts: dict[str, int] = {team: 0 for team in ALL_TEAMS}
+    seed_counts: dict[str, dict[int, int]] = {
+        team: {s: 0 for s in range(1, 8)} for team in ALL_TEAMS
+    }
+    division_champion_counts: dict[str, int] = {team: 0 for team in ALL_TEAMS}
+    scenario_tracker: dict[frozenset[tuple[str, int]], int] = {}
+
+    for _trial in range(batch_iterations):
+        # Simulate remaining games
+        outcomes: list[tuple[str, str | None, bool]] = []
+        for game in games_to_simulate:
+            winner, is_tie = _simulate_game_standalone(
+                game.home_team, game.away_team, strengths, tie_probability, noise, rng
+            )
+            outcomes.append((game.game_id, winner, is_tie))
+
+        # Compute standings with fixed games + simulated outcomes
+        standings = compute_standings(all_games, outcomes)
+
+        # Determine playoff bracket
+        bracket = determine_playoff_bracket(standings)
+
+        # Record outcomes
+        scenario_key: set[tuple[str, int]] = set()
+
+        for seeds_list in (bracket.afc_seeds, bracket.nfc_seeds):
+            for standing in seeds_list:
+                team = standing.team
+                seed_val = standing.seed
+
+                if seed_val is None:
+                    continue
+
+                playoff_counts[team] += 1
+
+                if seed_val in seed_counts.get(team, {}):
+                    seed_counts[team][seed_val] += 1
+
+                if standing.is_division_champion:
+                    division_champion_counts[team] += 1
+
+                scenario_key.add((team, seed_val))
+
+        frozen_scenario = frozenset(scenario_key)
+        scenario_tracker[frozen_scenario] = (
+            scenario_tracker.get(frozen_scenario, 0) + 1
+        )
+
+    return {
+        "playoff_counts": playoff_counts,
+        "seed_counts": seed_counts,
+        "division_champion_counts": division_champion_counts,
+        "scenario_tracker": scenario_tracker,
+    }
+
+
+def _run_trial_batch_wrapper(args: tuple) -> dict:
+    """Wrapper for _run_trial_batch that unpacks a tuple of arguments.
+
+    Required because ProcessPoolExecutor.map() passes a single argument
+    per call.
+
+    Args:
+        args: Tuple of (all_games, games_to_simulate, strengths,
+              batch_iterations, tie_probability, noise, seed).
+
+    Returns:
+        Result dict from _run_trial_batch.
+    """
+    (all_games, games_to_simulate, strengths, batch_iterations,
+     tie_probability, noise, seed) = args
+    return _run_trial_batch(
+        all_games, games_to_simulate, strengths, batch_iterations,
+        tie_probability, noise, seed,
+    )
+
+
+def _compute_team_impact_worker(args: tuple) -> list[tuple[str, float]]:
+    """Worker function for parallel impact games computation.
+
+    Computes the top 5 impact games for a single team by running
+    mini-simulations with forced outcomes.
+
+    Args:
+        args: Tuple of (team, all_games, games_to_simulate, strengths,
+              impact_iterations, tie_probability, noise).
+
+    Returns:
+        Top 5 (game_id, impact) tuples sorted by impact descending.
+    """
+    (team, all_games, games_to_simulate, strengths,
+     impact_iterations, tie_probability, noise) = args
+
+    relevant_games = [
+        g for g in games_to_simulate
+        if g.home_team == team or g.away_team == team
+    ]
+
+    rng = random.Random()
+    impact_scores: list[tuple[str, float]] = []
+
+    for game in relevant_games:
+        # Estimate probability with forced win
+        prob_if_win = _estimate_prob_forced(
+            team, game, "win", all_games, games_to_simulate,
+            strengths, impact_iterations, tie_probability, noise, rng,
+        )
+        # Estimate probability with forced loss
+        prob_if_lose = _estimate_prob_forced(
+            team, game, "lose", all_games, games_to_simulate,
+            strengths, impact_iterations, tie_probability, noise, rng,
+        )
+        impact = abs(prob_if_win - prob_if_lose)
+        impact_scores.append((game.game_id, impact))
+
+    impact_scores.sort(key=lambda x: x[1], reverse=True)
+    return impact_scores[:5]
+
+
+def _estimate_prob_forced(
+    team: str,
+    forced_game: Game,
+    outcome: str,
+    all_games: list[Game],
+    games_to_simulate: list[Game],
+    strengths: dict[str, float],
+    iterations: int,
+    tie_probability: float,
+    noise: float,
+    rng: random.Random,
+) -> float:
+    """Estimate a team's playoff probability with one game forced (standalone).
+
+    Used by the parallel impact worker.
+    """
+    playoff_count = 0
+
+    if outcome == "win":
+        forced_winner: str | None = team
+    else:
+        if forced_game.home_team == team:
+            forced_winner = forced_game.away_team
+        else:
+            forced_winner = forced_game.home_team
+
+    for _ in range(iterations):
+        outcomes: list[tuple[str, str | None, bool]] = []
+
+        for game in games_to_simulate:
+            if game.game_id == forced_game.game_id:
+                outcomes.append((game.game_id, forced_winner, False))
+            else:
+                winner, is_tie = _simulate_game_standalone(
+                    game.home_team, game.away_team, strengths,
+                    tie_probability, noise, rng,
+                )
+                outcomes.append((game.game_id, winner, is_tie))
+
+        standings = compute_standings(all_games, outcomes)
+        bracket = determine_playoff_bracket(standings)
+
+        for seeds_list in (bracket.afc_seeds, bracket.nfc_seeds):
+            for standing in seeds_list:
+                if standing.team == team:
+                    playoff_count += 1
+                    break
+
+    return playoff_count / iterations if iterations > 0 else 0.0
+
+
+def _merge_batch_results(
+    batch_results: list[dict],
+) -> tuple[
+    dict[str, int],
+    dict[str, dict[int, int]],
+    dict[str, int],
+    dict[frozenset[tuple[str, int]], int],
+]:
+    """Merge results from multiple worker batches into unified counters.
+
+    Args:
+        batch_results: List of result dicts from _run_trial_batch.
+
+    Returns:
+        Tuple of (playoff_counts, seed_counts, division_champion_counts,
+        scenario_tracker) with summed values across all batches.
+    """
+    from src.nfl_teams import ALL_TEAMS
+
+    # Initialize merged structures
+    playoff_counts: dict[str, int] = {team: 0 for team in ALL_TEAMS}
+    seed_counts: dict[str, dict[int, int]] = {
+        team: {s: 0 for s in range(1, 8)} for team in ALL_TEAMS
+    }
+    division_champion_counts: dict[str, int] = {team: 0 for team in ALL_TEAMS}
+    scenario_tracker: dict[frozenset[tuple[str, int]], int] = {}
+
+    for result in batch_results:
+        # Sum playoff counts
+        for team, count in result["playoff_counts"].items():
+            playoff_counts[team] += count
+
+        # Sum seed counts
+        for team, seeds in result["seed_counts"].items():
+            for seed_val, count in seeds.items():
+                seed_counts[team][seed_val] += count
+
+        # Sum division champion counts
+        for team, count in result["division_champion_counts"].items():
+            division_champion_counts[team] += count
+
+        # Merge scenario trackers
+        for scenario_key, count in result["scenario_tracker"].items():
+            scenario_tracker[scenario_key] = (
+                scenario_tracker.get(scenario_key, 0) + count
+            )
+
+    return playoff_counts, seed_counts, division_champion_counts, scenario_tracker
+
+
+# ---------------------------------------------------------------------------
 # Simulator Class
 # ---------------------------------------------------------------------------
 
@@ -168,6 +514,9 @@ class Simulator:
     Partitions games into fixed inputs (completed games up to cutoff week)
     and games to simulate. Runs multiple trials, each simulating remaining
     games and computing standings to determine playoff outcomes.
+
+    Supports parallel execution: when num_workers > 1, distributes trial
+    batches across multiple processes for near-linear speedup.
     """
 
     def __init__(self, config: SimulationConfig | None = None) -> None:
@@ -190,6 +539,9 @@ class Simulator:
         In-progress games are treated as unplayed — live scores are
         informational only and do not influence simulation.
 
+        When num_workers > 1, distributes iterations across worker processes
+        for parallel execution.
+
         Args:
             all_games: Complete list of games for the season.
 
@@ -211,36 +563,58 @@ class Simulator:
             if team not in strengths:
                 strengths[team] = 1.0
 
-        # Initialize tracking structures
-        playoff_counts: dict[str, int] = {team: 0 for team in ALL_TEAMS}
-        seed_counts: dict[str, dict[int, int]] = {
-            team: {seed: 0 for seed in range(1, 8)} for team in ALL_TEAMS
-        }
-        division_champion_counts: dict[str, int] = {team: 0 for team in ALL_TEAMS}
-        scenario_tracker: dict[frozenset[tuple[str, int]], int] = {}
-
         iterations = self._config.iterations
 
-        # Trial loop
-        for _trial in range(iterations):
-            # Simulate remaining games
-            simulated_outcomes = self._simulate_remaining_games(
-                games_to_simulate, strengths
+        # Determine number of workers
+        num_workers = self._config.num_workers
+        if num_workers is None:
+            num_workers = os.cpu_count() or 1
+        num_workers = min(num_workers, iterations)  # Don't use more workers than iterations
+
+        if num_workers <= 1:
+            # Single-process execution (no multiprocessing overhead)
+            batch_result = _run_trial_batch(
+                all_games=all_games,
+                games_to_simulate=games_to_simulate,
+                strengths=strengths,
+                batch_iterations=iterations,
+                tie_probability=self._config.tie_probability,
+                noise=self._config.noise,
+                seed=None,
             )
+            playoff_counts = batch_result["playoff_counts"]
+            seed_counts = batch_result["seed_counts"]
+            division_champion_counts = batch_result["division_champion_counts"]
+            scenario_tracker = batch_result["scenario_tracker"]
+        else:
+            # Parallel execution across multiple worker processes
+            logger.info(
+                "Running simulation with %d workers (%d iterations each, approx.)",
+                num_workers,
+                iterations // num_workers,
+            )
+            batch_sizes = _split_iterations(iterations, num_workers)
+            # Generate independent seeds for each worker
+            seeds = [random.randint(0, 2**63 - 1) for _ in range(num_workers)]
 
-            # Compute standings with fixed games + simulated outcomes
-            standings = compute_standings(all_games, simulated_outcomes)
+            batch_args = [
+                (all_games, games_to_simulate, strengths, batch_size,
+                 self._config.tie_probability, self._config.noise, seed)
+                for batch_size, seed in zip(batch_sizes, seeds)
+            ]
 
-            # Determine playoff bracket
-            bracket = determine_playoff_bracket(standings)
+            try:
+                with ProcessPoolExecutor(max_workers=num_workers, mp_context=_mp_context) as pool:
+                    batch_results = list(pool.map(_run_trial_batch_wrapper, batch_args))
+            except Exception as e:
+                raise RuntimeError(
+                    f"Parallel simulation failed: {e}. "
+                    f"Try running with num_workers=1 to disable parallelism."
+                ) from e
 
-            # Record outcomes
-            self._record_trial_outcomes(
-                bracket,
-                playoff_counts,
-                seed_counts,
-                division_champion_counts,
-                scenario_tracker,
+            # Merge results from all workers
+            playoff_counts, seed_counts, division_champion_counts, scenario_tracker = (
+                _merge_batch_results(batch_results)
             )
 
         # Aggregate probabilities
@@ -252,7 +626,14 @@ class Simulator:
             iterations,
         )
 
-        # Compute impact games for each team
+        # Compute impact games for each team (parallelized)
+        import time as _time
+        t_impact_start = _time.perf_counter()
+
+        num_workers = self._config.num_workers
+        if num_workers is None:
+            num_workers = os.cpu_count() or 1
+
         self._compute_all_impact_games(
             team_results,
             all_games,
@@ -260,7 +641,10 @@ class Simulator:
             fixed_games,
             strengths,
             iterations,
+            num_workers,
         )
+        t_impact_elapsed = _time.perf_counter() - t_impact_start
+        logger.info("Impact games computation took %.2fs", t_impact_elapsed)
 
         # Get top 50 scenarios
         scenarios = self._get_top_scenarios(scenario_tracker, iterations)
@@ -757,6 +1141,7 @@ class Simulator:
         fixed_games: list[Game],
         strengths: dict[str, float],
         iterations: int,
+        num_workers: int = 1,
     ) -> None:
         """Compute impact games for each team.
 
@@ -765,6 +1150,7 @@ class Simulator:
         "team wins" and "team loses" scenarios.
 
         This is an approximation using a smaller sample size for efficiency.
+        When num_workers > 1, teams are processed in parallel.
 
         Args:
             team_results: Current team results (modified in place).
@@ -773,44 +1159,94 @@ class Simulator:
             fixed_games: Fixed input games.
             strengths: Team strength ratings.
             iterations: Total iterations for the main simulation.
+            num_workers: Number of parallel workers to use.
         """
         from src.nfl_teams import ALL_TEAMS
 
         # Use a reduced iteration count for impact analysis (for performance)
         impact_iterations = min(200, iterations)
 
+        # Collect teams that have relevant games
+        teams_with_games = []
         for team in ALL_TEAMS:
-            # Find games involving this team or games that could affect this team
-            # For simplicity, check games involving the team directly
             relevant_games = [
                 g for g in games_to_simulate
                 if g.home_team == team or g.away_team == team
             ]
+            if relevant_games:
+                teams_with_games.append(team)
 
-            if not relevant_games:
-                continue
+        if not teams_with_games:
+            return
 
-            impact_scores: list[tuple[str, float]] = []
-
-            for game in relevant_games:
-                # Compute playoff probability when this team wins this game
-                prob_if_win = self._estimate_prob_with_forced_outcome(
-                    team, game, "win", all_games, games_to_simulate,
-                    strengths, impact_iterations,
+        if num_workers <= 1 or len(teams_with_games) < 2:
+            # Single-process: compute sequentially
+            for team in teams_with_games:
+                impact_scores = self._compute_team_impact(
+                    team, all_games, games_to_simulate, strengths, impact_iterations
                 )
+                team_results[team].impact_games = impact_scores
+        else:
+            # Parallel: distribute teams across workers
+            args_list = [
+                (team, all_games, games_to_simulate, strengths, impact_iterations,
+                 self._config.tie_probability, self._config.noise)
+                for team in teams_with_games
+            ]
+            try:
+                with ProcessPoolExecutor(max_workers=num_workers, mp_context=_mp_context) as pool:
+                    results = list(pool.map(_compute_team_impact_worker, args_list))
+                for team, impact_scores in zip(teams_with_games, results):
+                    team_results[team].impact_games = impact_scores
+            except Exception as e:
+                logger.warning("Parallel impact computation failed (%s), falling back to sequential", e)
+                for team in teams_with_games:
+                    impact_scores = self._compute_team_impact(
+                        team, all_games, games_to_simulate, strengths, impact_iterations
+                    )
+                    team_results[team].impact_games = impact_scores
 
-                # Compute playoff probability when this team loses this game
-                prob_if_lose = self._estimate_prob_with_forced_outcome(
-                    team, game, "lose", all_games, games_to_simulate,
-                    strengths, impact_iterations,
-                )
+    def _compute_team_impact(
+        self,
+        team: str,
+        all_games: list[Game],
+        games_to_simulate: list[Game],
+        strengths: dict[str, float],
+        impact_iterations: int,
+    ) -> list[tuple[str, float]]:
+        """Compute impact scores for a single team's relevant games.
 
-                impact = abs(prob_if_win - prob_if_lose)
-                impact_scores.append((game.game_id, impact))
+        Args:
+            team: Team name.
+            all_games: All games in the season.
+            games_to_simulate: Games being simulated.
+            strengths: Team strength ratings.
+            impact_iterations: Number of mini-trials per forced outcome.
 
-            # Sort by impact descending, take top 5
-            impact_scores.sort(key=lambda x: x[1], reverse=True)
-            team_results[team].impact_games = impact_scores[:5]
+        Returns:
+            Top 5 (game_id, impact) tuples sorted by impact descending.
+        """
+        relevant_games = [
+            g for g in games_to_simulate
+            if g.home_team == team or g.away_team == team
+        ]
+
+        impact_scores: list[tuple[str, float]] = []
+
+        for game in relevant_games:
+            prob_if_win = self._estimate_prob_with_forced_outcome(
+                team, game, "win", all_games, games_to_simulate,
+                strengths, impact_iterations,
+            )
+            prob_if_lose = self._estimate_prob_with_forced_outcome(
+                team, game, "lose", all_games, games_to_simulate,
+                strengths, impact_iterations,
+            )
+            impact = abs(prob_if_win - prob_if_lose)
+            impact_scores.append((game.game_id, impact))
+
+        impact_scores.sort(key=lambda x: x[1], reverse=True)
+        return impact_scores[:5]
 
     def _estimate_prob_with_forced_outcome(
         self,

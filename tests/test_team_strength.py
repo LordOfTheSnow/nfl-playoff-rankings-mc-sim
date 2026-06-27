@@ -206,4 +206,4 @@ class TestTeamStrengthCalculator:
     def test_constants(self) -> None:
         """Verify class constants are set correctly."""
         assert TeamStrengthCalculator.CONVERGENCE_THRESHOLD == 0.001
-        assert TeamStrengthCalculator.MAX_ITERATIONS == 100
+        assert TeamStrengthCalculator.MAX_ITERATIONS == 200

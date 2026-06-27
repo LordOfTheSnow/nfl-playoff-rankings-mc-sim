@@ -60,6 +60,13 @@ async function renderSimulation(contentEl) {
                  aria-describedby="noise-help" style="min-width:160px">
           <span id="noise-help" class="cutoff-label">0.20 — moderate variance</span>
         </div>
+        <div class="control-field">
+          <label for="sim-workers" title="Parallel CPU cores: each Monte Carlo trial is independent, so batches run simultaneously across cores. More workers = faster simulation (near-linear speedup). Uses Python multiprocessing to bypass the GIL.">Workers &#9432;</label>
+          <input type="range" id="sim-workers" min="1" max="${status && status.cpu_count ? status.cpu_count : 4}" value="${localStorage.getItem('sim-workers') || (status && status.cpu_count ? status.cpu_count : 4)}"
+                 aria-describedby="workers-help" style="min-width:160px"
+                 title="1 = single-process (no overhead), max = all available CPU cores running trial batches in parallel">
+          <span id="workers-help" class="cutoff-label">${localStorage.getItem('sim-workers') || (status && status.cpu_count ? status.cpu_count : 4)} cores</span>
+        </div>
       </div>
       <div class="control-group">
         <button id="btn-run-simulation" class="btn btn-primary" type="button">
@@ -98,6 +105,15 @@ async function renderSimulation(contentEl) {
     const val = (parseInt(noiseSlider.value, 10) / 100).toFixed(2);
     const label = parseFloat(val) <= 0.05 ? "no noise (pure strength)" : parseFloat(val) <= 0.15 ? "low variance" : parseFloat(val) <= 0.25 ? "moderate variance" : parseFloat(val) <= 0.4 ? "high variance" : "very chaotic";
     noiseHelp.textContent = val + " — " + label;
+  });
+
+  // Wire up workers slider
+  const workersSlider = document.getElementById("sim-workers");
+  const workersHelp = document.getElementById("workers-help");
+  workersSlider.addEventListener("input", () => {
+    const val = parseInt(workersSlider.value, 10);
+    workersHelp.textContent = val === 1 ? "1 core (no parallelism)" : val + " cores";
+    localStorage.setItem('sim-workers', val);
   });
 
   // Live-updating total game simulations display
@@ -166,13 +182,17 @@ async function _handleRunSimulation() {
   const noiseSlider = document.getElementById("sim-noise");
   const noise = parseInt(noiseSlider.value, 10) / 100;
 
+  // Parse num_workers from slider
+  const workersInput = document.getElementById("sim-workers");
+  const numWorkers = parseInt(workersInput.value, 10);
+
   // Show progress
   progressEl.hidden = false;
   overlayEl.hidden = false;
   runBtn.disabled = true;
 
   try {
-    const results = await API.runSimulation(iterations, cutoffWeek, noise);
+    const results = await API.runSimulation(iterations, cutoffWeek, noise, numWorkers);
     window._simulationResults = results;
     App.showInfo("Simulation complete.");
     App.navigate("results");
