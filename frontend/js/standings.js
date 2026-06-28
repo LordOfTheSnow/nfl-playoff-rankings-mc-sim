@@ -445,7 +445,6 @@ function buildStatusPanel(status) {
     return panel;
   }
 
-  const pctFetched = Math.round((status.total_games / status.expected_total) * 100);
   const gamesPerWeek = status.games_per_week || {};
 
   let html = '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:1rem">';
@@ -453,15 +452,14 @@ function buildStatusPanel(status) {
   // Left: data status
   html += '<div>';
   html += '<h2 style="font-size:1.1rem;margin-bottom:0.5rem">Season ' + status.season_year + ' Data</h2>';
+  var pctCompleted = status.expected_total > 0 ? Math.round(((status.completed || 0) / status.expected_total) * 100) : 0;
   html += '<div style="display:flex;gap:1.5rem;flex-wrap:wrap;font-size:0.85rem">';
-  html += '<span><strong>Weeks:</strong> ' + status.weeks_fetched + ' of 18</span>';
-  html += '<span><strong>Games:</strong> ' + status.total_games + ' / ' + status.expected_total + ' (' + pctFetched + '%)</span>';
-  html += '<span style="color:var(--color-success)"><strong>Completed:</strong> ' + status.completed + '</span>';
+  html += '<span><strong>Weeks loaded:</strong> ' + status.weeks_fetched + ' of 18</span>';
+  html += '<span><strong>Weeks completed:</strong> ' + (status.weeks_completed || 0) + ' of 18</span>';
+  html += '<span><strong>Games loaded:</strong> ' + status.total_games + ' of ' + status.expected_total + '</span>';
+  html += '<span><strong>Games completed:</strong> ' + (status.completed || 0) + ' of ' + status.expected_total + ' (' + pctCompleted + '%)</span>';
   if (status.in_progress > 0) {
     html += '<span style="color:var(--color-warning)"><strong>In Progress:</strong> ' + status.in_progress + '</span>';
-  }
-  if (status.scheduled > 0) {
-    html += '<span style="color:var(--color-text-muted)"><strong>Scheduled:</strong> ' + status.scheduled + '</span>';
   }
   html += '</div>';
   if (status.last_fetch_time) {

@@ -27,6 +27,17 @@ ALL_TEAMS: list[str] = [
     for team in division
 ]
 
+TEAM_ABBREVIATIONS: dict[str, str] = {
+    "Bills": "BUF", "Dolphins": "MIA", "Patriots": "NE", "Jets": "NYJ",
+    "Ravens": "BAL", "Bengals": "CIN", "Browns": "CLE", "Steelers": "PIT",
+    "Texans": "HOU", "Colts": "IND", "Jaguars": "JAX", "Titans": "TEN",
+    "Chiefs": "KC", "Broncos": "DEN", "Chargers": "LAC", "Raiders": "LV",
+    "Cowboys": "DAL", "Eagles": "PHI", "Giants": "NYG", "Commanders": "WSH",
+    "Bears": "CHI", "Lions": "DET", "Packers": "GB", "Vikings": "MIN",
+    "Falcons": "ATL", "Panthers": "CAR", "Saints": "NO", "Buccaneers": "TB",
+    "Cardinals": "ARI", "Rams": "LAR", "49ers": "SF", "Seahawks": "SEA",
+}
+
 CONFERENCES: list[str] = list(NFL_TEAMS.keys())
 DIVISIONS: list[str] = ["East", "North", "South", "West"]
 
@@ -52,3 +63,8 @@ def get_team_division(team: str) -> tuple[str, str] | None:
             if team in division_teams:
                 return (conference_name, division_name)
     return None
+
+
+def get_team_abbreviation(team: str) -> str | None:
+    """Look up the abbreviation for a team name."""
+    return TEAM_ABBREVIATIONS.get(team)

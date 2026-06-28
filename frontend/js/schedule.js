@@ -45,12 +45,12 @@ function renderScheduleContent(contentEl, data) {
 
   // Back navigation link
   const backLink = document.createElement("a");
-  backLink.href = "#standings";
+  backLink.href = "#";
   backLink.className = "back-link";
-  backLink.textContent = "\u2190 Back to Standings";
+  backLink.textContent = "\u2190 Back";
   backLink.addEventListener("click", function (e) {
     e.preventDefault();
-    App.navigate("standings");
+    history.back();
   });
   contentEl.appendChild(backLink);
 

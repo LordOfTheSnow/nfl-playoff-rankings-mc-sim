@@ -7,6 +7,7 @@
  * Routes:
  *   #standings      — Standings view (default)
  *   #team/<name>    — Team schedule view
+ *   #schedule-grid  — League-wide schedule grid
  *   #simulate       — Simulation controls
  *   #results        — Simulation results
  *
@@ -123,7 +124,7 @@ const App = (() => {
     }
 
     // Known routes
-    const knownRoutes = ["standings", "simulate", "results", "statistics"];
+    const knownRoutes = ["standings", "simulate", "results", "statistics", "schedule-grid"];
     if (knownRoutes.includes(hash)) {
       return { view: hash, param: null };
     }
@@ -180,6 +181,12 @@ const App = (() => {
         case "simulate":
           // Redirect to standings (controls are now there)
           App.navigate("standings");
+          break;
+
+        case "schedule-grid":
+          if (typeof renderScheduleGrid === "function") {
+            await renderScheduleGrid(contentEl);
+          }
           break;
 
         case "statistics":

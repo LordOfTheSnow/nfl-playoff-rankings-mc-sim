@@ -23,8 +23,8 @@ from typing import Any
 from urllib.parse import unquote
 
 from src.cache import Cache
-from src.data_client import DataClient, FetchResult, GameStatus
-from src.nfl_teams import ALL_TEAMS
+from src.data_client import DataClient, FetchResult, Game, GameStatus
+from src.nfl_teams import ALL_TEAMS, get_team_abbreviation
 from src.simulator import SimulationConfig, Simulator, SimulationResult
 from src.standings import compute_standings, determine_playoff_bracket
 
@@ -116,6 +116,88 @@ def _serialize_simulation_result(result: SimulationResult) -> dict[str, Any]:
     }
 
 
+def _build_schedule_grid(games: list[Game], all_teams: list[str]) -> list[dict[str, Any]]:
+    """Build schedule grid data from raw game list.
+
+    Args:
+        games: All games for a season (from cache).
+        all_teams: List of all 32 team names.
+
+    Returns:
+        List of 32 team entries, each containing:
+        - team: full team name (e.g., "Bills")
+        - abbreviation: short ID (e.g., "BUF")
+        - weeks: list of 18 entries (index 0 = week 1), each null for bye or:
+          - opponent: abbreviation of opponent
+          - home: boolean (true = home game)
+          - status: "scheduled" | "in-progress" | "completed"
+          - team_score: int | null
+          - opponent_score: int | null
+    """
+    # Status mapping from GameStatus enum values to grid API values
+    _STATUS_MAP: dict[str, str] = {
+        GameStatus.SCHEDULED.value: "scheduled",
+        GameStatus.IN_PROGRESS.value: "in-progress",
+        GameStatus.COMPLETED.value: "completed",
+    }
+
+    # Statuses to skip (leave as null/bye)
+    _SKIP_STATUSES = {GameStatus.POSTPONED, GameStatus.CANCELLED}
+
+    # Initialize 32 team entries with 18-element weeks arrays (all null)
+    grid: dict[str, dict[str, Any]] = {}
+    for team in all_teams:
+        abbr = get_team_abbreviation(team)
+        grid[team] = {
+            "team": team,
+            "abbreviation": abbr,
+            "weeks": [None] * 18,
+        }
+
+    # Populate grid from games
+    for game in games:
+        # Skip postponed/cancelled games
+        if game.status in _SKIP_STATUSES:
+            continue
+
+        # Validate week is in range 1-18
+        if game.week < 1 or game.week > 18:
+            continue
+
+        week_index = game.week - 1
+        status = _STATUS_MAP.get(game.status.value)
+        if status is None:
+            continue
+
+        home_abbr = get_team_abbreviation(game.home_team)
+        away_abbr = get_team_abbreviation(game.away_team)
+
+        # Populate from home team's perspective
+        if game.home_team in grid:
+            grid[game.home_team]["weeks"][week_index] = {
+                "opponent": away_abbr,
+                "home": True,
+                "status": status,
+                "team_score": game.home_score,
+                "opponent_score": game.away_score,
+            }
+
+        # Populate from away team's perspective
+        if game.away_team in grid:
+            grid[game.away_team]["weeks"][week_index] = {
+                "opponent": home_abbr,
+                "home": False,
+                "status": status,
+                "team_score": game.away_score,
+                "opponent_score": game.home_score,
+            }
+
+    # Sort team entries alphabetically by abbreviation
+    entries = list(grid.values())
+    entries.sort(key=lambda entry: entry["abbreviation"])
+    return entries
+
+
 class NFLRequestHandler(BaseHTTPRequestHandler):
     """HTTP request handler for the NFL Simulator REST API and static files.
 
@@ -189,6 +271,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             self._handle_get_standings()
         elif path == "/api/statistics":
             self._handle_get_statistics()
+        elif path == "/api/schedule-grid":
+            self._handle_get_schedule_grid()
         elif path.startswith("/api/team/"):
             team_name = path[len("/api/team/"):]
             self._handle_get_team(team_name)
@@ -235,6 +319,18 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             for g in games:
                 games_per_week[g.week] = games_per_week.get(g.week, 0) + 1
 
+            # Count weeks where all games are completed
+            completed_per_week: dict[int, int] = {}
+            total_per_week: dict[int, int] = {}
+            for g in games:
+                total_per_week[g.week] = total_per_week.get(g.week, 0) + 1
+                if g.status == GameStatus.COMPLETED:
+                    completed_per_week[g.week] = completed_per_week.get(g.week, 0) + 1
+            weeks_completed = sum(
+                1 for w in total_per_week
+                if completed_per_week.get(w, 0) == total_per_week[w]
+            )
+
             # Total expected games in a full NFL season: 272 (16 games per week × 17 weeks, but actually varies)
             # Use 272 as the standard regular season total
             expected_total = 272
@@ -250,6 +346,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 "total_games": total,
                 "expected_total": expected_total,
                 "weeks_fetched": len(weeks_with_games),
+                "weeks_completed": weeks_completed,
                 "weeks_with_games": weeks_with_games,
                 "games_per_week": games_per_week,
                 "cpu_count": os.cpu_count() or 1,
@@ -773,6 +870,22 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             logger.exception("Error computing standings")
             self._send_error_response(500, "Error computing standings", str(e))
 
+    def _handle_get_schedule_grid(self) -> None:
+        """Handle GET /api/schedule-grid — return league-wide schedule grid data."""
+        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
+
+        try:
+            games = server.cache.get_games(server.season_year)
+            if not games:
+                self._send_error_response(404, "No schedule data available.")
+                return
+
+            grid = _build_schedule_grid(games, list(ALL_TEAMS))
+            self._send_json_response(200, {"teams": grid})
+        except Exception as e:
+            logger.exception("Error building schedule grid")
+            self._send_error_response(500, "Internal server error", str(e))
+
     def _handle_get_statistics(self) -> None:
         """Handle GET /api/statistics — return season-wide statistics."""
         server: NFLSimulatorServer = self.server  # type: ignore[assignment]
@@ -1141,7 +1254,7 @@ class NFLSimulatorServer(HTTPServer):
         """
         port = self.server_address[1]
         print(f"http://localhost:{port}")
-        logger.info("NFL Simulator server started on port %d (season %d)", port, self.season_year)
+        logger.info("NFL Playoff Ranking Simulator server v%s started on port %d (season %d)", self.version, port, self.season_year)
         try:
             self.serve_forever()
         except KeyboardInterrupt:

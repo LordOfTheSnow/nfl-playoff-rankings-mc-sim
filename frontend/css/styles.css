@@ -221,6 +221,23 @@ td.numeric {
     height: 28px;
 }
 
+/* --- Schedule Grid --- */
+.schedule-grid-wrapper {
+    overflow-x: auto;
+}
+
+.schedule-grid {
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
+.schedule-grid td,
+.schedule-grid th {
+    padding: 0.25rem;
+    vertical-align: middle;
+    text-align: center;
+}
+
 /* --- Responsive: wider container at large viewports --- */
 @media (min-width: 1600px) {
     .container-xl {

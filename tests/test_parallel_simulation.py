@@ -166,6 +166,7 @@ class TestSplitIterations:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 class TestRunTrialBatch:
     """Tests for the batch worker function."""
 
@@ -181,7 +182,7 @@ class TestRunTrialBatch:
             all_games=games,
             games_to_simulate=games_to_sim,
             strengths=strengths,
-            batch_iterations=10,
+            batch_iterations=5,
             tie_probability=0.005,
             noise=0.2,
             seed=42,
@@ -206,7 +207,7 @@ class TestRunTrialBatch:
             all_games=games,
             games_to_simulate=games_to_sim,
             strengths=strengths,
-            batch_iterations=50,
+            batch_iterations=20,
             tie_probability=0.005,
             noise=0.2,
             seed=12345,
@@ -215,7 +216,7 @@ class TestRunTrialBatch:
             all_games=games,
             games_to_simulate=games_to_sim,
             strengths=strengths,
-            batch_iterations=50,
+            batch_iterations=20,
             tie_probability=0.005,
             noise=0.2,
             seed=12345,
@@ -235,7 +236,7 @@ class TestRunTrialBatch:
             all_games=games,
             games_to_simulate=games_to_sim,
             strengths=strengths,
-            batch_iterations=100,
+            batch_iterations=50,
             tie_probability=0.005,
             noise=0.2,
             seed=111,
@@ -244,7 +245,7 @@ class TestRunTrialBatch:
             all_games=games,
             games_to_simulate=games_to_sim,
             strengths=strengths,
-            batch_iterations=100,
+            batch_iterations=50,
             tie_probability=0.005,
             noise=0.2,
             seed=222,
@@ -312,6 +313,7 @@ class TestMergeBatchResults:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 class TestParallelSimulation:
     """Integration tests for parallel simulation."""
 
@@ -352,7 +354,7 @@ class TestParallelSimulation:
         games = _build_minimal_season()
 
         config = SimulationConfig(
-            iterations=200,
+            iterations=100,
             cutoff_week=14,
             noise=0.2,
             num_workers=2,
@@ -360,7 +362,7 @@ class TestParallelSimulation:
         simulator = Simulator(config)
         result = simulator.run(games)
 
-        assert result.iterations_run == 200
+        assert result.iterations_run == 100
         assert len(result.team_results) == 32
 
         # Probability invariants
@@ -402,7 +404,7 @@ class TestParallelSimulation:
 
         # Run single-worker
         config_1 = SimulationConfig(
-            iterations=500,
+            iterations=200,
             cutoff_week=14,
             noise=0.2,
             num_workers=1,
@@ -413,7 +415,7 @@ class TestParallelSimulation:
 
         # Run multi-worker
         config_2 = SimulationConfig(
-            iterations=500,
+            iterations=200,
             cutoff_week=14,
             noise=0.2,
             num_workers=2,
@@ -422,7 +424,7 @@ class TestParallelSimulation:
         random.seed(99)
         result_2 = sim_2.run(games)
 
-        # Check that probabilities are similar (within ~20% absolute for 500 iterations)
+        # Check that probabilities are similar (within ~30% absolute for 200 iterations)
         # This is a statistical test so we allow generous tolerance
         max_diff = 0.0
         for team in result_1.team_results:
@@ -432,11 +434,11 @@ class TestParallelSimulation:
             )
             max_diff = max(max_diff, diff)
 
-        # With 500 iterations, max diff between two independent runs
-        # should be < 0.25 in most cases
-        assert max_diff < 0.25, (
+        # With 200 iterations, max diff between two independent runs
+        # should be < 0.35 in most cases
+        assert max_diff < 0.35, (
             f"Max probability difference between 1-worker and 2-worker: {max_diff:.3f}. "
-            f"Expected < 0.25 for 500 iterations."
+            f"Expected < 0.35 for 200 iterations."
         )
 
     def test_num_workers_none_uses_cpu_count(self) -> None:

@@ -166,6 +166,16 @@ const API = (() => {
     });
   }
 
+  /**
+   * Get league-wide schedule grid data for the current season.
+   * GET /api/schedule-grid
+   *
+   * @returns {Promise<{teams: Object[]}>}
+   */
+  function getScheduleGrid() {
+    return request("/api/schedule-grid");
+  }
+
   return {
     fetchStatus,
     fetchData,
@@ -175,5 +185,6 @@ const API = (() => {
     getStatistics,
     analyzePath,
     guaranteedPath,
+    getScheduleGrid,
   };
 })();

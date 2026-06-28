@@ -65,6 +65,7 @@ beforeAll(() => {
   loadScript("app.js");
   loadScript("standings.js");
   loadScript("schedule.js");
+  loadScript("schedule-grid.js");
   loadScript("simulation.js");
   loadScript("statistics.js");
   loadScript("charts.js");

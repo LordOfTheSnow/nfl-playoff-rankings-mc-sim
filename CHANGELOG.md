@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-28
+
+### Added
+
+- League-wide schedule grid view (`#schedule-grid`) showing all 32 teams × 18 weeks with opponent abbreviations, home/away indicators, bye weeks, and scores for completed games
+- Backend API endpoint `GET /api/schedule-grid` serving structured schedule data
+- "Schedule" navigation link in the navbar (between Standings and Statistics)
+- Team abbreviation mapping and `get_team_abbreviation()` helper in `nfl_teams.py`
+- Property-based tests for the schedule grid: 1 backend (hypothesis) + 5 frontend (fast-check)
+- "Weeks completed" and "Games completed" stats on the standings page data panel
+- Version number in server startup log message
+- README screenshot showing the Ravens' playoff path analysis
+- Schedule Grid section in README
+
+### Changed
+
+- Standings data panel: split "Weeks" into "Weeks loaded" / "Weeks completed", split "Games" into "Games loaded" / "Games completed (X%)", removed redundant "Scheduled" counter
+- Team detail back link now uses `history.back()` instead of always navigating to standings
+- Playoff path analysis: team's own games now highlighted with Bootstrap `table-info` class (visible blue) instead of CSS variable that was overridden by Bootstrap table styles
+- Slow parallel simulation integration tests marked with `@pytest.mark.slow` and excluded from default test runs (use `pytest -m slow` to run them explicitly)
+- Reduced iteration counts in parallel simulation tests for faster execution when run explicitly
+
+### Fixed
+
+- Game cells in schedule grid no longer link to team detail page (no game detail view exists)
+- Playoff path blue row highlighting now visible with Bootstrap table classes
+
 ## [0.2.1] - 2026-06-27
 
 ### Added
@@ -102,7 +129,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/releases/tag/v0.1.0

@@ -1,6 +1,6 @@
 # NFL Monte Carlo Playoff Ranking Simulator
 
-**v0.2.1**
+**v0.3.0**
 
 A web application that predicts NFL playoff probabilites using Monte Carlo simulation. It fetches real game data from ESPN's public API, computes strength-of-schedule-weighted team ratings, simulates remaining games, applies official NFL tiebreaker rules, and presents probability distributions through an interactive browser UI.
 
@@ -14,11 +14,18 @@ A web application that predicts NFL playoff probabilites using Monte Carlo simul
 - Parallel simulation across multiple CPU cores for faster execution
 - Full NFL tiebreaker implementation (head-to-head, division/conference record, strength of victory/schedule, point-based steps) with proper step labeling in standings display
 - Interactive standings view with team logos and tiebreaker annotations
+- League-wide schedule grid showing all 32 teams × 18 weeks with scores and bye weeks
 - Team schedule view with bye week display and per-week team strength tracking
 - Simulation results: playoff probabilities, seeding matrix, top scenarios
 - Local SQLite caching with TTL policies
 - Responsive UI built on Bootstrap 5.3.3 (CDN) with NFL-branded styling
 - No external runtime dependencies beyond httpx (for ESPN API calls)
+
+## Screenshot (2025 season)
+
+![Playoff Path Analysis for the Baltimore Ravens](frontend/img/screenshot-playoff-path-analysis.png)
+
+*Simulation results showing the Ravens' playoff path analysis — 10,000 iterations, cutoff week 14, season 2025.*
 
 ## Setup
 
@@ -123,6 +130,23 @@ Sub-linear scaling is expected due to process startup overhead and result mergin
 ### Platform notes
 
 On Linux, worker processes are created via `fork` (fast, copy-on-write memory). On Windows, `spawn` is used (slightly slower startup since each worker re-imports modules). Both produce identical simulation results.
+
+## Schedule Grid
+
+The Schedule view (`#schedule-grid`) provides a compact league-wide overview of the entire NFL season. All 32 teams are displayed as rows, sorted alphabetically by abbreviation, with weeks 1–18 as columns.
+
+### Cell contents
+
+- **Home games**: opponent abbreviation (e.g., "MIA")
+- **Away games**: "@" prefix (e.g., "@MIA")
+- **Bye weeks**: "BYE" in muted text
+- **Completed/in-progress games**: score displayed below the opponent (e.g., "24-17")
+
+Each team's name in the first column links to their detailed schedule page. The grid uses a compact font (0.75rem) and minimal padding so all 19 columns fit on screens 1280px or wider, with horizontal scrolling on smaller viewports.
+
+### Backend
+
+The grid data is served by `GET /api/schedule-grid`, which returns all 32 teams with their 18-week matchup arrays (opponent abbreviation, home/away flag, game status, and scores). The endpoint transforms cached game data into the grid structure in a single pass.
 
 ## Playoff Path Analysis
 

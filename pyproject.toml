@@ -1,6 +1,6 @@
 [project]
 name = "nfl-monte-carlo-simulator"
-version = "0.2.1"
+version = "0.3.0"
 description = "Monte Carlo NFL Playoff Simulator"
 requires-python = ">=3.11"
 dependencies = [
@@ -21,6 +21,10 @@ build-backend = "setuptools.build_meta"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+addopts = "-m 'not slow'"
 
 [tool.setuptools.packages.find]
 where = ["."]

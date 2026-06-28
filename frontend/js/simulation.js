@@ -655,7 +655,7 @@ function _renderPathResults(pathData) {
     const winner = g.is_tie ? "Tie" : _escapeHtml(g.required_winner || "");
     const matchup = _escapeHtml(g.home_team) + " vs " + _escapeHtml(g.away_team);
     const isOwn = g.involves_team;
-    const rowStyle = isOwn ? ' style="font-weight:600;background-color:var(--color-division-leader-bg)"' : '';
+    const rowStyle = isOwn ? ' class="table-info" style="font-weight:600"' : '';
     html += `<tr${rowStyle}>
       <td class="numeric-inline">${g.week}</td>
       <td>${matchup}</td>
