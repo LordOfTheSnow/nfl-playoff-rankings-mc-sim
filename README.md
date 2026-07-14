@@ -1,6 +1,6 @@
 # NFL Monte Carlo Playoff Ranking Simulator
 
-**v0.3.0**
+**v0.4.0**
 
 A web application that predicts NFL playoff probabilites using Monte Carlo simulation. It fetches real game data from ESPN's public API, computes strength-of-schedule-weighted team ratings, simulates remaining games, applies official NFL tiebreaker rules, and presents probability distributions through an interactive browser UI.
 
