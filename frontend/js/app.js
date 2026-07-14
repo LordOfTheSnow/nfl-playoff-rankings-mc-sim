@@ -235,16 +235,59 @@ const App = (() => {
     // Listen for hash changes
     window.addEventListener("hashchange", route);
 
-    // Display version from server
+    // Display version and initialize season selector from server
     API.fetchStatus().then(status => {
       const versionEl = document.getElementById("app-version");
       if (versionEl && status && status.version) {
         versionEl.textContent = "v" + status.version;
       }
-    }).catch(() => {});
+      if (status && status.season_year) {
+        initSeasonSelector(status.season_year);
+      }
+    }).catch(() => {
+      // Fallback: populate season selector with current year
+      initSeasonSelector(new Date().getFullYear());
+    });
 
     // Initial route
     route();
+  }
+
+  /**
+   * Initialize the season selector dropdown with year options and wire up change handler.
+   *
+   * @param {number} activeSeason - The currently active season year on the server.
+   */
+  function initSeasonSelector(activeSeason) {
+    const selector = document.getElementById("season-selector");
+    if (!selector) return;
+
+    // Populate options: current year down to 2020
+    const currentYear = new Date().getFullYear();
+    const startYear = Math.max(activeSeason, currentYear);
+    selector.innerHTML = "";
+    for (let y = startYear; y >= 2020; y--) {
+      const opt = document.createElement("option");
+      opt.value = y;
+      opt.textContent = y;
+      if (y === activeSeason) opt.selected = true;
+      selector.appendChild(opt);
+    }
+
+    // Handle season change
+    selector.addEventListener("change", async () => {
+      const newSeason = parseInt(selector.value, 10);
+      try {
+        await API.setSeason(newSeason);
+        showInfo("Season changed to " + newSeason + ". Click Fetch Data to load this season's games.");
+        // Re-route to refresh the current view with new season context
+        await route();
+      } catch (err) {
+        showError(err.message || "Failed to change season.");
+        // Revert selector to previous value
+        API.fetchStatus().then(s => { if (s) selector.value = s.season_year; }).catch(() => {});
+      }
+    });
   }
 
   // Initialize on DOMContentLoaded

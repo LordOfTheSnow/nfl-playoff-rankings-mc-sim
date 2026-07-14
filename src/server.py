@@ -293,6 +293,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             self._handle_post_analyze_path()
         elif path == "/api/guaranteed-path":
             self._handle_post_guaranteed_path()
+        elif path == "/api/set-season":
+            self._handle_post_set_season()
         elif path.startswith("/api/"):
             self._send_error_response(404, "Endpoint not found", f"No handler for POST {path}")
         else:
@@ -382,6 +384,28 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
         except Exception as e:
             logger.exception("Error fetching data")
             self._send_error_response(500, "ESPN API failure", str(e))
+
+    def _handle_post_set_season(self) -> None:
+        """Handle POST /api/set-season — change the active season year at runtime."""
+        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
+
+        body = self._parse_json_body()
+        if body is None:
+            self._send_error_response(400, "Invalid JSON in request body", "")
+            return
+
+        season = body.get("season")
+        if not isinstance(season, int) or season < 2000 or season > 2100:
+            self._send_error_response(
+                400,
+                "Invalid season parameter",
+                "season must be an integer between 2000 and 2100",
+            )
+            return
+
+        server.season_year = season
+        logger.info("Season changed to %d", season)
+        self._send_json_response(200, {"season_year": season})
 
     def _compute_weekly_strengths(self, server: "NFLSimulatorServer") -> None:
         """Pre-compute and store team strengths for each cutoff week (1-18).
@@ -1221,6 +1245,7 @@ class NFLSimulatorServer(HTTPServer):
         port: int = 8080,
         season_year: int | None = None,
         static_dir: str = "frontend",
+        db_path: str = "nfl_cache.db",
     ) -> None:
         """Initialize the server with configuration.
 
@@ -1228,13 +1253,14 @@ class NFLSimulatorServer(HTTPServer):
             port: Port number to listen on (default 8080).
             season_year: NFL season year (default: current year).
             static_dir: Directory containing frontend static files (default "frontend").
+            db_path: Path to the SQLite cache database file (default "nfl_cache.db").
         """
         if season_year is None:
             season_year = datetime.now().year
 
         self.season_year: int = season_year
         self.static_dir: str = static_dir
-        self.cache: Cache = Cache()
+        self.cache: Cache = Cache(db_path=db_path)
         self.data_client: DataClient = DataClient(self.cache)
 
         # Read version from package metadata
@@ -1296,6 +1322,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="frontend",
         help="Directory containing frontend static files (default: frontend)",
     )
+    parser.add_argument(
+        "--db-path",
+        type=str,
+        default="nfl_cache.db",
+        help="Path to the SQLite cache database file (default: nfl_cache.db)",
+    )
 
     return parser.parse_args(argv)
 
@@ -1323,6 +1355,7 @@ def main(argv: list[str] | None = None) -> None:
         port=args.port,
         season_year=args.season,
         static_dir=args.static_dir,
+        db_path=args.db_path,
     )
     server.start()
 

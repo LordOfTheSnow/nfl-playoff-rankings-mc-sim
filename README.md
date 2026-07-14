@@ -64,6 +64,31 @@ Then open http://localhost:8080 in your browser.
 3. Configure simulation parameters (iterations, cutoff week, noise) and click **Simulate**
 4. View results on the **Results** page — click any team for details
 
+## Docker (optional)
+
+Docker is entirely optional. The existing pip-based setup (virtual environment + `pip install`) described above remains fully supported and is the recommended workflow for local development.
+
+If you prefer running the app in a container:
+
+```bash
+# Build the image
+docker build -t nfl-mc-simulator .
+
+# Run with a bind mount (database file persists on your host)
+docker run -p 8080:8080 -v ./nfl_cache.db:/data/nfl_cache.db nfl-mc-simulator
+
+# Run with a named volume (Docker manages storage)
+docker run -p 8080:8080 -v nfl-data:/data nfl-mc-simulator
+
+# Map to a different host port (app always listens on 8080 inside the container)
+docker run -p 9090:8080 -e SEASON=2024 -v nfl-data:/data nfl-mc-simulator
+
+# Or use Docker Compose (builds, mounts volume, maps port 8080 automatically)
+docker compose up
+```
+
+The container always listens on port 8080 internally. Use Docker's `-p` flag to map any host port to it (e.g. `-p 9090:8080`). The environment variable `SEASON` (2000–2100) is optional and defaults to the current season. CLI arguments passed after the image name take precedence over environment variables.
+
 ## Team Strength Ratings
 
 The simulator computes team strength using an iterative strength-of-schedule algorithm. Ratings reflect not just win percentage, but the quality of opponents beaten.

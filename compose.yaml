@@ -1,0 +1,13 @@
+services:
+  simulator:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - SEASON=${SEASON:-}
+    volumes:
+      - nfl-data:/data
+    shm_size: "64m"
+
+volumes:
+  nfl-data:

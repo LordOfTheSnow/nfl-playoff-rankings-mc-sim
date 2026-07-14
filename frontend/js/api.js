@@ -176,6 +176,21 @@ const API = (() => {
     return request("/api/schedule-grid");
   }
 
+  /**
+   * Change the active season year on the server.
+   * POST /api/set-season
+   *
+   * @param {number} season - NFL season year (2000–2100).
+   * @returns {Promise<{season_year: number}>}
+   */
+  function setSeason(season) {
+    return request("/api/set-season", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ season }),
+    });
+  }
+
   return {
     fetchStatus,
     fetchData,
@@ -186,5 +201,6 @@ const API = (() => {
     analyzePath,
     guaranteedPath,
     getScheduleGrid,
+    setSeason,
   };
 })();

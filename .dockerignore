@@ -1,0 +1,10 @@
+.venv/
+.git/
+__pycache__/
+.hypothesis/
+.pytest_cache/
+.playwright-mcp/
+nfl_cache.db
+tests/
+*.pyc
+.env

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-14
+
+### Added
+
+- Docker containerization: multi-stage `Dockerfile` (python:3.14-slim builder + runtime), `compose.yaml`, and `docker-entrypoint.py` for running the app in a container
+- Named volume support for persistent SQLite database across container restarts
+- Season selector dropdown in the navbar allowing runtime season switching without restarting the server
+- Backend API endpoint `POST /api/set-season` for changing the active season year at runtime
+- Dependabot configuration for automated pip and Docker base image update PRs (`.github/dependabot.yml`)
+
+### Changed
+
+- Container always listens on fixed port 8080 internally; host port mapping via Docker `-p` flag only
+- `SEASON` environment variable remains supported as the startup default; UI selector overrides it at runtime
+- Removed `PORT` environment variable from Docker setup (unnecessary given Docker port mapping)
+
 ## [0.3.0] - 2026-06-28
 
 ### Added
