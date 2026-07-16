@@ -128,38 +128,31 @@ const API = (() => {
   }
 
   /**
-   * Analyze playoff path for a specific team.
-   * POST /api/analyze-path
+   * Get preflight estimate for clinching scenarios analysis.
+   * GET /api/clinch-estimate?team=<name>&cutoff_week=<n>
    *
    * @param {string} team - Team name.
-   * @param {number} iterations - Number of iterations for the path analysis.
-   * @param {number|null} cutoffWeek - Cutoff week or null for auto.
-   * @param {number} noise - Noise parameter.
-   * @returns {Promise<Object>} Path analysis data.
+   * @param {number|null} cutoffWeek - Cutoff week or null for auto-detect.
+   * @returns {Promise<{team: string, available: boolean, relevant_games: number, method: string, estimated_seconds: number}>}
    */
-  function analyzePath(team, iterations, cutoffWeek, noise) {
-    const body = { team, iterations };
-    if (cutoffWeek != null) body.cutoff_week = cutoffWeek;
-    if (noise != null) body.noise = noise;
-    return request("/api/analyze-path", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+  function clinchEstimate(team, cutoffWeek) {
+    let url = `/api/clinch-estimate?team=${encodeURIComponent(team)}`;
+    if (cutoffWeek != null) url += `&cutoff_week=${cutoffWeek}`;
+    return request(url);
   }
 
   /**
-   * Find guaranteed playoff path for a team.
-   * POST /api/guaranteed-path
+   * Compute clinching scenarios for a team.
+   * POST /api/clinching-scenarios
    *
    * @param {string} team - Team name.
-   * @param {number|null} cutoffWeek - Cutoff week or null for auto.
-   * @returns {Promise<Object>} Guaranteed path data.
+   * @param {number|null} cutoffWeek - Cutoff week or null for auto-detect.
+   * @returns {Promise<Object>} Clinching scenarios grouped by team record.
    */
-  function guaranteedPath(team, cutoffWeek) {
+  function clinchingScenarios(team, cutoffWeek) {
     const body = { team };
     if (cutoffWeek != null) body.cutoff_week = cutoffWeek;
-    return request("/api/guaranteed-path", {
+    return request("/api/clinching-scenarios", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -198,8 +191,8 @@ const API = (() => {
     getStandings,
     getTeamSchedule,
     getStatistics,
-    analyzePath,
-    guaranteedPath,
+    clinchEstimate,
+    clinchingScenarios,
     getScheduleGrid,
     setSeason,
   };

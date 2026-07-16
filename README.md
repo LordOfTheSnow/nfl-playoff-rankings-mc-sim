@@ -1,6 +1,6 @@
 # NFL Monte Carlo Playoff Ranking Simulator
 
-**v0.4.0**
+**v0.5.0**
 
 A web application that predicts NFL playoff probabilites using Monte Carlo simulation. It fetches real game data from ESPN's public API, computes strength-of-schedule-weighted team ratings, simulates remaining games, applies official NFL tiebreaker rules, and presents probability distributions through an interactive browser UI.
 
@@ -17,15 +17,17 @@ A web application that predicts NFL playoff probabilites using Monte Carlo simul
 - League-wide schedule grid showing all 32 teams × 18 weeks with scores and bye weeks
 - Team schedule view with bye week display and per-week team strength tracking
 - Simulation results: playoff probabilities, seeding matrix, top scenarios
+- Clinching scenarios solver: find all game-outcome combinations that guarantee a playoff spot (available after week 14)
+- Season selector in the navbar for switching seasons without restarting
 - Local SQLite caching with TTL policies
 - Responsive UI built on Bootstrap 5.3.3 (CDN) with NFL-branded styling
 - No external runtime dependencies beyond httpx (for ESPN API calls)
 
 ## Screenshot (2025 season)
 
-![Playoff Path Analysis for the Baltimore Ravens](frontend/img/screenshot-playoff-path-analysis.png)
+![Clinching Scenarios for the Baltimore Ravens](frontend/img/screenshot-clinching-scenarios.png)
 
-*Simulation results showing the Ravens' playoff path analysis — 10,000 iterations, cutoff week 14, season 2025.*
+*Clinching scenarios for the Ravens — season 2025, cutoff week 15, showing all paths to the playoffs grouped by remaining record.*
 
 ## Setup
 
@@ -173,49 +175,34 @@ Each team's name in the first column links to their detailed schedule page. The 
 
 The grid data is served by `GET /api/schedule-grid`, which returns all 32 teams with their 18-week matchup arrays (opponent abbreviation, home/away flag, game status, and scores). The endpoint transforms cached game data into the grid structure in a single pass.
 
-## Playoff Path Analysis
+## Clinching Scenarios Solver
 
-When viewing simulation results, clicking a team with < 75% playoff probability shows an "Analyze Playoff Path" button. This runs a focused mini-simulation with causality filtering to determine what game outcomes are needed for that team to make the playoffs.
-
-### How to read the results
-
-- **Games highlighted in blue** are the team's own games (must-wins)
-- **Other games** show which competitors need to lose
-- **Confidence %** shows how often that outcome appeared across all qualifying trials:
-  - **100%** = happened in every qualifying trial — essentially mandatory
-  - **75–99%** = needed in most paths, but a few alternative routes exist without it
-  - **60–75%** = helpful in the majority of paths, but other game outcomes can compensate
-
-If a game shows 76.5% confidence, it means in 23.5% of qualifying trials the opposite result happened but the team still made the playoffs through a different combination of other results.
-
-### Causality filtering
-
-Only games where flipping the outcome would actually change the team's playoff status are shown. This filters out correlation artifacts (e.g., "strong team beats weak team" outcomes that happen frequently regardless of their relevance to the target team).
-
-Note: For very low-probability teams (< 2%), the analysis is based on few qualifying trials and may be less stable. More iterations in the main simulation produce more reliable path data.
-
-## Guaranteed Path Solver
-
-In addition to the statistical path analysis, the app includes a deterministic "Find Guaranteed Path" solver. This uses a constraint-based approach (not Monte Carlo) to find the **minimal set of game outcomes** that guarantees the team a playoff spot.
+When viewing simulation results, clicking a team with playoff probability between 0% and 100% shows a "Clinching Scenarios" button. This computes all minimal sets of game-outcome conditions that guarantee the team a playoff spot. Available after week 14 only.
 
 ### How it works
 
-1. Assumes the team wins all their remaining games
-2. Checks if that alone is enough to clinch (if so, no help needed)
-3. If not, iteratively searches for the smallest combination of competitor losses that guarantees qualification
-4. Verifies each candidate using the full standings engine with tiebreakers
+1. Identifies contenders: same-conference teams not mathematically eliminated
+2. Prunes to relevant games: any remaining game where at least one team is a contender
+3. Groups results by the target team's own remaining record (e.g., 3-1, 2-2, 1-3)
+4. For each possible team record, finds all qualifying universes:
+   - If relevant other games ≤ 13: full enumeration (3 outcomes per game: win/loss/tie)
+   - If > 13: strength-weighted Monte Carlo sampling (10,000 trials per game-level combination), labeled as non-exhaustive
+5. Reduces each qualifying universe to a strictly minimal condition set (every condition is necessary — removing any one breaks the guarantee)
+6. Deduplicates and sorts by fewest conditions first
 
 ### How to read the results
 
-- **"Team must win all remaining games"** — the team's own games are always required
-- **"Other required results"** — specific games where a competitor must lose, shown with both the required winner and the required loser
-- **"✓ Verified"** — the combination has been tested against the standings engine; if all these outcomes happen, the team is guaranteed a playoff spot regardless of all other game results
+- Results are grouped by the team's possible finish (e.g., "Finish 3-1" means the team wins 3 and loses 1 of their remaining games)
+- Each scenario within a group lists the specific other-game outcomes required
+- **Fewer conditions = simpler path** — scenarios are sorted simplest first
+- **"No path to playoffs"** means no combination of other results can save the team with that record
+- **"Clinches regardless"** means the team's own record alone is enough, no matter what else happens
 
 ### Limitations
 
-- The solver searches up to 6 forced outcomes (combinatorial search). If a team needs 7+ specific competitor losses, it reports that a path exists but is too complex to enumerate
-- Very early-season cutoffs (many weeks remaining) may have too many combinations to search efficiently
-- The solver assumes the team wins ALL remaining games — it doesn't find paths where the team can afford a loss
+- Only available after week 14 (hard gate) — earlier in the season the game space is too large for useful results
+- When Monte Carlo sampling is used (> 13 relevant games), results may not be exhaustive
+- Ties are included as possible outcomes, which increases the combinatorial space
 
 ## Running Tests
 

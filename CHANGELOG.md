@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-14
+
+### Added
+
+- Clinching scenarios solver (`src/clinching.py`): finds all minimal game-outcome combinations that guarantee a team a playoff spot
+  - Hybrid approach: full enumeration (3 outcomes per game) when ≤ 13 relevant games, strength-weighted Monte Carlo sampling (10,000 trials) otherwise
+  - Groups results by the team's own remaining record (e.g., 3-1, 2-2, 1-3)
+  - Strict minimality: every condition in a scenario is necessary — removing any one breaks the guarantee
+  - Parallelized across CPU cores using the existing multiprocessing pattern
+  - Hard gate: only available after week 14 (game space too large earlier)
+- Preflight estimate endpoint `GET /api/clinch-estimate?team=<name>&cutoff_week=<n>` returns method, relevant game count, and estimated runtime before the user commits to the computation
+- Backend endpoint `POST /api/clinching-scenarios` replaces both old path analysis endpoints
+- UI: "Clinching Scenarios" button on the simulation results page for teams with 0% < playoff probability < 100%
+- UI: spinning status indicator with elapsed timer and descriptive phase messages during computation
+- UI: results rendered as collapsible record groups sorted by fewest conditions first
+
+### Changed
+
+- Replaced the old Playoff Path Analysis (Monte Carlo causality-filtered) and Guaranteed Path Solver (combinatorial iterative deepening) with the unified Clinching Scenarios Solver
+- Removed `POST /api/analyze-path` and `POST /api/guaranteed-path` endpoints
+- Removed `src/elimination.py` module (old guaranteed path solver)
+- Removed `Simulator.analyze_path()` method from `src/simulator.py`
+- Updated README screenshot and documentation to reflect the new feature
+
 ## [0.4.0] - 2026-07-14
 
 ### Added
@@ -145,7 +169,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.2.0...v0.2.1

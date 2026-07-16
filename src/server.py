@@ -273,6 +273,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             self._handle_get_statistics()
         elif path == "/api/schedule-grid":
             self._handle_get_schedule_grid()
+        elif path.startswith("/api/clinch-estimate"):
+            self._handle_get_clinch_estimate()
         elif path.startswith("/api/team/"):
             team_name = path[len("/api/team/"):]
             self._handle_get_team(team_name)
@@ -289,10 +291,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             self._handle_post_fetch_data()
         elif path == "/api/simulate":
             self._handle_post_simulate()
-        elif path == "/api/analyze-path":
-            self._handle_post_analyze_path()
-        elif path == "/api/guaranteed-path":
-            self._handle_post_guaranteed_path()
+        elif path == "/api/clinching-scenarios":
+            self._handle_post_clinching_scenarios()
         elif path == "/api/set-season":
             self._handle_post_set_season()
         elif path.startswith("/api/"):
@@ -407,6 +407,167 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
         logger.info("Season changed to %d", season)
         self._send_json_response(200, {"season_year": season})
 
+    def _handle_get_clinch_estimate(self) -> None:
+        """Handle GET /api/clinch-estimate?team=<name> — preflight estimate."""
+        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
+
+        # Parse query parameter
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(self.path)
+        params = parse_qs(parsed.query)
+        team_list = params.get("team", [])
+
+        if not team_list or not team_list[0]:
+            self._send_error_response(400, "Missing team parameter", "Usage: /api/clinch-estimate?team=Bills")
+            return
+
+        team = unquote(team_list[0])
+        from src.nfl_teams import ALL_TEAMS
+        if team not in ALL_TEAMS:
+            self._send_error_response(400, "Invalid team name", f"Valid teams: {', '.join(sorted(ALL_TEAMS))}")
+            return
+
+        games = server.cache.get_games(server.season_year)
+        if not games:
+            self._send_error_response(409, "No cached data available", "Fetch data first.")
+            return
+
+        # Use cutoff_week from query param if provided, otherwise auto-detect
+        cutoff_list = params.get("cutoff_week", [])
+        if cutoff_list and cutoff_list[0]:
+            try:
+                cutoff_week = int(cutoff_list[0])
+            except ValueError:
+                cutoff_week = 0
+        else:
+            # Auto-detect: latest fully completed week
+            completed_weeks = set()
+            week_counts: dict[int, int] = {}
+            week_completed: dict[int, int] = {}
+            for g in games:
+                week_counts[g.week] = week_counts.get(g.week, 0) + 1
+                if g.status == GameStatus.COMPLETED:
+                    week_completed[g.week] = week_completed.get(g.week, 0) + 1
+            for w in week_counts:
+                if week_completed.get(w, 0) == week_counts[w]:
+                    completed_weeks.add(w)
+            cutoff_week = max(completed_weeks) if completed_weeks else 0
+
+        from src.clinching import estimate_clinching
+        result = estimate_clinching(team, games, cutoff_week)
+        result["cutoff_week"] = cutoff_week
+        self._send_json_response(200, result)
+
+    def _handle_post_clinching_scenarios(self) -> None:
+        """Handle POST /api/clinching-scenarios — compute clinching scenarios for a team."""
+        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
+
+        body = self._parse_json_body()
+        if body is None:
+            self._send_error_response(400, "Invalid JSON in request body", "")
+            return
+
+        team = body.get("team")
+        from src.nfl_teams import ALL_TEAMS
+        if not team or team not in ALL_TEAMS:
+            self._send_error_response(400, "Invalid team name", f"Valid teams: {', '.join(sorted(ALL_TEAMS))}")
+            return
+
+        games = server.cache.get_games(server.season_year)
+        if not games:
+            self._send_error_response(409, "No cached data available", "Fetch data first.")
+            return
+
+        # Use cutoff_week from body if provided, otherwise auto-detect
+        cutoff_week = body.get("cutoff_week")
+        if cutoff_week is None:
+            # Auto-detect: latest fully completed week
+            week_counts: dict[int, int] = {}
+            week_completed: dict[int, int] = {}
+            for g in games:
+                week_counts[g.week] = week_counts.get(g.week, 0) + 1
+                if g.status == GameStatus.COMPLETED:
+                    week_completed[g.week] = week_completed.get(g.week, 0) + 1
+            completed_weeks = set()
+            for w in week_counts:
+                if week_completed.get(w, 0) == week_counts[w]:
+                    completed_weeks.add(w)
+            cutoff_week = max(completed_weeks) if completed_weeks else 0
+
+        if not isinstance(cutoff_week, int) or cutoff_week < 14 or cutoff_week > 18:
+            self._send_error_response(
+                400,
+                "Clinching scenarios are only available after week 14.",
+                f"cutoff_week must be 14-18, got: {cutoff_week}",
+            )
+            return
+
+        try:
+            from src.clinching import compute_clinching_scenarios
+            result = compute_clinching_scenarios(team, games, cutoff_week)
+
+            if result.error:
+                self._send_error_response(400, result.error, "")
+                return
+
+            # Serialize result
+            response = self._serialize_clinching_result(result)
+            response["cutoff_week"] = cutoff_week
+            self._send_json_response(200, response)
+        except Exception as e:
+            logger.exception("Error computing clinching scenarios")
+            self._send_error_response(500, "Clinching analysis error", str(e))
+
+    def _serialize_clinching_result(self, result: Any) -> dict[str, Any]:
+        """Serialize a ClinchingResult to a JSON-compatible dictionary."""
+        record_groups = []
+        for rg in result.record_groups:
+            team_games = [
+                {
+                    "game_id": c.game_id,
+                    "week": c.week,
+                    "home_team": c.home_team,
+                    "away_team": c.away_team,
+                    "required_winner": c.required_winner,
+                    "is_tie": c.is_tie,
+                }
+                for c in rg.team_games
+            ]
+            scenarios = []
+            for s in rg.scenarios:
+                conditions = [
+                    {
+                        "game_id": c.game_id,
+                        "week": c.week,
+                        "home_team": c.home_team,
+                        "away_team": c.away_team,
+                        "required_winner": c.required_winner,
+                        "is_tie": c.is_tie,
+                    }
+                    for c in s.conditions
+                ]
+                scenarios.append({
+                    "conditions": conditions,
+                    "num_conditions": s.num_conditions,
+                })
+            record_groups.append({
+                "wins": rg.wins,
+                "losses": rg.losses,
+                "ties": rg.ties,
+                "team_games": team_games,
+                "scenarios": scenarios,
+                "no_path": rg.no_path,
+            })
+
+        return {
+            "team": result.team,
+            "record_groups": record_groups,
+            "method": result.method,
+            "exhaustive": result.exhaustive,
+            "relevant_games_count": result.relevant_games_count,
+            "contenders": result.contenders,
+        }
+
     def _compute_weekly_strengths(self, server: "NFLSimulatorServer") -> None:
         """Pre-compute and store team strengths for each cutoff week (1-18).
 
@@ -430,99 +591,6 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             server.cache.store_weekly_strengths(server.season_year, week, strengths)
 
         logger.info("Pre-computed weekly strengths for weeks 1-18")
-
-    def _handle_post_analyze_path(self) -> None:
-        """Handle POST /api/analyze-path — on-demand playoff path analysis for a team."""
-        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
-
-        body = self._parse_json_body()
-        if body is None:
-            self._send_error_response(400, "Invalid JSON in request body", "")
-            return
-
-        team = body.get("team")
-        iterations = body.get("iterations", 1000)
-        cutoff_week = body.get("cutoff_week", None)
-        noise = body.get("noise", 0.2)
-
-        if not team or team not in ALL_TEAMS:
-            self._send_error_response(400, "Invalid team name", f"Valid teams: {', '.join(sorted(ALL_TEAMS))}")
-            return
-
-        if not isinstance(iterations, int) or iterations < 100 or iterations > 1_000_000:
-            self._send_error_response(400, "Invalid iterations", "Must be 100-1,000,000")
-            return
-
-        games = server.cache.get_games(server.season_year)
-        if not games:
-            self._send_error_response(409, "No cached data", "Fetch data first")
-            return
-
-        try:
-            config = SimulationConfig(
-                iterations=iterations,
-                cutoff_week=cutoff_week,
-                noise=float(noise),
-            )
-            simulator = Simulator(config)
-            result = simulator.analyze_path(team, games)
-            self._send_json_response(200, result)
-        except ValueError as e:
-            self._send_error_response(400, "Invalid parameters", str(e))
-        except Exception as e:
-            logger.exception("Error analyzing path")
-            self._send_error_response(500, "Path analysis error", str(e))
-
-    def _handle_post_guaranteed_path(self) -> None:
-        """Handle POST /api/guaranteed-path — find a deterministic path to playoffs."""
-        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
-
-        body = self._parse_json_body()
-        if body is None:
-            self._send_error_response(400, "Invalid JSON", "")
-            return
-
-        team = body.get("team")
-        cutoff_week = body.get("cutoff_week")
-
-        if not team or team not in ALL_TEAMS:
-            self._send_error_response(400, "Invalid team name", "")
-            return
-
-        if cutoff_week is not None and (not isinstance(cutoff_week, int) or cutoff_week < 1 or cutoff_week > 18):
-            self._send_error_response(400, "Invalid cutoff_week", "Must be 1-18")
-            return
-
-        games = server.cache.get_games(server.season_year)
-        if not games:
-            self._send_error_response(409, "No cached data", "Fetch data first")
-            return
-
-        # Auto-detect cutoff if not provided
-        if cutoff_week is None:
-            for week in range(18, 0, -1):
-                week_games = [g for g in games if g.week == week]
-                if week_games and all(g.status == GameStatus.COMPLETED for g in week_games):
-                    cutoff_week = week
-                    break
-            if cutoff_week is None:
-                cutoff_week = 0
-
-        try:
-            from src.elimination import find_guaranteed_path
-            result = find_guaranteed_path(team, games, cutoff_week)
-            response = {
-                "team": result.team,
-                "found_path": result.found_path,
-                "message": result.message,
-                "required_outcomes": result.required_outcomes,
-                "team_must_win": result.team_must_win,
-                "verified": result.verified,
-            }
-            self._send_json_response(200, response)
-        except Exception as e:
-            logger.exception("Error computing guaranteed path")
-            self._send_error_response(500, "Guaranteed path error", str(e))
 
     def _handle_post_simulate(self) -> None:
         """Handle POST /api/simulate — run Monte Carlo simulation."""
