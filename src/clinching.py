@@ -519,6 +519,45 @@ def _extract_minimal_scenarios(
     return scenarios
 
 
+def _remove_dominated_scenarios(scenarios: list[ClinchingScenario]) -> list[ClinchingScenario]:
+    """Remove scenarios whose conditions are a strict superset of another scenario.
+
+    If scenario A has conditions {X} and scenario B has conditions {X, Y, Z},
+    then B is redundant — A already guarantees the playoff spot with fewer
+    requirements.
+
+    Assumes scenarios are already sorted by num_conditions ascending.
+
+    Returns:
+        Filtered list with dominated scenarios removed.
+    """
+    if len(scenarios) <= 1:
+        return scenarios
+
+    # Build fingerprint sets for efficient subset checking
+    fps: list[frozenset[tuple[str, int]]] = []
+    for s in scenarios:
+        fp = frozenset(
+            (c.game_id, 2 if c.is_tie else (0 if c.required_winner == c.home_team else 1))
+            for c in s.conditions
+        )
+        fps.append(fp)
+
+    # Check each scenario against all simpler ones (fewer conditions)
+    keep: list[bool] = [True] * len(scenarios)
+    for i in range(len(scenarios)):
+        if not keep[i]:
+            continue
+        for j in range(i + 1, len(scenarios)):
+            if not keep[j]:
+                continue
+            # If fps[i] is a subset of fps[j], then j is dominated
+            if fps[i] <= fps[j]:
+                keep[j] = False
+
+    return [s for s, k in zip(scenarios, keep) if k]
+
+
 def _process_team_record_batch(args: tuple) -> list[dict[str, Any]]:
     """Worker function for parallel processing of team record groups.
 
@@ -548,17 +587,46 @@ def _process_team_record_batch(args: tuple) -> list[dict[str, Any]]:
                 "team_outcomes": team_outcomes,
                 "scenarios": [],
                 "no_path": True,
+                "clinches_regardless": False,
+            })
+            continue
+
+        # Check if team clinches regardless of other outcomes:
+        # - For enumeration: all possible universes qualified
+        # - For sampling: all samples qualified (strong indicator, not proof)
+        if not use_sampling:
+            total_universes = 3 ** len(other_games) if other_games else 1
+            clinches_regardless = (len(qualifying) == total_universes)
+        else:
+            # If every single sample qualified, it's very likely a true clinch
+            clinches_regardless = (len(qualifying) == MC_SAMPLES)
+
+        if clinches_regardless:
+            # No need for minimality reduction — team clinches no matter what
+            results.append({
+                "wins": wins, "losses": losses, "ties": ties,
+                "team_outcomes": team_outcomes,
+                "scenarios": [],
+                "no_path": False,
+                "clinches_regardless": True,
             })
             continue
 
         scenarios = _extract_minimal_scenarios(
             team, fixed_games, team_outcomes, other_games, qualifying
         )
+
+        # Filter out 0-condition scenarios — they are artifacts of the
+        # minimality check (no single flip matters, but multi-flip can).
+        # A true "clinches regardless" is handled above.
+        scenarios = [s for s in scenarios if s.num_conditions > 0]
+
         results.append({
             "wins": wins, "losses": losses, "ties": ties,
             "team_outcomes": team_outcomes,
             "scenarios": scenarios,
             "no_path": False,
+            "clinches_regardless": False,
         })
 
     return results
@@ -651,10 +719,16 @@ def compute_clinching_scenarios(
             raw_results.extend(batch)
 
     # Build RecordGroup objects, grouping by (wins, losses, ties)
+    # Track per-record: does EVERY combo clinch regardless, or just some?
     record_map: dict[tuple[int, int, int], RecordGroup] = {}
+    record_clinch_all: dict[tuple[int, int, int], bool] = {}  # all combos clinch?
+    record_clinch_any: dict[tuple[int, int, int], bool] = {}  # at least one clinches?
+    record_combo_count: dict[tuple[int, int, int], int] = {}
 
     for result in raw_results:
         key = (result["wins"], result["losses"], result["ties"])
+        record_combo_count[key] = record_combo_count.get(key, 0) + 1
+
         if key not in record_map:
             team_game_conditions = []
             for game_id, winner, is_tie in result["team_outcomes"]:
@@ -676,11 +750,19 @@ def compute_clinching_scenarios(
                 losses=result["losses"],
                 ties=result["ties"],
                 team_games=team_game_conditions,
-                scenarios=result["scenarios"],
+                scenarios=list(result["scenarios"]),
                 no_path=result["no_path"],
             )
+            record_clinch_all[key] = result.get("clinches_regardless", False)
+            record_clinch_any[key] = result.get("clinches_regardless", False)
         else:
             existing = record_map[key]
+            # Track clinch status across combos
+            if result.get("clinches_regardless", False):
+                record_clinch_any[key] = True
+            else:
+                record_clinch_all[key] = False
+
             if not result["no_path"]:
                 existing.no_path = False
                 existing_fps = {
@@ -705,7 +787,20 @@ def compute_clinching_scenarios(
     )
 
     for rg in record_groups:
+        key = (rg.wins, rg.losses, rg.ties)
         rg.scenarios.sort(key=lambda s: s.num_conditions)
+
+        # Only show "clinches regardless" if ALL game-level combos for this
+        # record clinch. If only some do, keep the conditional scenarios.
+        if record_clinch_all.get(key, False):
+            rg.scenarios = [ClinchingScenario(conditions=[], num_conditions=0)]
+        else:
+            # Remove any 0-condition artifacts
+            rg.scenarios = [s for s in rg.scenarios if s.num_conditions > 0]
+            # Remove scenarios that are strict supersets of simpler ones.
+            # If scenario A's conditions are a subset of scenario B's,
+            # then B is redundant (A already guarantees the outcome).
+            rg.scenarios = _remove_dominated_scenarios(rg.scenarios)
 
     return ClinchingResult(
         team=team,

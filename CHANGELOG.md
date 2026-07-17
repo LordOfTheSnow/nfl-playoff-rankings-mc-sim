@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.5.0] - 2026-07-14
+## [0.5.0] - 2026-07-17
 
 ### Added
 
@@ -30,6 +30,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed `src/elimination.py` module (old guaranteed path solver)
 - Removed `Simulator.analyze_path()` method from `src/simulator.py`
 - Updated README screenshot and documentation to reflect the new feature
+- "Top N Most Likely Playoff Scenarios" section is now collapsible (collapsed by default)
+- Disclaimer text moved into the navbar header below the title
+- Team logo displayed next to team name in the detail panel heading
+- Added spacing between the scenarios section and the team detail panel
+
+### Fixed
+
+- Clinching solver used game status to determine remaining games — failed on completed seasons with a retroactive cutoff week. Now uses week number purely.
+- `compute_standings` received only fixed games, causing simulated outcome game_ids to silently fail lookup. Now passes all games so the lookup works correctly.
+- False "Clinches regardless" displayed when the minimality check found no single necessary condition (but multi-game flips could still eliminate the team). Now only shown when ALL game-level combinations for a record truly clinch.
+- Redundant dominated scenarios shown (e.g., a 3-condition scenario that is a superset of a 1-condition scenario). Post-processing now removes scenarios whose conditions are a strict superset of a simpler scenario.
+- False "No path to playoffs" for some records due to testing only one game-level combination per W-L-T record. Now tests all combinations (tiebreakers depend on which specific games are won/lost).
+- Sampling used uniform random outcomes, making qualifying universes nearly impossible to find for teams with moderate playoff probability. Now uses strength-weighted sampling (same algorithm as the main simulator).
+- Performance: reduced from 100K to 10K MC samples, capped minimality reduction at 200 universes, and deduplicated team records — bringing runtime from hours to ~2 minutes.
 
 ## [0.4.0] - 2026-07-14
 

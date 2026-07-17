@@ -269,7 +269,7 @@ async function renderResults(contentEl) {
   html += _renderTopScenarios(results.top_scenarios);
 
   // Team detail panel (hidden initially, shown on team click)
-  html += `<div id="team-detail-panel" class="results-section" hidden></div>`;
+  html += `<div id="team-detail-panel" class="results-section" style="margin-top:2.5rem" hidden></div>`;
 
   contentEl.innerHTML = html;
 
@@ -413,7 +413,8 @@ function _renderTopScenarios(topScenarios) {
   const scenarios = topScenarios;
 
   let html = `<div class="results-section">
-    <h2>Top ${scenarios.length} Most Likely Playoff Scenarios</h2>
+    <details>
+    <summary><h2 style="display:inline">Top ${scenarios.length} Most Likely Playoff Scenarios</h2></summary>
     <ol class="scenario-list">`;
 
   for (let i = 0; i < scenarios.length; i++) {
@@ -431,7 +432,7 @@ function _renderTopScenarios(topScenarios) {
     </li>`;
   }
 
-  html += `</ol></div>`;
+  html += `</ol></details></div>`;
   return html;
 }
 
@@ -452,7 +453,9 @@ function _showTeamDetail(teamName, results) {
     return;
   }
 
-  let html = `<h2>${_escapeHtml(teamName)} — Details</h2>`;
+  const logoId = TEAM_LOGO_IDS[teamName] || "";
+  const logoHtml = logoId ? `<img src="img/logos/${logoId}.png" alt="${_escapeHtml(teamName)} logo" width="28" height="28" style="vertical-align:middle;margin-right:0.5rem">` : "";
+  let html = `<h2>${logoHtml}${_escapeHtml(teamName)} — Details</h2>`;
 
   // Team summary
   html += `<div class="card card-body mb-3">

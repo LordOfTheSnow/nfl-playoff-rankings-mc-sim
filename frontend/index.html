@@ -10,11 +10,14 @@
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark sticky-top" style="background-color:#1b3a6b">
         <div class="container-xl">
-            <a class="navbar-brand d-flex align-items-center gap-2" href="#standings">
-                <img src="img/logos/nfl.png" alt="NFL" width="32" height="32">
-                <span>NFL Monte Carlo Playoff Ranking Simulator</span>
-                <span id="app-version" class="ms-2" style="font-size:0.7rem;color:rgba(255,255,255,0.6)"></span>
-            </a>
+            <div class="d-flex flex-column">
+                <a class="navbar-brand d-flex align-items-center gap-2 mb-0" href="#standings">
+                    <img src="img/logos/nfl.png" alt="NFL" width="32" height="32">
+                    <span>NFL Monte Carlo Playoff Ranking Simulator</span>
+                    <span id="app-version" class="ms-2" style="font-size:0.7rem;color:rgba(255,255,255,0.6)"></span>
+                </a>
+                <span style="font-size:0.65rem;color:rgba(255,255,255,0.45);padding-left:2.75rem">This is an independent project not affiliated with the NFL or any official NFL service. All data is sourced from publicly available APIs.</span>
+            </div>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
                     data-bs-target="#navbarNav" aria-controls="navbarNav"
                     aria-expanded="false" aria-label="Toggle navigation">
@@ -35,11 +38,6 @@
             </div>
         </div>
     </nav>
-    <div class="header-disclaimer">
-        <div class="container-xl">
-            This is an independent project not affiliated with the NFL or any official NFL service. All data is sourced from publicly available APIs.
-        </div>
-    </div>
 
     <div id="notification" class="container-xl mt-2 d-none" role="alert" aria-live="polite"></div>
     <div id="loading" class="d-none" aria-label="Loading">Loading…</div>
