@@ -1,6 +1,6 @@
 # NFL Monte Carlo Playoff Ranking Simulator
 
-**v0.5.0**
+**v0.5.1**
 
 A web application that predicts NFL playoff probabilites using Monte Carlo simulation. It fetches real game data from ESPN's public API, computes strength-of-schedule-weighted team ratings, simulates remaining games, applies official NFL tiebreaker rules, and presents probability distributions through an interactive browser UI.
 
@@ -70,10 +70,17 @@ Then open http://localhost:8080 in your browser.
 
 Docker is entirely optional. The existing pip-based setup (virtual environment + `pip install`) described above remains fully supported and is the recommended workflow for local development.
 
-If you prefer running the app in a container:
+If you prefer running the app in a container, you can either pull the pre-built image from GitHub Container Registry or build locally:
 
 ```bash
-# Build the image
+# Pull the pre-built image (no build required)
+docker pull ghcr.io/lordofthesnow/nfl-playoff-rankings-mc-sim:latest
+```
+
+Images are built and published automatically via GitHub Actions whenever a version tag is pushed.
+
+```bash
+# Or build the image locally
 docker build -t nfl-mc-simulator .
 
 # Run with a bind mount (database file persists on your host)
