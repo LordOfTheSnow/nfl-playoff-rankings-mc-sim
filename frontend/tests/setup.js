@@ -58,6 +58,7 @@ beforeAll(() => {
     getStandings: () => Promise.resolve({ conferences: {} }),
     fetchData: () => Promise.resolve({ games_fetched: 0 }),
     runSimulation: () => Promise.resolve({}),
+    fetchCPClinchAll: () => Promise.resolve(null),
   };
 
   // Load app JS files in dependency order

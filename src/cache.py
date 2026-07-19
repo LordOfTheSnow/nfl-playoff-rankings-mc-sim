@@ -9,12 +9,14 @@ that DataClient depends on.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from src.cp_solver import CPSolverResult
     from src.data_client import Game
 
 logger = logging.getLogger(__name__)
@@ -86,6 +88,15 @@ class Cache:
                 team TEXT NOT NULL,
                 strength REAL NOT NULL,
                 PRIMARY KEY (year, week, team)
+            );
+
+            CREATE TABLE IF NOT EXISTS cp_solver_cache (
+                team TEXT NOT NULL,
+                cutoff_week INTEGER NOT NULL,
+                season INTEGER NOT NULL,
+                result_json TEXT NOT NULL,
+                computed_at TEXT NOT NULL,
+                PRIMARY KEY (team, cutoff_week, season)
             );
         """)
         self._conn.commit()
@@ -322,6 +333,98 @@ class Cache:
         if row and row["last_fetch"]:
             return datetime.fromisoformat(row["last_fetch"])
         return None
+
+    def store_cp_result(self, team: str, cutoff_week: int, season: int, result: CPSolverResult) -> None:
+        """Store a CP solver result in the cache.
+
+        Serializes the CPSolverResult to JSON and stores it keyed by
+        (team, cutoff_week, season). Uses INSERT OR REPLACE to handle
+        re-storing.
+
+        Args:
+            team: Team name.
+            cutoff_week: The cutoff week used for the solve.
+            season: The season year.
+            result: The CPSolverResult to cache.
+        """
+        from src.cp_solver import ClinchStatus
+
+        result_dict = {
+            "team": result.team,
+            "status": result.status.value,
+            "clinched": result.clinched,
+            "eliminated": result.eliminated,
+            "exhaustive": result.exhaustive,
+            "solve_time_ms": result.solve_time_ms,
+            "num_variables": result.num_variables,
+            "minimum_seed": result.minimum_seed,
+            "magic_number": result.magic_number,
+            "error": result.error,
+            "record_groups_completed": result.record_groups_completed,
+            "record_groups_total": result.record_groups_total,
+        }
+        result_json = json.dumps(result_dict)
+        now = datetime.now(UTC).isoformat()
+
+        self._conn.execute(
+            """INSERT OR REPLACE INTO cp_solver_cache
+               (team, cutoff_week, season, result_json, computed_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (team, cutoff_week, season, result_json, now),
+        )
+        self._conn.commit()
+
+    def get_cp_result(self, team: str, cutoff_week: int, season: int) -> CPSolverResult | None:
+        """Retrieve a cached CP solver result.
+
+        Deserializes the stored JSON back into a CPSolverResult.
+        Returns None if no cached result exists for the given key.
+
+        Args:
+            team: Team name.
+            cutoff_week: The cutoff week used for the solve.
+            season: The season year.
+
+        Returns:
+            The cached CPSolverResult, or None if not found.
+        """
+        from src.cp_solver import ClinchStatus, CPSolverResult
+
+        row = self._conn.execute(
+            "SELECT result_json FROM cp_solver_cache WHERE team = ? AND cutoff_week = ? AND season = ?",
+            (team, cutoff_week, season),
+        ).fetchone()
+
+        if row is None:
+            return None
+
+        data = json.loads(row["result_json"])
+        return CPSolverResult(
+            team=data["team"],
+            status=ClinchStatus(data["status"]),
+            clinched=data["clinched"],
+            eliminated=data["eliminated"],
+            exhaustive=data["exhaustive"],
+            solve_time_ms=data["solve_time_ms"],
+            num_variables=data["num_variables"],
+            minimum_seed=data["minimum_seed"],
+            magic_number=data["magic_number"],
+            error=data["error"],
+            record_groups_completed=data["record_groups_completed"],
+            record_groups_total=data["record_groups_total"],
+        )
+
+    def invalidate_cp_cache(self, season: int) -> None:
+        """Delete all cached CP solver results for a given season.
+
+        Args:
+            season: The season year whose cached results should be removed.
+        """
+        self._conn.execute(
+            "DELETE FROM cp_solver_cache WHERE season = ?",
+            (season,),
+        )
+        self._conn.commit()
 
     def close(self) -> None:
         """Close the database connection."""

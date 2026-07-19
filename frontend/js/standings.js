@@ -4,10 +4,17 @@
  * Displays current NFL standings grouped by conference (AFC/NFC) and division,
  * with conference filtering, clickable team names, and division leader highlighting.
  *
- * Requirements: 7.8, 11.7, 11.9, 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7
+ * Requirements: 7.8, 10.1, 10.2, 10.3, 10.5, 10.6, 11.7, 11.9, 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7
  */
 
 "use strict";
+
+/**
+ * Module-level storage for CP solver clinch/elimination results.
+ * Populated asynchronously after standings render; keyed by team name.
+ * @type {Object<string, {status: string, solve_time_ms: number, num_variables: number, minimum_seed: number|null, magic_number: number|null}>|null}
+ */
+let _cpClinchResults = null;
 
 /**
  * ESPN team logo ID mapping.
@@ -64,9 +71,13 @@ async function renderStandings(contentEl) {
     // Ignore status errors
   }
 
+  // Read cutoff week from localStorage (set by simulation controls)
+  const savedCutoff = localStorage.getItem('sim-cutoff');
+  const cutoffWeek = savedCutoff ? parseInt(savedCutoff, 10) : null;
+
   let data;
   try {
-    data = await API.getStandings();
+    data = await API.getStandings(cutoffWeek);
   } catch (err) {
     App.hideLoading();
     contentEl.innerHTML = "";
@@ -138,6 +149,9 @@ async function renderStandings(contentEl) {
     "Str = Team Strength Rating (1.000 = league average), " +
     "Tiebreaker = H2H (Head-to-Head), Div (Division Record), Conf (Conference Record), SoV (Strength of Victory), SoS (Strength of Schedule), Pts (Net Points), Alpha (Alphabetical)";
   contentEl.appendChild(legend);
+
+  // Fetch CP solver clinch/elimination data in background (non-blocking)
+  _fetchAndApplyCPBadges(contentEl, cutoffWeek);
 }
 
 /**
@@ -316,6 +330,7 @@ function buildTeamRow(team, isLeader) {
   nameWrapper.style.display = "inline-flex";
   nameWrapper.style.alignItems = "center";
   nameWrapper.style.gap = "0.5rem";
+  nameWrapper.setAttribute("data-team-name", team.team);
 
   const logoId = TEAM_LOGO_IDS[team.team];
   if (logoId) {
@@ -526,7 +541,12 @@ function buildStatusPanel(status) {
 
     // Persist values on change
     if (iterInput) iterInput.addEventListener("change", () => localStorage.setItem('sim-iterations', iterInput.value));
-    if (cutoffSel) cutoffSel.addEventListener("change", () => localStorage.setItem('sim-cutoff', cutoffSel.value));
+    if (cutoffSel) cutoffSel.addEventListener("change", () => {
+      localStorage.setItem('sim-cutoff', cutoffSel.value);
+      // Re-render standings with the new cutoff week
+      const contentEl = document.getElementById("content");
+      if (contentEl) renderStandings(contentEl);
+    });
 
     // Noise label update
     if (noiseSl) noiseSl.addEventListener("input", () => {
@@ -599,4 +619,144 @@ async function _handleFetchFromStandings() {
     App.hideLoading();
     if (btn) btn.disabled = false;
   }
+}
+
+/**
+ * Fetch CP solver clinch/elimination data and apply badges to existing team rows.
+ * Non-blocking: if the endpoint fails or is unavailable, standings remain unchanged.
+ *
+ * @param {HTMLElement} contentEl - The standings container.
+ */
+async function _fetchAndApplyCPBadges(contentEl, cutoffWeek) {
+  const data = await API.fetchCPClinchAll(cutoffWeek);
+  if (!data || !data.conferences) {
+    _cpClinchResults = null;
+    return;
+  }
+
+  // Build a flat lookup map: team name → result object
+  const lookup = {};
+  for (const conf of Object.values(data.conferences)) {
+    if (!Array.isArray(conf)) continue;
+    for (const entry of conf) {
+      if (entry && entry.team) {
+        lookup[entry.team] = entry;
+      }
+    }
+  }
+  _cpClinchResults = lookup;
+
+  // Apply badges to all rendered team rows
+  const nameWrappers = contentEl.querySelectorAll("[data-team-name]");
+  for (const wrapper of nameWrappers) {
+    const teamName = wrapper.getAttribute("data-team-name");
+    const result = lookup[teamName];
+    if (!result) continue;
+
+    const badge = _createClinchBadge(result);
+    if (badge) {
+      wrapper.appendChild(badge);
+    }
+  }
+}
+
+/**
+ * Create a clinch/elimination badge element for a CP solver result.
+ * Includes a click handler that shows a Bootstrap popover with solver details.
+ *
+ * @param {Object} result - CP solver result for a team.
+ * @returns {HTMLElement|null} Badge span element, or null if status is "alive".
+ */
+function _createClinchBadge(result) {
+  const status = result.status;
+  if (status === "alive") return null;
+
+  const badge = document.createElement("span");
+  badge.setAttribute("data-cp-clinch-badge", status);
+  badge.setAttribute("data-team", result.team);
+  badge.className = "badge ms-1 ";
+  badge.style.cursor = "pointer";
+
+  if (status === "clinched") {
+    badge.className += "bg-success";
+    badge.textContent = "x";
+    badge.title = "Clinched playoff spot";
+  } else if (status === "eliminated") {
+    badge.className += "bg-danger";
+    badge.textContent = "e";
+    badge.title = "Eliminated from playoff contention";
+  } else if (status === "inconclusive") {
+    badge.className += "bg-secondary";
+    badge.textContent = "?";
+    badge.title = "Solver inconclusive (timed out)";
+  } else {
+    return null;
+  }
+
+  // Build popover content with solver details
+  const popoverContent = _buildPopoverContent(result);
+
+  // Initialize Bootstrap popover on click (dismiss on next click)
+  badge.setAttribute("data-bs-toggle", "popover");
+  badge.setAttribute("data-bs-trigger", "click");
+  badge.setAttribute("data-bs-placement", "top");
+  badge.setAttribute("data-bs-html", "true");
+  badge.setAttribute("data-bs-title", result.team + " — " + _statusLabel(status));
+  badge.setAttribute("data-bs-content", popoverContent);
+
+  // Defer popover initialization until element is in the DOM
+  setTimeout(() => {
+    if (typeof bootstrap !== "undefined" && bootstrap.Popover) {
+      new bootstrap.Popover(badge, { sanitize: false });
+    }
+  }, 0);
+
+  return badge;
+}
+
+/**
+ * Build HTML content for the solver details popover.
+ *
+ * @param {Object} result - CP solver result for a team.
+ * @returns {string} HTML string for popover body.
+ */
+function _buildPopoverContent(result) {
+  let html = '<div style="font-size:0.8rem;line-height:1.6">';
+  html += '<div><strong>Solve time:</strong> ' + (result.solve_time_ms || 0) + ' ms</div>';
+  html += '<div><strong>Variables:</strong> ' + (result.num_variables || 0) + '</div>';
+  if (result.minimum_seed != null) {
+    html += '<div><strong>Best seed:</strong> #' + result.minimum_seed + '</div>';
+  }
+  if (result.magic_number != null) {
+    html += '<div><strong>Magic number:</strong> ' + result.magic_number + ' wins</div>';
+  }
+  if (result.error) {
+    html += '<div style="color:var(--bs-danger,#dc3545);margin-top:0.25rem"><em>' + _escapePopoverHtml(result.error) + '</em></div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+/**
+ * Get a human-readable label for a clinch status.
+ *
+ * @param {string} status - Status string from solver result.
+ * @returns {string} Human-readable label.
+ */
+function _statusLabel(status) {
+  if (status === "clinched") return "Clinched";
+  if (status === "eliminated") return "Eliminated";
+  if (status === "inconclusive") return "Inconclusive";
+  return status;
+}
+
+/**
+ * Escape HTML special characters for safe popover content.
+ *
+ * @param {string} str - Raw string to escape.
+ * @returns {string} HTML-safe string.
+ */
+function _escapePopoverHtml(str) {
+  if (!str) return "";
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }

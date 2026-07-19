@@ -98,12 +98,15 @@ const API = (() => {
 
   /**
    * Get current NFL standings computed from cached data.
-   * GET /api/standings
+   * GET /api/standings?cutoff_week=<n>
    *
+   * @param {number|null} cutoffWeek - Optional cutoff week (1-18). Only games up to this week are included.
    * @returns {Promise<{standings: Object[], bracket: Object}>}
    */
-  function getStandings() {
-    return request("/api/standings");
+  function getStandings(cutoffWeek) {
+    let url = "/api/standings";
+    if (cutoffWeek != null) url += "?cutoff_week=" + cutoffWeek;
+    return request(url);
   }
 
   /**
@@ -184,6 +187,27 @@ const API = (() => {
     });
   }
 
+  /**
+   * Get CP solver clinch/elimination status for all 32 teams.
+   * GET /api/cp-clinch-all?cutoff_week=<n>
+   *
+   * Returns null if the endpoint is unavailable (503, 409, or network error).
+   *
+   * @param {number|null} cutoffWeek - Optional cutoff week (1-18).
+   * @returns {Promise<Object|null>} Clinch data grouped by conference, or null on error.
+   */
+  async function fetchCPClinchAll(cutoffWeek) {
+    try {
+      let url = "/api/cp-clinch-all";
+      if (cutoffWeek != null) url += "?cutoff_week=" + cutoffWeek;
+      const response = await fetch(url);
+      if (!response.ok) return null;
+      return await response.json();
+    } catch (_) {
+      return null;
+    }
+  }
+
   return {
     fetchStatus,
     fetchData,
@@ -195,5 +219,6 @@ const API = (() => {
     clinchingScenarios,
     getScheduleGrid,
     setSeason,
+    fetchCPClinchAll,
   };
 })();

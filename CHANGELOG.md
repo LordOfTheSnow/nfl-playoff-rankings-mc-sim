@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2025-07-20
+
+### Added
+- CP-SAT constraint solver for mathematical clinching/elimination detection (Google OR-Tools)
+- Hybrid approach: CP-SAT handles arithmetic constraints, existing standings engine handles NFL tiebreakers
+- Record group decomposition for efficient solving (3.4×10³⁰ → milliseconds)
+- REST API endpoints: `GET /api/cp-clinch/{team}` and `GET /api/cp-clinch-all`
+- Frontend clinch/elimination badges on standings view (x=clinched, e=eliminated)
+- Bootstrap popover with solver details on badge click
+- SQLite cache for CP solver results with automatic invalidation on data fetch
+- Standings page now respects cutoff week selector (shows records only through that week)
+- OR-Tools as optional dependency (`pip install -e ".[cp]"`)
+
+### Fixed
+- Playoff bracket tiebreaker resolution now uses full NFL tiebreaker procedure (H2H, division record, conference record, SoV, SoS, net points) instead of alphabetical fallback
+- Tiebreaker functions now correctly handle simulated game outcomes (previously used actual scores for simulated games)
+
 ## [0.5.0] - 2026-07-17
 
 ### Added
@@ -183,7 +200,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.2.1...v0.3.0

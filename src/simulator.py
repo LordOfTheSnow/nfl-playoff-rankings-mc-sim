@@ -303,7 +303,7 @@ def _run_trial_batch(
         standings = compute_standings(all_games, outcomes)
 
         # Determine playoff bracket
-        bracket = determine_playoff_bracket(standings)
+        bracket = determine_playoff_bracket(standings, all_games=all_games, simulated_outcomes=outcomes)
 
         # Record outcomes
         scenario_key: set[tuple[str, int]] = set()
@@ -442,7 +442,7 @@ def _estimate_prob_forced(
                 outcomes.append((game.game_id, winner, is_tie))
 
         standings = compute_standings(all_games, outcomes)
-        bracket = determine_playoff_bracket(standings)
+        bracket = determine_playoff_bracket(standings, all_games=all_games, simulated_outcomes=outcomes)
 
         for seeds_list in (bracket.afc_seeds, bracket.nfc_seeds):
             for standing in seeds_list:
@@ -1129,7 +1129,7 @@ class Simulator:
                     outcomes.append((game.game_id, winner, is_tie))
 
             standings = compute_standings(all_games, outcomes)
-            bracket = determine_playoff_bracket(standings)
+            bracket = determine_playoff_bracket(standings, all_games=all_games, simulated_outcomes=outcomes)
 
             # Check if team made playoffs
             for seeds_list in (bracket.afc_seeds, bracket.nfc_seeds):

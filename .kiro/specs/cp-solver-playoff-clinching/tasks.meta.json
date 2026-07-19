@@ -1,0 +1,297 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "1.1 Add OR-Tools optional dependency to pyproject.toml": [
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480470691
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480481503
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480554720
+      }
+    ],
+    "2.1 Create `src/cp_solver.py` with data models and entry points": [
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480470933
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480562198
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480850655
+      }
+    ],
+    "2.2 Implement record group generator": [
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480471376
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480854665
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784481214176
+      }
+    ],
+    "2.3 Implement CP-SAT model builder": [
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480471544
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480855327
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784481214986
+      }
+    ],
+    "2.4 Implement PlayoffValidator callback": [
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480471721
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784481218663
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784481606865
+      }
+    ],
+    "2.5 Implement solver orchestration and status determination": [
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480471855
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784481610653
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784481997324
+      }
+    ],
+    "2.6 Implement bulk solver (`solve_clinch_all`)": [
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480472032
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784482001698
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784482633977
+      }
+    ],
+    "3. Checkpoint - Ensure core solver tests pass": [
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480472241
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784483084688
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784483600935
+      }
+    ],
+    "4.1 Add `cp_solver_cache` table to `src/cache.py`": [
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480472396
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784482002472
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784482634798
+      }
+    ],
+    "5.1 Add `GET /api/cp-clinch/{team}` endpoint to `src/server.py`": [
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480472838
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784482642353
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784483060279
+      }
+    ],
+    "5.2 Add `GET /api/cp-clinch-all` endpoint to `src/server.py`": [
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480473184
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784483614696
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784483900952
+      }
+    ],
+    "5.3 Add cache invalidation to `POST /api/fetch-data` handler": [
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480473377
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784483615543
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784483901674
+      }
+    ],
+    "6. Checkpoint - Ensure API endpoints work correctly": [
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480473517
+      },
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784483906308
+      },
+      {
+        "executionId": "419fe02b-1fdc-42fb-bc7b-fbfa012b7de0",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784485348842
+      }
+    ],
+    "7.1 Add clinch/elimination badge rendering to standings view": [
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480473645
+      },
+      {
+        "executionId": "419fe02b-1fdc-42fb-bc7b-fbfa012b7de0",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784485353021
+      }
+    ],
+    "7.2 Add popover with solver details on badge click": [
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480473776
+      },
+      {
+        "executionId": "419fe02b-1fdc-42fb-bc7b-fbfa012b7de0",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784485356948
+      }
+    ],
+    "9. Final checkpoint - Ensure all tests pass": [
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480473901
+      },
+      {
+        "executionId": "419fe02b-1fdc-42fb-bc7b-fbfa012b7de0",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784485360861
+      }
+    ],
+    "1. Set up dependency and project configuration": [
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784480554970
+      }
+    ],
+    "2. Implement core CP solver module": [
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784482634112
+      }
+    ],
+    "4. Implement cache integration": [
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784482634950
+      }
+    ],
+    "5. Implement REST API endpoints": [
+      {
+        "executionId": "2e421982-c409-42a7-b9c8-bb57526ee4df",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784483902104
+      }
+    ],
+    "7. Implement frontend integration": [
+      {
+        "executionId": "419fe02b-1fdc-42fb-bc7b-fbfa012b7de0",
+        "chatSessionId": "sess_9cff576f-9a12-465e-9a88-99d0adac1670",
+        "timestamp": 1784485357059
+      }
+    ]
+  }
+}
