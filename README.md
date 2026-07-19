@@ -1,5 +1,10 @@
 # NFL Monte Carlo Playoff Ranking Simulator
 
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-green)](LICENSE)
+[![Docker Image](https://img.shields.io/badge/ghcr.io-nfl--playoff--rankings--mc--sim-blue?logo=docker)](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/pkgs/container/nfl-playoff-rankings-mc-sim)
+[![Build Status](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/actions/workflows/docker-publish.yml)
+
 **v0.5.1**
 
 A web application that predicts NFL playoff probabilites using Monte Carlo simulation. It fetches real game data from ESPN's public API, computes strength-of-schedule-weighted team ratings, simulates remaining games, applies official NFL tiebreaker rules, and presents probability distributions through an interactive browser UI.
@@ -25,9 +30,9 @@ A web application that predicts NFL playoff probabilites using Monte Carlo simul
 
 ## Screenshot (2025 season)
 
-![Clinching Scenarios for the Baltimore Ravens](frontend/img/screenshot-clinching-scenarios.png)
+![Clinching Scenarios for the Detroit Lions](frontend/img/screenshot-clinching-scenarios.png)
 
-*Clinching scenarios for the Ravens — season 2025, cutoff week 15, showing all paths to the playoffs grouped by remaining record.*
+*Clinching scenarios for the Detroit Lions — season 2025, cutoff week 15, showing all paths to the playoffs grouped by remaining record.*
 
 ## Setup
 
@@ -77,20 +82,20 @@ If you prefer running the app in a container, you can either pull the pre-built 
 docker pull ghcr.io/lordofthesnow/nfl-playoff-rankings-mc-sim:latest
 ```
 
-Images are built and published automatically via GitHub Actions whenever a version tag is pushed.
+Images are built and published automatically via GitHub Actions whenever a version tag is pushed. Multi-architecture images are provided for `linux/amd64` and `linux/arm64`, so the same tag works on x86 machines and ARM hosts (e.g. Apple Silicon Macs, Raspberry Pi, AWS Graviton).
 
 ```bash
 # Or build the image locally
-docker build -t nfl-mc-simulator .
+docker build -t nfl-playoff-rankings-mc-sim .
 
 # Run with a bind mount (database file persists on your host)
-docker run -p 8080:8080 -v ./nfl_cache.db:/data/nfl_cache.db nfl-mc-simulator
+docker run -p 8080:8080 -v ./nfl_cache.db:/data/nfl_cache.db nfl-playoff-rankings-mc-sim
 
 # Run with a named volume (Docker manages storage)
-docker run -p 8080:8080 -v nfl-data:/data nfl-mc-simulator
+docker run -p 8080:8080 -v nfl-data:/data nfl-playoff-rankings-mc-sim
 
 # Map to a different host port (app always listens on 8080 inside the container)
-docker run -p 9090:8080 -e SEASON=2024 -v nfl-data:/data nfl-mc-simulator
+docker run -p 9090:8080 -e SEASON=2024 -v nfl-data:/data nfl-playoff-rankings-mc-sim
 
 # Or use Docker Compose (builds, mounts volume, maps port 8080 automatically)
 docker compose up
