@@ -18,6 +18,7 @@ import mimetypes
 import os
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import ThreadingMixIn
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
@@ -639,10 +640,26 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                     completed_weeks.add(w)
             cutoff_week = max(completed_weeks) if completed_weeks else 1
 
-        # Run solver for all teams
+        # Check cache first — only solve teams without cached results
         try:
             config = CPSolverConfig(time_limit=time_limit)
-            results = solve_clinch_all(games, cutoff_week, config)
+            results: dict[str, Any] = {}
+            teams_to_solve: list[str] = []
+
+            for team_name in ALL_TEAMS:
+                cached = server.cache.get_cp_result(team_name, cutoff_week, server.season_year)
+                if cached is not None:
+                    results[team_name] = cached
+                else:
+                    teams_to_solve.append(team_name)
+
+            # Only run solver for uncached teams
+            if teams_to_solve:
+                for team_name in teams_to_solve:
+                    result = solve_clinch(team_name, games, cutoff_week, config)
+                    results[team_name] = result
+                    # Cache the result
+                    server.cache.store_cp_result(team_name, cutoff_week, server.season_year, result)
 
             # Group results by conference, sorted alphabetically
             conferences: dict[str, list[dict[str, Any]]] = {"AFC": [], "NFC": []}
@@ -1597,12 +1614,15 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
         return mime_type or "application/octet-stream"
 
 
-class NFLSimulatorServer(HTTPServer):
+class NFLSimulatorServer(ThreadingMixIn, HTTPServer):
     """HTTP server for the NFL Monte Carlo Playoff Simulator.
 
-    Extends HTTPServer to hold shared application state (cache, data client,
-    season year, static directory path) accessible to request handlers.
+    Extends HTTPServer with ThreadingMixIn to handle requests concurrently,
+    allowing the CP solver to run in the background while other requests
+    (like simulation) are served in parallel.
     """
+
+    daemon_threads = True
 
     def __init__(
         self,

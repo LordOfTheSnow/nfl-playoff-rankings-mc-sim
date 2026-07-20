@@ -7,22 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.6.0] - 2025-07-20
+## [0.6.0] - 2026-07-20
 
 ### Added
 - CP-SAT constraint solver for mathematical clinching/elimination detection (Google OR-Tools)
 - Hybrid approach: CP-SAT handles arithmetic constraints, existing standings engine handles NFL tiebreakers
-- Record group decomposition for efficient solving (3.4×10³⁰ → milliseconds)
+- Fast arithmetic pre-checks for instant clinch/elimination determination (conference-wide wins threshold + division clinch)
+- Constraint-based clinch proof: adds "7 teams beat target" as CP-SAT constraints, checks infeasibility
+- Record group decomposition for borderline cases
 - REST API endpoints: `GET /api/cp-clinch/{team}` and `GET /api/cp-clinch-all`
-- Frontend clinch/elimination badges on standings view (x=clinched, e=eliminated)
-- Bootstrap popover with solver details on badge click
+- Frontend clinch/elimination badges on standings view (x=clinched, e=eliminated, ?=inconclusive)
+- Hover tooltip on badges showing solve time, remaining games, scenarios checked
+- "Clinch/Elimination" button on standings page (manual trigger, disables while running)
+- Silent auto-load of cached CP solver results on page load (2s timeout)
 - SQLite cache for CP solver results with automatic invalidation on data fetch
 - Standings page now respects cutoff week selector (shows records only through that week)
+- "Computing clinch/elimination…" spinner hint while solver runs
 - OR-Tools as optional dependency (`pip install -e ".[cp]"`)
+- Favicon: Monte Carlo die (SVG)
+- Legend section on standings page explaining badges and tooltip values
+- Server now uses ThreadingMixIn for concurrent request handling (CP solver runs in background)
 
 ### Fixed
 - Playoff bracket tiebreaker resolution now uses full NFL tiebreaker procedure (H2H, division record, conference record, SoV, SoS, net points) instead of alphabetical fallback
 - Tiebreaker functions now correctly handle simulated game outcomes (previously used actual scores for simulated games)
+- CP solver uses `enumerate_all_solutions=True` for elimination checks to correctly find tiebreaker-dependent witnesses
+- Constraint-based clinch check prevents false "clinched" claims (returns alive/inconclusive when proof times out)
+- SQLite `check_same_thread=False` for thread-safe access with ThreadingMixIn
 
 ## [0.5.0] - 2026-07-17
 

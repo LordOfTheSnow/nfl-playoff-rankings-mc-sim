@@ -649,7 +649,7 @@ class TestCPClinchAllEndpointResponse:
                 num_variables=48,
             )
 
-        with patch("src.server.solve_clinch_all", return_value=mock_results):
+        with patch("src.server.solve_clinch", side_effect=lambda t, g, c, cfg=None: mock_results[t]):
             handler = _make_handler(
                 "/api/cp-clinch-all?cutoff_week=2", server_with_games
             )
@@ -670,7 +670,7 @@ class TestCPClinchAllEndpointResponse:
             for team in ALL_TEAMS
         }
 
-        with patch("src.server.solve_clinch_all", return_value=mock_results):
+        with patch("src.server.solve_clinch", side_effect=lambda t, g, c, cfg=None: mock_results[t]):
             handler = _make_handler(
                 "/api/cp-clinch-all?cutoff_week=15", server_with_games
             )
@@ -688,7 +688,7 @@ class TestCPClinchAllEndpointResponse:
             for team in ALL_TEAMS
         }
 
-        with patch("src.server.solve_clinch_all", return_value=mock_results):
+        with patch("src.server.solve_clinch", side_effect=lambda t, g, c, cfg=None: mock_results[t]):
             handler = _make_handler(
                 "/api/cp-clinch-all?cutoff_week=2", server_with_games
             )
@@ -703,9 +703,9 @@ class TestCPClinchAllEndpointResponse:
 
     def test_team_entry_contains_required_fields(self, server_with_games):
         """Each team entry has status, solve_time_ms, num_variables, minimum_seed, magic_number."""
-        mock_results = {}
+        # Pre-populate cache for all teams
         for team in ALL_TEAMS:
-            mock_results[team] = CPSolverResult(
+            result = CPSolverResult(
                 team=team,
                 status=ClinchStatus.CLINCHED,
                 clinched=True,
@@ -714,14 +714,14 @@ class TestCPClinchAllEndpointResponse:
                 minimum_seed=2,
                 magic_number=None,
             )
+            server_with_games.cache.store_cp_result(team, 2, 2024, result)
 
-        with patch("src.server.solve_clinch_all", return_value=mock_results):
-            handler = _make_handler(
-                "/api/cp-clinch-all?cutoff_week=2", server_with_games
-            )
-            handler._handle_get_cp_clinch_all("/api/cp-clinch-all?cutoff_week=2")
-            assert handler._sent_code == 200
-            body = handler.get_response_json()
+        handler = _make_handler(
+            "/api/cp-clinch-all?cutoff_week=2", server_with_games
+        )
+        handler._handle_get_cp_clinch_all("/api/cp-clinch-all?cutoff_week=2")
+        assert handler._sent_code == 200
+        body = handler.get_response_json()
 
         # Check first AFC team entry
         entry = body["conferences"]["AFC"][0]
@@ -757,7 +757,7 @@ class TestCPClinchAllEndpointResponse:
                     num_variables=48,
                 )
 
-        with patch("src.server.solve_clinch_all", return_value=mock_results):
+        with patch("src.server.solve_clinch", side_effect=lambda t, g, c, cfg=None: mock_results[t]):
             handler = _make_handler(
                 "/api/cp-clinch-all?cutoff_week=2", server_with_games
             )
@@ -782,7 +782,7 @@ class TestCPClinchAllEndpointResponse:
             for team in ALL_TEAMS
         }
 
-        with patch("src.server.solve_clinch_all", return_value=mock_results) as mock_solve:
+        with patch("src.server.solve_clinch", side_effect=lambda t, g, c, cfg=None: mock_results[t]) as mock_solve:
             handler = _make_handler("/api/cp-clinch-all", server_with_games)
             handler._handle_get_cp_clinch_all("/api/cp-clinch-all")
             assert handler._sent_code == 200
@@ -791,10 +791,10 @@ class TestCPClinchAllEndpointResponse:
         # server_with_games has weeks 1,2 completed and week 3 scheduled
         # cutoff_week should be auto-detected as 2
         assert body["cutoff_week"] == 2
-        # solve_clinch_all should have been called with cutoff_week=2
+        # solve_clinch should have been called with cutoff_week=2
         assert mock_solve.called
         call_args = mock_solve.call_args
-        assert call_args[0][1] == 2  # second positional arg is cutoff_week
+        assert call_args[0][2] == 2  # third positional arg is cutoff_week
 
 
 class TestCPClinchAllRouteDispatch:
@@ -807,7 +807,7 @@ class TestCPClinchAllRouteDispatch:
             for team in ALL_TEAMS
         }
 
-        with patch("src.server.solve_clinch_all", return_value=mock_results):
+        with patch("src.server.solve_clinch", side_effect=lambda t, g, c, cfg=None: mock_results[t]):
             handler = _make_handler("/api/cp-clinch-all", server_with_games)
             handler.do_GET()
             assert handler._sent_code == 200

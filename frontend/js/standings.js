@@ -118,6 +118,22 @@ async function renderStandings(contentEl) {
     contentEl.appendChild(buildStatusPanel(status));
   }
 
+  // Clinch/Elimination button above filter bar and conference headers
+  const cpRow = document.createElement("div");
+  cpRow.className = "mb-3";
+  cpRow.innerHTML = '<button id="btn-run-cp-solver" class="btn btn-outline-success" type="button" title="Uses a CP constraint solver to mathematically prove playoff clinching or elimination. May take 10–30s depending on the cutoff week.">Clinch/Elimination</button>';
+  contentEl.appendChild(cpRow);
+
+  const cpBtn = cpRow.querySelector("#btn-run-cp-solver");
+  cpBtn.addEventListener("click", () => {
+    cpBtn.disabled = true;
+    cpBtn.textContent = "Computing…";
+    _fetchAndApplyCPBadges(contentEl, cutoffWeek).finally(() => {
+      cpBtn.disabled = false;
+      cpBtn.textContent = "Clinch/Elimination";
+    });
+  });
+
   // Build filter bar
   const filterBar = buildFilterBar();
   contentEl.appendChild(filterBar);
@@ -160,8 +176,8 @@ async function renderStandings(contentEl) {
     "</ul>";
   contentEl.appendChild(legend);
 
-  // Fetch CP solver clinch/elimination data in background (non-blocking)
-  _fetchAndApplyCPBadges(contentEl, cutoffWeek);
+  // Try to load cached CP solver badges silently (no spinner, no button disable)
+  _tryLoadCachedCPBadges(contentEl, cutoffWeek);
 }
 
 /**
@@ -510,6 +526,7 @@ function buildStatusPanel(status) {
   html += '<div class="control-field"><label for="sim-workers-st" title="Parallel CPU cores: each Monte Carlo trial is independent, so batches run simultaneously across cores. More workers = faster simulation (near-linear speedup). Uses Python multiprocessing to bypass the GIL.">Workers &#9432;</label><input type="range" id="sim-workers-st" class="form-range" min="1" max="' + cpuCount + '" value="' + savedWorkers + '" style="width:120px" title="1 = single-process (no overhead), max = all available CPU cores running trial batches in parallel"><div id="sim-workers-label-st" style="font-size:0.75rem;color:var(--color-text-muted)">' + savedWorkers + (savedWorkers === 1 ? ' core' : ' cores') + '</div></div>';
   html += '<button id="btn-run-sim-standings" class="btn btn-primary" type="button">Simulate</button>';
   html += '<button id="btn-fetch-data-standings" class="btn btn-secondary" type="button">Fetch Data</button>';
+
   html += '</div>';
   html += '</div>';
 
@@ -605,6 +622,8 @@ function buildStatusPanel(status) {
     });
 
     if (fetchBtn) fetchBtn.addEventListener("click", _handleFetchFromStandings);
+
+
   }, 0);
 
   return panel;
@@ -637,8 +656,64 @@ async function _handleFetchFromStandings() {
  *
  * @param {HTMLElement} contentEl - The standings container.
  */
+/**
+ * Silently try to load cached CP solver results. If the server responds
+ * quickly (results are cached), apply badges without showing a spinner.
+ * If the server takes too long (results not cached), abort silently.
+ *
+ * @param {HTMLElement} contentEl - The standings container.
+ * @param {number|null} cutoffWeek - Cutoff week.
+ */
+async function _tryLoadCachedCPBadges(contentEl, cutoffWeek) {
+  try {
+    let url = "/api/cp-clinch-all";
+    if (cutoffWeek != null) url += "?cutoff_week=" + cutoffWeek;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000); // 2s max
+
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (!response.ok) return;
+    const data = await response.json();
+    if (!data || !data.conferences) return;
+
+    // Build lookup and apply badges (same logic as _fetchAndApplyCPBadges)
+    const lookup = {};
+    for (const conf of Object.values(data.conferences)) {
+      if (!Array.isArray(conf)) continue;
+      for (const entry of conf) {
+        if (entry && entry.team) lookup[entry.team] = entry;
+      }
+    }
+    _cpClinchResults = lookup;
+
+    const nameWrappers = contentEl.querySelectorAll("[data-team-name]");
+    for (const wrapper of nameWrappers) {
+      const teamName = wrapper.getAttribute("data-team-name");
+      const result = lookup[teamName];
+      if (!result) continue;
+      const badge = _createClinchBadge(result);
+      if (badge) wrapper.appendChild(badge);
+    }
+  } catch (_) {
+    // Aborted or failed — no badges, no problem
+  }
+}
+
 async function _fetchAndApplyCPBadges(contentEl, cutoffWeek) {
+  // Show a subtle loading hint while CP solver runs
+  const hint = document.createElement("div");
+  hint.id = "cp-solver-hint";
+  hint.style.cssText = "margin-bottom:0.75rem;padding:0.6rem 1rem;background:var(--color-surface,#fff);border:1px solid var(--color-border,#ddd);border-radius:var(--radius-md,6px);box-shadow:var(--shadow-sm,0 1px 3px rgba(0,0,0,.1));font-size:0.85rem;color:var(--color-text-muted,#666);display:flex;align-items:center;gap:0.5rem";
+  hint.innerHTML = '<div class="spinner-border spinner-border-sm text-primary" role="status"></div> Computing clinch/elimination…';
+  contentEl.insertBefore(hint, contentEl.children[1] || null);
+
   const data = await API.fetchCPClinchAll(cutoffWeek);
+
+  // Remove the hint
+  hint.remove();
   if (!data || !data.conferences) {
     _cpClinchResults = null;
     return;

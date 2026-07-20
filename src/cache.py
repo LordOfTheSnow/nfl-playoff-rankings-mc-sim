@@ -44,7 +44,7 @@ class Cache:
             db_path: Path to the SQLite database file. Use ":memory:" for testing.
         """
         self._db_path = db_path
-        self._conn = sqlite3.connect(db_path)
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._create_tables()
 
