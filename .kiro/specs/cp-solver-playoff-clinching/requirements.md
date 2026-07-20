@@ -6,6 +6,55 @@ A Constraint Programming (CP) solver that determines whether an NFL team has mat
 
 The solver models every remaining game outcome as a variable (win/loss/tie), encodes NFL tiebreaker rules as constraints, and asks the solver whether any assignment of outcomes exists where the target team makes (or misses) the playoffs. If no such assignment exists, the team is clinched (or eliminated).
 
+
+## ⚠️ Architecture Rework Needed (v0.6.0 Lessons Learned)
+
+The current solver implementation has correctness and performance limitations stemming from a fundamental design mistake: **tiebreaker logic lives in a Python callback** that is invoked per CP-SAT solution, rather than being encoded as constraints. This defeats CP-SAT's ability to prune the search space and forces expensive enumeration.
+
+### Current Problems
+
+1. **Clinch proof is slow for borderline teams** — proving "no scenario exists where team misses" requires exhaustive enumeration via `enumerate_all_solutions`, which calls the Python standings engine per solution. This can take 30s+ per team.
+2. **Conservative fallbacks** — when the solver times out, it returns "alive" (inconclusive) rather than a definitive answer. This undermines the purpose of a CP solver.
+3. **False claims possible** — the callback-based elimination check may miss tiebreaker-dependent scenarios if it doesn't enumerate enough solutions with varied random seeds.
+
+### Correct Architecture for Rewrite
+
+The solver should be restructured into three tiers, all using **pure constraint infeasibility** (no callbacks, no enumeration):
+
+**Tier 1: Wins-only (instant, handles ~75% of teams)**
+- Clinch: "Is it INFEASIBLE for 7 other conference teams to all finish with ≥ team's min wins?" → clinched
+- Elimination: "Is it INFEASIBLE for team to finish with more wins than 9 other conference teams?" → eliminated
+- Already implemented and working correctly.
+
+**Tier 2: Division winner guarantee (instant)**
+- Clinch: "Is it INFEASIBLE for any division rival to match or exceed team's min wins?" → division winner → clinched
+- Already implemented and working correctly.
+
+**Tier 3: Tiebreaker-aware (the hard part, needs rework)**
+- For the narrow band of teams where wins alone don't decide (same-wins tiebreaker cases):
+  1. Add equality constraints to the CP-SAT model to find assignments where team AND rivals finish with identical wins
+  2. For ONLY these tied-record assignments (a small, bounded set), run the full tiebreaker in Python
+  3. This avoids running the standings engine for every solution — only for the specific tied scenarios
+- Key insight: the number of assignments where 2+ teams are exactly tied at the same wins is orders of magnitude smaller than the full solution space
+
+### What to Keep from v0.6.0
+
+- API endpoints (`/api/cp-clinch/{team}`, `/api/cp-clinch-all`)
+- SQLite caching with invalidation
+- Frontend (badges, button, tooltips, legend, standings cutoff)
+- ThreadingMixIn concurrent server
+- `determine_playoff_bracket` tiebreaker fix (real bug fix, independent of solver)
+- `_simulated_winners` threading through tiebreaker functions
+- Arithmetic fast-path checks (Tier 1 and Tier 2)
+- Test infrastructure
+
+### What to Rewrite
+
+- `solve_clinch()` orchestration (Steps 5+)
+- `_can_make_playoffs_at_record()` — eliminate callback, use pure constraint approach
+- `_can_miss_playoffs_at_record()` — eliminate callback, use constraint + targeted tiebreaker check
+- Remove `PlayoffValidator` callback class (or repurpose it only for Tier 3 tied-record verification)
+
 ## Glossary
 
 - **CP_Solver**: The constraint programming solver module that determines clinch/elimination status using Google OR-Tools CP-SAT.
