@@ -138,16 +138,26 @@ async function renderStandings(contentEl) {
   // Add legend below all tables
   const legend = document.createElement("div");
   legend.style.cssText = "margin-top:1.5rem;padding:1rem;background:var(--color-surface);border-radius:var(--radius-md);box-shadow:var(--shadow-sm);font-size:0.8rem;color:var(--color-text-muted);line-height:1.8";
-  legend.innerHTML = "<strong>Legend:</strong> " +
-    "W = Wins, " +
-    "L = Losses, " +
-    "T = Ties, " +
-    "Win% = Winning Percentage, " +
-    "Div = Division Record, " +
-    "Conf = Conference Record, " +
-    "GB = Games Behind Division Leader, " +
-    "Str = Team Strength Rating (1.000 = league average), " +
-    "Tiebreaker = H2H (Head-to-Head), Div (Division Record), Conf (Conference Record), SoV (Strength of Victory), SoS (Strength of Schedule), Pts (Net Points), Alpha (Alphabetical)";
+  legend.innerHTML = "" +
+    "<strong>Standings</strong>" +
+    "<ul style='margin:0.4rem 0 0.8rem 1.2rem;padding:0;list-style:disc'>" +
+    "<li><strong>W</strong> Wins · <strong>L</strong> Losses · <strong>T</strong> Ties · <strong>Win%</strong> Winning Percentage</li>" +
+    "<li><strong>Div</strong> Division Record · <strong>Conf</strong> Conference Record · <strong>GB</strong> Games Behind Division Leader</li>" +
+    "<li><strong>Str</strong> Team Strength Rating (1.000 = league average)</li>" +
+    "<li><strong>Tiebreaker</strong> — H2H (Head-to-Head), Div (Division Record), Conf (Conference Record), SoV (Strength of Victory), SoS (Strength of Schedule), Pts (Net Points), Alpha (Alphabetical)</li>" +
+    "</ul>" +
+    "<strong>Clinch/Elimination Badges</strong> <span style='font-weight:normal'>(hover for details)</span>" +
+    "<ul style='margin:0.4rem 0 0.8rem 1.2rem;padding:0;list-style:disc'>" +
+    "<li><span class='badge bg-success'>x</span> Clinched — mathematically guaranteed a playoff spot</li>" +
+    "<li><span class='badge bg-danger'>e</span> Eliminated — mathematically impossible to make playoffs</li>" +
+    "<li><span class='badge bg-secondary'>?</span> Inconclusive — solver timed out before reaching a proof</li>" +
+    "</ul>" +
+    "<strong>Tooltip Values</strong>" +
+    "<ul style='margin:0.4rem 0 0;padding:0 0 0 1.2rem;list-style:disc'>" +
+    "<li><strong>Solve time</strong> — wall-clock time the CP solver took for this team</li>" +
+    "<li><strong>Remaining games</strong> — unplayed games after the cutoff week that affect this team's conference</li>" +
+    "<li><strong>Scenarios checked</strong> — record groups evaluated (fewer = early termination found a proof faster)</li>" +
+    "</ul>";
   contentEl.appendChild(legend);
 
   // Fetch CP solver clinch/elimination data in background (non-blocking)
@@ -693,21 +703,19 @@ function _createClinchBadge(result) {
     return null;
   }
 
-  // Build popover content with solver details
-  const popoverContent = _buildPopoverContent(result);
+  // Build tooltip content with solver details
+  const tooltipContent = _buildPopoverContent(result);
 
-  // Initialize Bootstrap popover on click (dismiss on next click)
-  badge.setAttribute("data-bs-toggle", "popover");
-  badge.setAttribute("data-bs-trigger", "click");
+  // Initialize Bootstrap tooltip on hover (auto-dismisses, no stacking)
+  badge.setAttribute("data-bs-toggle", "tooltip");
   badge.setAttribute("data-bs-placement", "top");
   badge.setAttribute("data-bs-html", "true");
-  badge.setAttribute("data-bs-title", result.team + " — " + _statusLabel(status));
-  badge.setAttribute("data-bs-content", popoverContent);
+  badge.setAttribute("title", result.team + " — " + _statusLabel(status) + tooltipContent);
 
-  // Defer popover initialization until element is in the DOM
+  // Defer tooltip initialization until element is in the DOM
   setTimeout(() => {
-    if (typeof bootstrap !== "undefined" && bootstrap.Popover) {
-      new bootstrap.Popover(badge, { sanitize: false });
+    if (typeof bootstrap !== "undefined" && bootstrap.Tooltip) {
+      new bootstrap.Tooltip(badge, { sanitize: false });
     }
   }, 0);
 
@@ -723,12 +731,17 @@ function _createClinchBadge(result) {
 function _buildPopoverContent(result) {
   let html = '<div style="font-size:0.8rem;line-height:1.6">';
   html += '<div><strong>Solve time:</strong> ' + (result.solve_time_ms || 0) + ' ms</div>';
-  html += '<div><strong>Variables:</strong> ' + (result.num_variables || 0) + '</div>';
+  if (result.num_variables > 0) {
+    html += '<div><strong>Remaining games:</strong> ' + result.num_variables + '</div>';
+  }
+  if (result.record_groups_total > 0) {
+    html += '<div><strong>Scenarios checked:</strong> ' + (result.record_groups_completed || 0) + ' of ' + result.record_groups_total + '</div>';
+  }
   if (result.minimum_seed != null) {
     html += '<div><strong>Best seed:</strong> #' + result.minimum_seed + '</div>';
   }
   if (result.magic_number != null) {
-    html += '<div><strong>Magic number:</strong> ' + result.magic_number + ' wins</div>';
+    html += '<div><strong>Magic number:</strong> ' + result.magic_number + ' wins to clinch</div>';
   }
   if (result.error) {
     html += '<div style="color:var(--bs-danger,#dc3545);margin-top:0.25rem"><em>' + _escapePopoverHtml(result.error) + '</em></div>';

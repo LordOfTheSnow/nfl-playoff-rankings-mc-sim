@@ -552,6 +552,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             "minimum_seed": result.minimum_seed,
             "magic_number": result.magic_number,
             "error": result.error,
+            "record_groups_completed": result.record_groups_completed,
+            "record_groups_total": result.record_groups_total,
         }
 
     def _handle_get_cp_clinch_all(self, path: str) -> None:
@@ -657,6 +659,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                     "num_variables": result.num_variables,
                     "minimum_seed": result.minimum_seed,
                     "magic_number": result.magic_number,
+                    "record_groups_completed": result.record_groups_completed,
+                    "record_groups_total": result.record_groups_total,
                 }
                 conferences[conf].append(team_entry)
 

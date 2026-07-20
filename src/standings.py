@@ -18,6 +18,12 @@ from src.data_client import Game, GameStatus
 from src.nfl_teams import NFL_TEAMS, get_team_conference, get_team_division
 
 
+# Module-level storage for simulated game winners, used by tiebreaker functions.
+# Set by determine_playoff_bracket before calling break_tie, cleared after.
+# Maps game_id -> (winner_team_name, is_tie)
+_simulated_winners: dict[str, tuple[str | None, bool]] = {}
+
+
 class Conference(Enum):
     """NFL conference."""
 

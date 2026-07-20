@@ -650,8 +650,9 @@ def solve_clinch(
             search_for_miss=False,
         )
 
-        # Run the solver with proportional time limit
+        # Run the solver — enumerate solutions so callback can find witness
         solver = cp_model.CpSolver()
+        solver.parameters.enumerate_all_solutions = True
         remaining_time = config.time_limit - (time.perf_counter() - start_time)
         remaining_groups = record_groups_total - elim_groups_completed
         if remaining_groups > 0 and remaining_time > 0:
@@ -753,14 +754,15 @@ def solve_clinch(
             search_for_miss=True,
         )
 
-        # Run the solver with proportional time limit
+        # Run the solver — enumerate solutions so callback can find counter-example.
+        # Uses randomized search to diversify exploration and find witnesses faster.
         solver = cp_model.CpSolver()
+        solver.parameters.enumerate_all_solutions = True
+        solver.parameters.random_seed = clinch_groups_completed
         remaining_time = config.time_limit - (time.perf_counter() - start_time)
         remaining_groups = record_groups_total - clinch_groups_completed
-        if remaining_groups > 0 and remaining_time > 0:
-            solver.parameters.max_time_in_seconds = remaining_time / remaining_groups
-        else:
-            solver.parameters.max_time_in_seconds = 1.0
+        per_group_time = remaining_time / remaining_groups if remaining_groups > 0 and remaining_time > 0 else 1.0
+        solver.parameters.max_time_in_seconds = per_group_time
 
         solver.solve(model, validator)
         clinch_groups_completed += 1
