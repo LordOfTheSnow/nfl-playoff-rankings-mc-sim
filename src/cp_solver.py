@@ -471,6 +471,122 @@ class PlayoffValidator(cp_model.CpSolverSolutionCallback):
             )
 
 
+def _build_ranking_model(
+    team: str,
+    conference: str,
+    all_games: list[Game],
+    remaining_games: list[Game],
+    fixed_standings: dict[str, tuple[int, int, int]],
+    contenders: list[str],
+) -> tuple[Any, dict[str, Any], dict[str, tuple[Any, Any, Any]]]:
+    """Build a CP-SAT model WITHOUT forcing the target team's record.
+
+    Same as _build_cpsat_model but without the target_record constraint,
+    allowing the solver to explore all possible final records for the target.
+
+    Returns:
+        Tuple of (model, game_outcome_vars, team_record_vars).
+    """
+    if not ORTOOLS_AVAILABLE:
+        raise RuntimeError("OR-Tools is not installed.")
+
+    model = cp_model.CpModel()
+
+    game_outcome_vars: dict[str, Any] = {}
+    for game in remaining_games:
+        var = model.new_int_var(0, 2, f"game_{game.game_id}")
+        game_outcome_vars[game.game_id] = var
+
+    game_home_wins: dict[str, Any] = {}
+    game_away_wins: dict[str, Any] = {}
+    game_ties: dict[str, Any] = {}
+
+    for game in remaining_games:
+        gid = game.game_id
+        outcome_var = game_outcome_vars[gid]
+
+        hw = model.new_bool_var(f"hw_{gid}")
+        aw = model.new_bool_var(f"aw_{gid}")
+        tie = model.new_bool_var(f"tie_{gid}")
+
+        model.add(hw + aw + tie == 1)
+        model.add(outcome_var == 0).only_enforce_if(hw)
+        model.add(outcome_var != 0).only_enforce_if(hw.negated())
+        model.add(outcome_var == 1).only_enforce_if(aw)
+        model.add(outcome_var != 1).only_enforce_if(aw.negated())
+        model.add(outcome_var == 2).only_enforce_if(tie)
+        model.add(outcome_var != 2).only_enforce_if(tie.negated())
+
+        game_home_wins[gid] = hw
+        game_away_wins[gid] = aw
+        game_ties[gid] = tie
+
+    contenders_set = set(contenders)
+    team_home_games: dict[str, list[str]] = {t: [] for t in contenders}
+    team_away_games: dict[str, list[str]] = {t: [] for t in contenders}
+
+    for game in remaining_games:
+        if game.home_team in contenders_set:
+            team_home_games[game.home_team].append(game.game_id)
+        if game.away_team in contenders_set:
+            team_away_games[game.away_team].append(game.game_id)
+
+    team_record_vars: dict[str, tuple[Any, Any, Any]] = {}
+    total_season_games = 17
+
+    for t in contenders:
+        fw, fl, ft = fixed_standings.get(t, (0, 0, 0))
+        remaining_home_gids = team_home_games[t]
+        remaining_away_gids = team_away_games[t]
+        n_remaining = len(remaining_home_gids) + len(remaining_away_gids)
+
+        max_wins = fw + n_remaining
+        max_losses = fl + n_remaining
+        max_ties = ft + n_remaining
+
+        wins_var = model.new_int_var(fw, max_wins, f"wins_{t}")
+        losses_var = model.new_int_var(fl, max_losses, f"losses_{t}")
+        ties_var = model.new_int_var(ft, max_ties, f"ties_{t}")
+
+        win_bools: list[Any] = []
+        for gid in remaining_home_gids:
+            win_bools.append(game_home_wins[gid])
+        for gid in remaining_away_gids:
+            win_bools.append(game_away_wins[gid])
+
+        if win_bools:
+            model.add(wins_var == fw + sum(win_bools))
+        else:
+            model.add(wins_var == fw)
+
+        loss_bools: list[Any] = []
+        for gid in remaining_home_gids:
+            loss_bools.append(game_away_wins[gid])
+        for gid in remaining_away_gids:
+            loss_bools.append(game_home_wins[gid])
+
+        if loss_bools:
+            model.add(losses_var == fl + sum(loss_bools))
+        else:
+            model.add(losses_var == fl)
+
+        tie_bools: list[Any] = []
+        for gid in remaining_home_gids:
+            tie_bools.append(game_ties[gid])
+        for gid in remaining_away_gids:
+            tie_bools.append(game_ties[gid])
+
+        if tie_bools:
+            model.add(ties_var == ft + sum(tie_bools))
+        else:
+            model.add(ties_var == ft)
+
+        model.add(wins_var + losses_var + ties_var == total_season_games)
+        team_record_vars[t] = (wins_var, losses_var, ties_var)
+
+    return (model, game_outcome_vars, team_record_vars)
+
+
 def solve_clinch(
     team: str,
     all_games: list[Game],
@@ -479,9 +595,13 @@ def solve_clinch(
 ) -> CPSolverResult:
     """Determine clinch/elimination status for a team.
 
-    Main entry point. Models remaining games as CP-SAT variables,
-    uses constraint propagation to prune impossible record combinations,
-    and delegates tiebreaker resolution to the standings engine.
+    Uses a pure constraint-based approach:
+    - Clinch: proves it's INFEASIBLE for 7+ other teams to finish with
+      wins >= target team's wins (accounting for shared game constraints).
+    - Elimination: proves it's INFEASIBLE for the team to finish in a
+      position where fewer than 7 others beat them.
+
+    No solution enumeration, no callbacks. Single Solve() per check.
 
     Args:
         team: Team name to analyze (must be a valid NFL team name).
@@ -496,6 +616,7 @@ def solve_clinch(
         RuntimeError: If OR-Tools is not installed.
     """
     from src.clinching import identify_contenders, get_relevant_games
+    from src.nfl_teams import get_team_division
 
     if not ORTOOLS_AVAILABLE:
         raise RuntimeError(
@@ -505,31 +626,25 @@ def solve_clinch(
     if config is None:
         config = CPSolverConfig()
 
-    # Validate team name
     if team not in _VALID_TEAMS:
         return CPSolverResult(
-            team=team,
-            status=ClinchStatus.ALIVE,
+            team=team, status=ClinchStatus.ALIVE,
             error=f"Unknown team: '{team}'. Valid teams: {sorted(_VALID_TEAMS)}",
         )
 
-    # Validate cutoff_week (must be 1-18)
     if not isinstance(cutoff_week, int) or cutoff_week < 1 or cutoff_week > 18:
         return CPSolverResult(
-            team=team,
-            status=ClinchStatus.ALIVE,
+            team=team, status=ClinchStatus.ALIVE,
             error=f"cutoff_week must be between 1 and 18, got: {cutoff_week}",
         )
 
-    # Validate time_limit (must be 1-300)
     if (
         not isinstance(config.time_limit, int)
         or config.time_limit < 1
         or config.time_limit > 300
     ):
         return CPSolverResult(
-            team=team,
-            status=ClinchStatus.ALIVE,
+            team=team, status=ClinchStatus.ALIVE,
             error=f"time_limit must be between 1 and 300 seconds, got: {config.time_limit}",
         )
 
@@ -539,23 +654,42 @@ def solve_clinch(
     conference = get_team_conference(team)
     if not conference:
         return CPSolverResult(
-            team=team,
-            status=ClinchStatus.ALIVE,
+            team=team, status=ClinchStatus.ALIVE,
             error=f"Could not determine conference for team: {team}",
         )
 
     contenders = identify_contenders(team, all_games, cutoff_week)
-    # Include the target team in the contenders list for model building
     all_contenders = [team] + [t for t in contenders if t != team]
 
     team_remaining_games, relevant_other_games = get_relevant_games(
         team, all_games, cutoff_week, contenders
     )
-    # All remaining conference games (team's + others')
     remaining_games = team_remaining_games + relevant_other_games
 
+    # --- Shortcut: zero remaining games → just check the bracket ---
+    if len(remaining_games) == 0:
+        # All games are fixed. Compute standings and check if team is in playoffs.
+        standings = compute_standings(all_games)
+        bracket = determine_playoff_bracket(standings, all_games=all_games)
+        conf_seeds = bracket.afc_seeds if conference == "AFC" else bracket.nfc_seeds
+        team_in_bracket = any(s.team == team for s in conf_seeds)
+        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+        if team_in_bracket:
+            return CPSolverResult(
+                team=team, status=ClinchStatus.CLINCHED,
+                clinched=True, eliminated=False, exhaustive=True,
+                solve_time_ms=elapsed_ms, num_variables=0,
+                record_groups_completed=0, record_groups_total=0,
+            )
+        else:
+            return CPSolverResult(
+                team=team, status=ClinchStatus.ELIMINATED,
+                clinched=False, eliminated=True, exhaustive=True,
+                solve_time_ms=elapsed_ms, num_variables=0,
+                record_groups_completed=0, record_groups_total=0,
+            )
+
     # --- Step 2: Compute fixed standings ---
-    # Tally W-L-T for each contender from games in weeks <= cutoff_week
     fixed_standings: dict[str, tuple[int, int, int]] = {}
     for t in all_contenders:
         wins, losses, ties = 0, 0, 0
@@ -564,8 +698,6 @@ def solve_clinch(
                 continue
             if game.home_team != t and game.away_team != t:
                 continue
-            # Determine outcome from scores (treat games without scores as not
-            # contributing)
             if game.home_score is not None and game.away_score is not None:
                 if game.home_score > game.away_score:
                     if game.home_team == t:
@@ -580,93 +712,83 @@ def solve_clinch(
                 else:
                     ties += 1
             elif game.status == GameStatus.COMPLETED:
-                # Completed but no scores — treat as a tie for safety
                 ties += 1
         fixed_standings[t] = (wins, losses, ties)
 
-    # --- Step 3: Get target team's fixed record ---
     fixed_wins, fixed_losses, fixed_ties = fixed_standings.get(team, (0, 0, 0))
+    team_min_wins = fixed_wins
+    team_max_wins = fixed_wins + len(team_remaining_games)
 
-    # --- Step 4: Generate record groups ---
-    record_groups = _generate_record_bounds(
-        team, team_remaining_games, fixed_wins, fixed_losses, fixed_ties
-    )
-    record_groups_total = len(record_groups)
-
-    # Track metadata
-    num_variables = 0
-    record_groups_completed = 0
-
-    # --- Step 5a: Fast arithmetic pre-check ---
-    # Before expensive per-group solving, check if the answer is obvious
-    # from wins arithmetic alone (no tiebreakers needed).
-    #
-    # For each conference team, compute min_wins (fixed) and max_wins (fixed + remaining).
-    # If target team's min_wins > 8th-best team's max_wins → CLINCHED (instant)
-    # If target team's max_wins < 7th-best team's min_wins → ELIMINATED (instant)
-    conf_win_bounds: list[tuple[str, int, int]] = []  # (team, min_wins, max_wins)
+    # --- Step 3: Fast arithmetic pre-checks (Tier 1 & 2) ---
+    conf_win_bounds: list[tuple[str, int, int]] = []
     for t in all_contenders:
-        fw, fl, ft_val = fixed_standings.get(t, (0, 0, 0))
+        fw = fixed_standings.get(t, (0, 0, 0))[0]
         t_remaining = sum(
             1 for g in remaining_games
             if g.home_team == t or g.away_team == t
         )
         conf_win_bounds.append((t, fw, fw + t_remaining))
 
-    team_min_wins = fixed_wins
-    team_max_wins = fixed_wins + len(team_remaining_games)
+    # Tier 1a: Clinch by conference-wide wins dominance
+    all_by_max = sorted(conf_win_bounds, key=lambda x: -x[2])
+    if len(all_by_max) >= 8:
+        eighth_max = all_by_max[7][2]
+        if team_min_wins > eighth_max:
+            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+            return CPSolverResult(
+                team=team, status=ClinchStatus.CLINCHED,
+                clinched=True, eliminated=False, exhaustive=True,
+                solve_time_ms=elapsed_ms, num_variables=0,
+                record_groups_completed=0, record_groups_total=0,
+            )
 
-    # Sort other teams by max_wins descending
-    others_by_max = sorted(
-        [(t, mn, mx) for t, mn, mx in conf_win_bounds if t != team],
-        key=lambda x: -x[2],
-    )
-
-    # Conference has 7 playoff spots (4 div winners + 3 wild cards).
-    # Simplification: if team's min wins beats the 7th-best OTHER team's max,
-    # they're guaranteed top 7 by wins alone → clinched.
-    if len(others_by_max) >= 6:
-        # The 7th spot means team needs to beat at most 6 other teams
-        # (since there are 7 spots for 16 teams, team needs to be in top 7)
-        # Sort all conf teams by max_wins desc; if team's min is above #8's max → clinched
-        all_by_max = sorted(conf_win_bounds, key=lambda x: -x[2])
-        if len(all_by_max) >= 8:
-            eighth_max = all_by_max[7][2]
-            if team_min_wins > eighth_max:
-                elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-                return CPSolverResult(
-                    team=team,
-                    status=ClinchStatus.CLINCHED,
-                    clinched=True,
-                    eliminated=False,
-                    exhaustive=True,
-                    solve_time_ms=elapsed_ms,
-                    num_variables=0,
-                    record_groups_completed=0,
-                    record_groups_total=record_groups_total,
-                )
-
-    # Fast elimination: if team's max wins < 7th-best min wins in conference → eliminated
+    # Tier 1b: Elimination by conference-wide wins floor
+    # Only applies if team ALSO can't win their division (division winners
+    # make playoffs regardless of conference-wide wins ranking).
     all_by_min_desc = sorted(conf_win_bounds, key=lambda x: -x[1])
     if len(all_by_min_desc) >= 7:
         seventh_min = all_by_min_desc[6][1]
         if team_max_wins < seventh_min:
-            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-            return CPSolverResult(
-                team=team,
-                status=ClinchStatus.ELIMINATED,
-                clinched=False,
-                eliminated=True,
-                exhaustive=True,
-                solve_time_ms=elapsed_ms,
-                num_variables=0,
-                record_groups_completed=0,
-                record_groups_total=record_groups_total,
-            )
+            # Check if team can still win their division
+            # Look at ALL teams in the division (not just contenders)
+            can_win_division = True
+            team_div_info_elim = get_team_division(team)
+            if team_div_info_elim:
+                _, team_div_elim = team_div_info_elim
+                for t in ALL_TEAMS:
+                    if t == team or get_team_conference(t) != conference:
+                        continue
+                    t_div_info = get_team_division(t)
+                    if not t_div_info or t_div_info[1] != team_div_elim:
+                        continue
+                    # Compute this rival's min wins (fixed wins only)
+                    rival_wins = 0
+                    for g in all_games:
+                        if g.week > cutoff_week:
+                            continue
+                        if g.status != GameStatus.COMPLETED:
+                            continue
+                        if g.home_score is None or g.away_score is None:
+                            continue
+                        if g.home_team == t and g.home_score > g.away_score:
+                            rival_wins += 1
+                        elif g.away_team == t and g.away_score > g.home_score:
+                            rival_wins += 1
+                    # Rival's min wins vs team's max wins — must be STRICTLY more
+                    # (at equal wins, tiebreakers could favor either team)
+                    if rival_wins > team_max_wins:
+                        can_win_division = False
+                        break
+            if not can_win_division:
+                elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+                return CPSolverResult(
+                    team=team, status=ClinchStatus.ELIMINATED,
+                    clinched=False, eliminated=True, exhaustive=True,
+                    solve_time_ms=elapsed_ms, num_variables=0,
+                    record_groups_completed=0, record_groups_total=0,
+                )
 
-    # Fast division clinch: if team's min wins > all division rivals' max wins,
-    # team is guaranteed to win the division → clinched (division winners always make playoffs)
-    from src.nfl_teams import get_team_division
+    # Tier 2: Division clinch (min wins > all division rivals' max)
     team_div_info = get_team_division(team)
     if team_div_info:
         _, team_div = team_div_info
@@ -677,303 +799,288 @@ def solve_clinch(
         if div_rivals_max and team_min_wins > max(div_rivals_max):
             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
             return CPSolverResult(
-                team=team,
-                status=ClinchStatus.CLINCHED,
-                clinched=True,
-                eliminated=False,
-                exhaustive=True,
-                solve_time_ms=elapsed_ms,
-                num_variables=0,
-                record_groups_completed=0,
-                record_groups_total=record_groups_total,
+                team=team, status=ClinchStatus.CLINCHED,
+                clinched=True, eliminated=False, exhaustive=True,
+                solve_time_ms=elapsed_ms, num_variables=0,
+                record_groups_completed=0, record_groups_total=0,
             )
 
-        # --- Step 5: Solve via single feasibility checks (no enumeration) ---
-    # Strategy: Don't enumerate solutions. Instead, add ranking constraints
-    # directly to the CP-SAT model and check feasibility with a single Solve() call.
+    # --- Step 4: Constraint-based solver (Tier 3) ---
+    # Model NFL playoff structure: 4 division winners + 3 wild cards = 7 spots.
+    # A team makes playoffs if they win their division OR get a wild card.
     #
-    # Elimination check: "Can team make playoffs?"
-    #   → Build model for team's BEST record, check if any feasible assignment
-    #     puts them in top 7 by wins. Single Solve(), no callback.
+    # Clinch check: "Is it possible for the team to MISS playoffs?"
+    #   Model "team misses" = team doesn't win division AND isn't top-3 wild card.
+    #   If INFEASIBLE → clinched.
     #
-    # Clinch check: "Can team MISS playoffs?"
-    #   → Build model for team's WORST record, check if any feasible assignment
-    #     puts enough other teams above them. Single Solve(), no callback.
+    # Elimination check: "Is it possible for the team to MAKE playoffs?"
+    #   Model "team makes it" = team wins division OR is top-3 wild card.
+    #   If INFEASIBLE → eliminated.
+
+    from src.nfl_teams import get_team_division, NFL_TEAMS
+
+    # Group contenders by division
+    div_teams: dict[str, list[str]] = {}
+    for t in all_contenders:
+        dinfo = get_team_division(t)
+        if dinfo:
+            _, d = dinfo
+            if d not in div_teams:
+                div_teams[d] = []
+            div_teams[d].append(t)
+
+    team_div = get_team_division(team)[1] if get_team_division(team) else None
+    num_variables = 0
+
+    # --- Precompute H2H outcomes for division tiebreaker awareness ---
+    # For each pair of division rivals, determine if H2H is decided:
+    # h2h_decided[(a, b)] = True means 'a' has won the H2H against 'b'
+    # (a leads in wins among their matchups AND no future games remain)
+    h2h_decided: dict[tuple[str, str], bool] = {}
+    for div_name, teams_in_div_list in div_teams.items():
+        for i, t_a in enumerate(teams_in_div_list):
+            for t_b in teams_in_div_list[i + 1:]:
+                wins_a = wins_b = 0
+                future_h2h = 0
+                for g in all_games:
+                    if not ((g.home_team == t_a and g.away_team == t_b) or
+                            (g.home_team == t_b and g.away_team == t_a)):
+                        continue
+                    if g.week > cutoff_week:
+                        future_h2h += 1
+                        continue
+                    if g.status != GameStatus.COMPLETED:
+                        continue
+                    if g.home_score is None or g.away_score is None:
+                        continue
+                    if g.home_score > g.away_score:
+                        if g.home_team == t_a:
+                            wins_a += 1
+                        else:
+                            wins_b += 1
+                    elif g.away_score > g.home_score:
+                        if g.away_team == t_a:
+                            wins_a += 1
+                        else:
+                            wins_b += 1
+                # H2H is decided if one side leads AND no future games can flip it
+                if future_h2h == 0 and wins_a != wins_b:
+                    if wins_a > wins_b:
+                        h2h_decided[(t_a, t_b)] = True  # a beats b
+                        h2h_decided[(t_b, t_a)] = False  # b loses to a
+                    else:
+                        h2h_decided[(t_a, t_b)] = False
+                        h2h_decided[(t_b, t_a)] = True
+
+    # --- Step 4a: Clinch check ---
+    # "Can the team miss the playoffs?"
+    # Team misses if:
+    #   (1) At least one division rival has wins >= team's wins (team doesn't win division by wins alone), AND
+    #   (2) At least 3 non-division-winner teams from other divisions have wins >= team's wins
+    #       (filling all 3 wild card spots above team)
     #
-    # For tiebreaker-dependent borderline cases, fall back to the callback
-    # approach with a tight time cap — but only for the 1-2 record groups
-    # that are actually borderline.
+    # Simplified model: team misses if 7 other teams all have wins >= team's wins.
+    # BUT we refine: team makes it if they win their division (no rival matches them).
+    # So "team misses" requires: (a) a division rival ties/beats them, AND (b) they lose the wild card race.
+    #
+    # Conservative clinch: if it's INFEASIBLE for ANY division rival to reach team's
+    # min wins AND INFEASIBLE for 3 non-division teams from other divisions to all
+    # reach team's min wins → clinched.
+    #
+    # Simpler approach that works: "team misses" = at least one div rival has wins >= team
+    # AND at least 6 other teams (from any division) have wins >= team.
+    # (Because if 7 total teams beat/tie team AND one is from their division, team
+    # neither wins division nor gets wild card.)
 
-    # Identify how many teams could potentially finish with more wins than
-    # target team at each record level
-    def _can_make_playoffs_at_record(target_record: tuple[int, int, int]) -> bool | None:
-        """Check if team can make playoffs at given record.
-        
-        Returns True (can make it), False (cannot), or None (inconclusive/need tiebreaker).
-        """
-        target_w = target_record[0]
+    clinch_model, clinch_gvars, clinch_tvars = _build_ranking_model(
+        team=team, conference=conference, all_games=all_games,
+        remaining_games=remaining_games, fixed_standings=fixed_standings,
+        contenders=all_contenders,
+    )
+    num_variables = len(clinch_gvars)
+    clinch_target_wins = clinch_tvars[team][0]
 
-        # Build model
-        model, game_outcome_vars, team_record_vars = _build_cpsat_model(
-            team=team, conference=conference, target_record=target_record,
-            all_games=all_games, remaining_games=remaining_games,
-            fixed_standings=fixed_standings, contenders=all_contenders,
-        )
+    # Create indicators: for each other team, does it match/beat target?
+    clinch_beats: dict[str, Any] = {}
+    for t in all_contenders:
+        if t == team:
+            continue
+        t_wins = clinch_tvars[t][0]
+        indicator = clinch_model.new_bool_var(f"beats_{t}")
+        clinch_model.add(t_wins >= clinch_target_wins).only_enforce_if(indicator)
+        clinch_model.add(t_wins <= clinch_target_wins - 1).only_enforce_if(indicator.negated())
+        clinch_beats[t] = indicator
 
-        # Count how many teams can STRICTLY beat target's wins
-        # If fewer than 7 teams can possibly have more wins → team is guaranteed top 7
-        teams_that_can_beat = 0
-        for t in all_contenders:
-            if t == team:
-                continue
-            fw_t = fixed_standings.get(t, (0, 0, 0))[0]
-            t_remaining = sum(
-                1 for g in remaining_games
-                if g.home_team == t or g.away_team == t
-            )
-            if fw_t + t_remaining > target_w:
-                teams_that_can_beat += 1
-
-        # If fewer than 7 teams can even theoretically beat target → always makes it
-        if teams_that_can_beat < 7:
-            return True
-
-        # If model is infeasible (record impossible given constraints) → skip
-        solver = cp_model.CpSolver()
-        solver.parameters.max_time_in_seconds = 1.0
-        status = solver.solve(model)
-        if status == cp_model.INFEASIBLE:
-            return None  # This record is impossible, skip it
-
-        # For borderline cases: use callback with tight timeout
-        validator = PlayoffValidator(
-            team=team, all_games=all_games, remaining_games=remaining_games,
-            game_outcome_vars=game_outcome_vars, search_for_miss=False,
-        )
-        solver2 = cp_model.CpSolver()
-        solver2.parameters.enumerate_all_solutions = True
-        solver2.parameters.max_time_in_seconds = 0.5  # tight cap per group
-        solver2.solve(model, validator)
-
-        if validator.found:
-            return True
-        # Timed out or no witness found
-        return False
-
-    def _can_miss_playoffs_at_record(target_record: tuple[int, int, int]) -> bool | None:
-        """Check if team can miss playoffs at given record.
-        
-        Uses a constraint-based approach: adds a constraint that 7 other teams
-        all finish with more wins than the target, then checks if the model
-        is feasible. If feasible → team CAN miss. If infeasible for all
-        possible 7-team subsets → team CANNOT miss → clinched.
-        
-        For efficiency, only tests the most plausible subset (teams with
-        highest max_wins). If that subset is infeasible → clinched.
-        
-        Returns True (can miss), False (cannot miss), or None (inconclusive).
-        """
-        target_w = target_record[0]
-
-        # Build model
-        model, game_outcome_vars, team_record_vars = _build_cpsat_model(
-            team=team, conference=conference, target_record=target_record,
-            all_games=all_games, remaining_games=remaining_games,
-            fixed_standings=fixed_standings, contenders=all_contenders,
-        )
-
-        # If base model is infeasible → this record is impossible
-        solver_check = cp_model.CpSolver()
-        solver_check.parameters.max_time_in_seconds = 1.0
-        status = solver_check.solve(model)
-        if status == cp_model.INFEASIBLE:
-            return False  # record impossible → can't miss
-
-        # Quick arithmetic: how many teams are GUARANTEED to beat target's wins?
-        teams_guaranteed_above = 0
-        for t in all_contenders:
-            if t == team:
-                continue
-            fw_t = fixed_standings.get(t, (0, 0, 0))[0]
-            if fw_t > target_w:
-                teams_guaranteed_above += 1
-        if teams_guaranteed_above >= 7:
-            return True
-
-        # Constraint-based clinch proof: add constraint that 7 other teams
-        # each have wins > target_w (or wins >= target_w + 1).
-        # If this is INFEASIBLE → can't have 7 teams above target → clinched.
-        #
-        # Pick the 7 teams most likely to beat target (highest max_wins).
-        # Add: wins(t) > target_w for each of these 7 teams.
-        # One Solve() call, no callback.
-        other_teams_by_potential = sorted(
-            [(t, fixed_standings.get(t, (0, 0, 0))[0] + sum(
-                1 for g in remaining_games if g.home_team == t or g.away_team == t
-            )) for t in all_contenders if t != team],
-            key=lambda x: -x[1],
-        )
-
-        # Teams that CAN reach >= target_w are relevant (same wins can beat via tiebreaker)
-        can_tie_or_beat = [(t, mx) for t, mx in other_teams_by_potential if mx >= target_w]
-
-        if len(can_tie_or_beat) < 7:
-            # Fewer than 7 teams can even theoretically match target → can't miss
-            return False
-
-        # Take top 7 teams that could match or beat target_w
-        top7 = [t for t, mx in can_tie_or_beat[:7]]
-
-        # Add constraints: each of these 7 teams must finish with wins >= target_w
-        # (same wins can still beat target via tiebreaker)
-        model2, game_outcome_vars2, team_record_vars2 = _build_cpsat_model(
-            team=team, conference=conference, target_record=target_record,
-            all_games=all_games, remaining_games=remaining_games,
-            fixed_standings=fixed_standings, contenders=all_contenders,
-        )
-        for t in top7:
-            if t in team_record_vars2:
-                wins_var, _, _ = team_record_vars2[t]
-                model2.add(wins_var >= target_w)
-
-        solver2 = cp_model.CpSolver()
-        solver2.parameters.max_time_in_seconds = 2.0
-        status2 = solver2.solve(model2)
-
-        if status2 == cp_model.INFEASIBLE:
-            # Impossible for 7 teams to all match/beat target by wins → can't miss
-            return False
-        elif status2 == cp_model.FEASIBLE or status2 == cp_model.OPTIMAL:
-            # There IS a scenario where 7 teams match/beat target by wins.
-            # But team might still make it via division winner or tiebreaker.
-            # Use callback to check if team actually misses in this constrained model.
-            validator = PlayoffValidator(
-                team=team, all_games=all_games, remaining_games=remaining_games,
-                game_outcome_vars=game_outcome_vars2, search_for_miss=True,
-            )
-            solver3 = cp_model.CpSolver()
-            solver3.parameters.enumerate_all_solutions = True
-            solver3.parameters.max_time_in_seconds = 5.0
-            status3 = solver3.solve(model2, validator)
-            if validator.found:
-                return True  # Found a scenario where team misses → not clinched
-            # Callback didn't find a miss, but may not have searched exhaustively.
-            # OPTIMAL means all solutions checked → proven safe.
-            if status3 == cp_model.OPTIMAL:
-                return False  # Exhaustively checked, no miss exists → clinched
-            # Timed out — inconclusive
-            return None
+    # Constraint: at least one DIVISION rival matches/beats target
+    if team_div and team_div in div_teams:
+        div_rival_beats = [clinch_beats[t] for t in div_teams[team_div] if t != team and t in clinch_beats]
+        if div_rival_beats:
+            clinch_model.add(sum(div_rival_beats) >= 1)
         else:
-            # Solver timed out on the constraint check
-            return None
-
-    # --- Execute checks ---
-    groups_completed = 0
-
-    # Elimination check: can team make playoffs at their BEST possible record?
-    # Start from highest wins and work down — stop at first "can make it"
-    team_not_eliminated = False
-    elim_sorted = sorted(record_groups, key=lambda r: -r[0])
-
-    for target_record in elim_sorted:
-        elapsed = time.perf_counter() - start_time
-        if elapsed >= config.time_limit:
-            break
-
-        if num_variables == 0:
-            # Get variable count from first model build
-            m, gvars, _ = _build_cpsat_model(
-                team=team, conference=conference, target_record=target_record,
-                all_games=all_games, remaining_games=remaining_games,
-                fixed_standings=fixed_standings, contenders=all_contenders,
-            )
-            num_variables = len(gvars)
-
-        result = _can_make_playoffs_at_record(target_record)
-        groups_completed += 1
-        if result is True:
-            team_not_eliminated = True
-            break
-
-    if not team_not_eliminated:
-        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-        if groups_completed == record_groups_total:
+            # No division rivals → team always wins division → clinched
+            # (This shouldn't happen with 4 teams per division, but handle it)
+            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
             return CPSolverResult(
-                team=team, status=ClinchStatus.ELIMINATED,
-                clinched=False, eliminated=True, exhaustive=True,
+                team=team, status=ClinchStatus.CLINCHED,
+                clinched=True, eliminated=False, exhaustive=True,
                 solve_time_ms=elapsed_ms, num_variables=num_variables,
-                record_groups_completed=groups_completed,
-                record_groups_total=record_groups_total,
+                record_groups_completed=0, record_groups_total=0,
             )
-        return CPSolverResult(
-            team=team, status=ClinchStatus.INCONCLUSIVE, exhaustive=False,
-            solve_time_ms=elapsed_ms, num_variables=num_variables,
-            error=f"Timed out: {groups_completed}/{record_groups_total} groups",
-            record_groups_completed=groups_completed,
-            record_groups_total=record_groups_total,
-        )
 
-    # Clinch check: can team miss playoffs at their WORST possible record?
-    # Start from lowest wins — stop at first "can miss"
-    team_not_clinched = False
-    clinch_inconclusive = False
-    clinch_groups_checked = 0
-    clinch_sorted = sorted(record_groups, key=lambda r: r[0])
+    # Constraint: at least 7 total teams (including the div rival) match/beat target.
+    # This means team finishes 8th or worse by wins in the conference.
+    all_beats = list(clinch_beats.values())
+    clinch_model.add(sum(all_beats) >= 7)
 
-    for target_record in clinch_sorted:
-        elapsed = time.perf_counter() - start_time
-        if elapsed >= config.time_limit:
-            clinch_inconclusive = True
-            break
+    clinch_solver = cp_model.CpSolver()
+    clinch_solver.parameters.max_time_in_seconds = config.time_limit / 2
+    clinch_status = clinch_solver.solve(clinch_model)
 
-        result = _can_miss_playoffs_at_record(target_record)
-        groups_completed += 1
-        clinch_groups_checked += 1
-        if result is True:
-            team_not_clinched = True
-            break
-        elif result is None:
-            # Inconclusive for this group (timed out or infeasible record)
-            # If infeasible → skip, doesn't affect clinch determination
-            # If timed out → can't prove clinch
-            # We check: was the record itself impossible? (None from infeasible)
-            # The function returns None for both infeasible AND timeout.
-            # We need to distinguish. For now, if record is possible but
-            # solver timed out, we can't claim clinch.
-            # Since we already checked feasibility inside the function,
-            # None here means either infeasible (safe to skip) or timeout.
-            # Let's be conservative: mark inconclusive
-            clinch_inconclusive = True
-
-    elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-
-    if not team_not_clinched and not clinch_inconclusive and clinch_groups_checked == record_groups_total:
-        # Proved: can't miss at any record → clinched
+    if clinch_status == cp_model.INFEASIBLE:
+        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
         return CPSolverResult(
             team=team, status=ClinchStatus.CLINCHED,
             clinched=True, eliminated=False, exhaustive=True,
             solve_time_ms=elapsed_ms, num_variables=num_variables,
-            record_groups_completed=groups_completed,
-            record_groups_total=record_groups_total,
+            record_groups_completed=0, record_groups_total=0,
         )
 
-    if not team_not_clinched:
-        # Either timed out or inconclusive — conservatively return alive
+    # --- Step 4b: Elimination check ---
+    # "Can the team make the playoffs?"
+    # NFL playoffs: 4 division winners (seeds 1-4) + 3 wild cards (seeds 5-7).
+    # Team makes it if EITHER:
+    #   (a) Team wins its division (best record in division, wins tiebreakers), OR
+    #   (b) Team gets a wild card: among non-division-winners, team is in top 3 by wins.
+    #
+    # Model each division's winner, then count wild card competitors correctly.
+
+    elim_model, elim_gvars, elim_tvars = _build_ranking_model(
+        team=team, conference=conference, all_games=all_games,
+        remaining_games=remaining_games, fixed_standings=fixed_standings,
+        contenders=all_contenders,
+    )
+    elim_target_wins = elim_tvars[team][0]
+
+    # --- Model division winners ---
+    # For each division, create BoolVars indicating which team wins it.
+    # Simplification: division winner = team with most wins in that division.
+    # (Ignores tiebreakers at same wins — conservative for elimination)
+    div_winner_vars: dict[str, Any] = {}  # team → BoolVar "is division winner"
+
+    for div_name, teams_in_div in div_teams.items():
+        # For each team in this division, create "is_winner" BoolVar
+        winner_bools = []
+        for t in teams_in_div:
+            if t not in elim_tvars:
+                continue
+            is_winner = elim_model.new_bool_var(f"div_winner_{t}")
+            div_winner_vars[t] = is_winner
+            winner_bools.append(is_winner)
+
+            # is_winner => this team beats every rival in the division.
+            # If H2H is decided and rival leads, team needs STRICTLY more wins.
+            # If H2H is undecided or team leads, team needs >= wins.
+            for rival in teams_in_div:
+                if rival == t or rival not in elim_tvars:
+                    continue
+                t_wins_var = elim_tvars[t][0]
+                rival_wins_var = elim_tvars[rival][0]
+                # Check if rival has won the H2H against t (decided)
+                rival_leads_h2h = h2h_decided.get((rival, t), False)
+                if rival_leads_h2h:
+                    # Rival won H2H → t needs strictly more wins to win division
+                    elim_model.add(t_wins_var >= rival_wins_var + 1).only_enforce_if(is_winner)
+                else:
+                    # H2H undecided or t leads → t needs >= wins
+                    elim_model.add(t_wins_var >= rival_wins_var).only_enforce_if(is_winner)
+
+        # Exactly one team wins each division
+        if winner_bools:
+            elim_model.add(sum(winner_bools) == 1)
+
+    # --- BoolVar: target team wins its division ---
+    target_wins_div = div_winner_vars.get(team)
+    if target_wins_div is None:
+        # Team not in any division? Shouldn't happen
+        target_wins_div = elim_model.new_bool_var("wins_div_fallback")
+        elim_model.add(target_wins_div == 0)
+
+    # --- BoolVar: target team gets a wild card ---
+    # Wild card: team is NOT a division winner AND is among the top 3
+    # non-division-winners by wins in the conference.
+    # "Top 3 non-winners" = at most 2 other non-winners have strictly more wins.
+    #
+    # For each other team: they block a wild card spot if they're NOT a division
+    # winner AND have strictly more wins than target.
+    wc_blockers: list[Any] = []
+    for t in all_contenders:
+        if t == team:
+            continue
+        t_wins = elim_tvars[t][0]
+        t_is_winner = div_winner_vars.get(t)
+        if t_is_winner is None:
+            continue
+
+        # blocker = (t is NOT div winner) AND (t has more wins than target)
+        blocker = elim_model.new_bool_var(f"wc_blocks_{t}")
+        has_more_wins = elim_model.new_bool_var(f"more_wins_{t}")
+        elim_model.add(t_wins >= elim_target_wins + 1).only_enforce_if(has_more_wins)
+        elim_model.add(t_wins <= elim_target_wins).only_enforce_if(has_more_wins.negated())
+
+        # blocker = NOT(div_winner) AND has_more_wins
+        # blocker => NOT div_winner
+        elim_model.add(t_is_winner == 0).only_enforce_if(blocker)
+        # blocker => has_more_wins
+        elim_model.add(has_more_wins == 1).only_enforce_if(blocker)
+        # NOT blocker => NOT(NOT div_winner AND has_more_wins)
+        # i.e., NOT blocker => div_winner OR NOT has_more_wins
+        elim_model.add(t_is_winner + (1 - has_more_wins) >= 1).only_enforce_if(blocker.negated())
+
+        wc_blockers.append(blocker)
+
+    # Target gets wild card if: NOT a div winner AND at most 2 blockers
+    gets_wc = elim_model.new_bool_var("gets_wildcard")
+    num_blockers = elim_model.new_int_var(0, 15, "num_wc_blockers")
+    elim_model.add(num_blockers == sum(wc_blockers))
+    # gets_wc => NOT target_wins_div (team is not a winner)
+    elim_model.add(target_wins_div == 0).only_enforce_if(gets_wc)
+    # gets_wc => num_blockers <= 2
+    elim_model.add(num_blockers <= 2).only_enforce_if(gets_wc)
+
+    # Team makes playoffs: wins division OR gets wild card
+    elim_model.add(target_wins_div + gets_wc >= 1)
+
+    elim_solver = cp_model.CpSolver()
+    remaining_time = config.time_limit - (time.perf_counter() - start_time)
+    elim_solver.parameters.max_time_in_seconds = max(remaining_time, 1.0)
+    elim_status = elim_solver.solve(elim_model)
+
+    if elim_status == cp_model.INFEASIBLE:
+        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
         return CPSolverResult(
-            team=team, status=ClinchStatus.ALIVE,
-            clinched=False, eliminated=False, exhaustive=not clinch_inconclusive,
+            team=team, status=ClinchStatus.ELIMINATED,
+            clinched=False, eliminated=True, exhaustive=True,
             solve_time_ms=elapsed_ms, num_variables=num_variables,
-            record_groups_completed=groups_completed,
-            record_groups_total=record_groups_total,
+            record_groups_completed=0, record_groups_total=0,
         )
 
-    # Team is alive (not eliminated, not clinched)
+    # --- Step 5: Determine status ---
+    elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+
+    if clinch_status == cp_model.UNKNOWN or elim_status == cp_model.UNKNOWN:
+        return CPSolverResult(
+            team=team, status=ClinchStatus.INCONCLUSIVE,
+            clinched=False, eliminated=False, exhaustive=False,
+            solve_time_ms=elapsed_ms, num_variables=num_variables,
+            error="Solver timed out",
+            record_groups_completed=0, record_groups_total=0,
+        )
+
     return CPSolverResult(
         team=team, status=ClinchStatus.ALIVE,
         clinched=False, eliminated=False, exhaustive=True,
         solve_time_ms=elapsed_ms, num_variables=num_variables,
-        record_groups_completed=groups_completed,
-        record_groups_total=record_groups_total,
+        record_groups_completed=0, record_groups_total=0,
     )
 
 

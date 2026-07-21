@@ -7,33 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.6.0] - 2026-07-20
+## [0.6.0] - 2026-07-21
 
 ### Added
 - CP-SAT constraint solver for mathematical clinching/elimination detection (Google OR-Tools)
-- Hybrid approach: CP-SAT handles arithmetic constraints, existing standings engine handles NFL tiebreakers
-- Fast arithmetic pre-checks for instant clinch/elimination determination (conference-wide wins threshold + division clinch)
-- Constraint-based clinch proof: adds "7 teams beat target" as CP-SAT constraints, checks infeasibility
-- Record group decomposition for borderline cases
+- Pure constraint-based architecture: no callbacks, no enumeration — single Solve() per check
+- Three-tier solver: arithmetic fast-paths → division clinch → CP-SAT constraint model
+- Division-aware elimination: models division winners explicitly, won't falsely eliminate division winners
+- H2H-aware division constraints: accounts for decided head-to-head records in division winner determination
+- Wild card modeled correctly: counts only non-division-winners as competitors for 3 spots
+- Zero remaining games shortcut: uses standings engine directly (no model needed)
 - REST API endpoints: `GET /api/cp-clinch/{team}` and `GET /api/cp-clinch-all`
-- Frontend clinch/elimination badges on standings view (x=clinched, e=eliminated, ?=inconclusive)
+- Per-team caching in bulk endpoint (instant on repeat visits)
+- Frontend clinch/elimination badges on standings view (x=clinched, e=eliminated)
 - Hover tooltip on badges showing solve time, remaining games, scenarios checked
-- "Clinch/Elimination" button on standings page (manual trigger, disables while running)
-- Silent auto-load of cached CP solver results on page load (2s timeout)
+- Auto-run on page load with "Computing clinch/elimination…" spinner hint
 - SQLite cache for CP solver results with automatic invalidation on data fetch
-- Standings page now respects cutoff week selector (shows records only through that week)
-- "Computing clinch/elimination…" spinner hint while solver runs
+- Standings page respects cutoff week selector (shows records only through that week)
 - OR-Tools as optional dependency (`pip install -e ".[cp]"`)
 - Favicon: Monte Carlo die (SVG)
 - Legend section on standings page explaining badges and tooltip values
-- Server now uses ThreadingMixIn for concurrent request handling (CP solver runs in background)
+- Server uses ThreadingMixIn for concurrent request handling (CP solver runs in background)
 
 ### Fixed
 - Playoff bracket tiebreaker resolution now uses full NFL tiebreaker procedure (H2H, division record, conference record, SoV, SoS, net points) instead of alphabetical fallback
-- Tiebreaker functions now correctly handle simulated game outcomes (previously used actual scores for simulated games)
-- CP solver uses `enumerate_all_solutions=True` for elimination checks to correctly find tiebreaker-dependent witnesses
-- Constraint-based clinch check prevents false "clinched" claims (returns alive/inconclusive when proof times out)
+- Tiebreaker functions correctly handle simulated game outcomes via module-level `_simulated_winners`
 - SQLite `check_same_thread=False` for thread-safe access with ThreadingMixIn
+- BrokenPipeError silently handled when client disconnects during CP solver computation
+
+### Performance
+- 0.3s for all 32 teams at any cutoff week (sequential, single core)
+- Instant for cached results
+- No timeouts or inconclusive results under normal conditions
 
 ## [0.5.0] - 2026-07-17
 

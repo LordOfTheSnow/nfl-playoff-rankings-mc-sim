@@ -29,11 +29,19 @@ A web application that predicts NFL playoff probabilites using Monte Carlo simul
 - Responsive UI built on Bootstrap 5.3.3 (CDN) with NFL-branded styling
 - No external runtime dependencies beyond httpx (for ESPN API calls)
 
-## Screenshot (2025 season)
+## Screenshots
 
-![Clinching Scenarios for the Detroit Lions](frontend/img/screenshot-clinching-scenarios.png)
+### Simulation results (2025 season)
+
+![Clinching Scenarios for the Detroit Lions](/doc/img/screenshot-clinching-scenarios.png)
 
 *Clinching scenarios for the Detroit Lions — season 2025, cutoff week 15, showing all paths to the playoffs grouped by remaining record.*
+
+### Standings page (2025 season, cutoff week 16)
+
+![Standings after week 16, 2025](/doc/img/screenshot-standings.png)
+
+*Standings page after week 16 of the 2025. Note the clinching or elimination badges next to the teams already qualified for the playoffs or eliminated.
 
 ## Setup
 
@@ -264,13 +272,11 @@ In practice, this means most teams are resolved in 1–2 record groups out of 15
 
 | Metric | Value |
 |--------|-------|
-| Team | Panthers, cutoff week 14 |
-| Remaining games | 64 (all teams), 4 (Panthers) |
-| Brute-force space | 3⁶⁴ ≈ 3.4 × 10³⁰ |
-| Record groups | 15 |
-| Groups actually checked | 2 |
-| Solve time | 28 ms |
-| Result | Alive (not clinched, not eliminated) |
+| Season 2025, cutoff week 16 | All 32 teams |
+| Remaining games per team | 2 (32 total conference games) |
+| Brute-force space | 3³² ≈ 1.85 × 10¹⁵ |
+| Total solve time | 0.3 seconds |
+| Method | 2 CP-SAT Solve() calls per team, pure infeasibility |
 
 ### API endpoints
 

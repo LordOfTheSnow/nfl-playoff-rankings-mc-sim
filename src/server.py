@@ -691,9 +691,15 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 "conferences": conferences,
             }
             self._send_json_response(200, response)
+        except BrokenPipeError:
+            # Client disconnected (e.g., page navigated away or fetch aborted)
+            pass
         except Exception as e:
             logger.exception("Error running CP solver for all teams")
-            self._send_error_response(500, "CP solver error", str(e))
+            try:
+                self._send_error_response(500, "CP solver error", str(e))
+            except BrokenPipeError:
+                pass
 
     def _handle_get_clinch_estimate(self) -> None:
         """Handle GET /api/clinch-estimate?team=<name> — preflight estimate."""

@@ -118,22 +118,6 @@ async function renderStandings(contentEl) {
     contentEl.appendChild(buildStatusPanel(status));
   }
 
-  // Clinch/Elimination button above filter bar and conference headers
-  const cpRow = document.createElement("div");
-  cpRow.className = "mb-3";
-  cpRow.innerHTML = '<button id="btn-run-cp-solver" class="btn btn-outline-success" type="button" title="Uses a CP constraint solver to mathematically prove playoff clinching or elimination. May take 10–30s depending on the cutoff week.">Clinch/Elimination</button>';
-  contentEl.appendChild(cpRow);
-
-  const cpBtn = cpRow.querySelector("#btn-run-cp-solver");
-  cpBtn.addEventListener("click", () => {
-    cpBtn.disabled = true;
-    cpBtn.textContent = "Computing…";
-    _fetchAndApplyCPBadges(contentEl, cutoffWeek).finally(() => {
-      cpBtn.disabled = false;
-      cpBtn.textContent = "Clinch/Elimination";
-    });
-  });
-
   // Build filter bar
   const filterBar = buildFilterBar();
   contentEl.appendChild(filterBar);
@@ -176,8 +160,8 @@ async function renderStandings(contentEl) {
     "</ul>";
   contentEl.appendChild(legend);
 
-  // Try to load cached CP solver badges silently (no spinner, no button disable)
-  _tryLoadCachedCPBadges(contentEl, cutoffWeek);
+  // Fetch CP solver clinch/elimination data (non-blocking)
+  _fetchAndApplyCPBadges(contentEl, cutoffWeek);
 }
 
 /**
