@@ -11,6 +11,8 @@ A web application that predicts NFL playoff probabilites using Monte Carlo simul
 
 > **Work in Progress** — This project is under active development. Features may change and some functionality is incomplete.
 
+> **⚠️ Known Issue (v0.6.2):** The Clinching Scenarios solver has a significant performance regression compared to v0.5.0. Scenarios that previously completed in ~30-60 seconds now take 5-7 minutes. This will be investigated and fixed in a future release.
+
 ## Features
 
 - Fetch NFL season data from ESPN's public JSON API

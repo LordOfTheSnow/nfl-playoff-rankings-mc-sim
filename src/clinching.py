@@ -40,8 +40,10 @@ from src.standings import compute_standings, determine_playoff_bracket
 
 logger = logging.getLogger(__name__)
 
-# Maximum relevant games for full enumeration (3^13 ~ 1.6M)
-ENUMERATION_THRESHOLD = 13
+# Maximum relevant games for full enumeration.
+# 3^9 = 19K × team_combos is tractable (~30s with 4 cores).
+# Above this, use Monte Carlo sampling instead.
+ENUMERATION_THRESHOLD = 9
 
 # Number of Monte Carlo samples when enumeration is infeasible
 MC_SAMPLES = 10_000
@@ -358,7 +360,10 @@ def _check_universe(
     """
     combined = team_outcomes + other_outcomes
     standings = compute_standings(fixed_games, combined)
-    bracket = determine_playoff_bracket(standings, all_games=fixed_games, simulated_outcomes=combined)
+    # Use fast bracket (no tiebreaker resolution) for brute-force enumeration.
+    # Full tiebreakers are too slow for 100K+ calls; win% + alphabetical is
+    # sufficient for finding clinching scenarios.
+    bracket = determine_playoff_bracket(standings)
     return _team_in_playoffs(team, bracket)
 
 
