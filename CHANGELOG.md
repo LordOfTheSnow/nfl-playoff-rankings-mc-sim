@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-21
+
+### Added
+- CP-SAT constraint solver for mathematical clinching/elimination detection (Google OR-Tools)
+- Pure constraint-based architecture: no callbacks, no enumeration — single Solve() per check
+- Three-tier solver: arithmetic fast-paths → division clinch → CP-SAT constraint model
+- Division-aware elimination: models division winners explicitly, won't falsely eliminate division winners
+- H2H-aware division constraints: accounts for decided head-to-head records in division winner determination
+- Wild card modeled correctly: counts only non-division-winners as competitors for 3 spots
+- Zero remaining games shortcut: uses standings engine directly (no model needed)
+- REST API endpoints: `GET /api/cp-clinch/{team}` and `GET /api/cp-clinch-all`
+- Per-team caching in bulk endpoint (instant on repeat visits)
+- Frontend clinch/elimination badges on standings view (x=clinched, e=eliminated)
+- Hover tooltip on badges showing solve time, remaining games, scenarios checked
+- Auto-run on page load with "Computing clinch/elimination…" spinner hint
+- SQLite cache for CP solver results with automatic invalidation on data fetch
+- Standings page respects cutoff week selector (shows records only through that week)
+- OR-Tools as optional dependency (`pip install -e ".[cp]"`)
+- Favicon: Monte Carlo die (SVG)
+- Legend section on standings page explaining badges and tooltip values
+- Server uses ThreadingMixIn for concurrent request handling (CP solver runs in background)
+
+### Fixed
+- Playoff bracket tiebreaker resolution now uses full NFL tiebreaker procedure (H2H, division record, conference record, SoV, SoS, net points) instead of alphabetical fallback
+- Tiebreaker functions correctly handle simulated game outcomes via module-level `_simulated_winners`
+- SQLite `check_same_thread=False` for thread-safe access with ThreadingMixIn
+- BrokenPipeError silently handled when client disconnects during CP solver computation
+
+### Performance
+- 0.3s for all 32 teams at any cutoff week (sequential, single core)
+- Instant for cached results
+- No timeouts or inconclusive results under normal conditions
+
 ## [0.5.0] - 2026-07-17
 
 ### Added
@@ -183,7 +216,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.2.1...v0.3.0

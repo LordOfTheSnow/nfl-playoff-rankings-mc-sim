@@ -18,13 +18,15 @@ import mimetypes
 import os
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import ThreadingMixIn
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
 from src.cache import Cache
+from src.cp_solver import ORTOOLS_AVAILABLE, CPSolverConfig, solve_clinch, solve_clinch_all
 from src.data_client import DataClient, FetchResult, Game, GameStatus
-from src.nfl_teams import ALL_TEAMS, get_team_abbreviation
+from src.nfl_teams import ALL_TEAMS, get_team_abbreviation, get_team_conference
 from src.simulator import SimulationConfig, Simulator, SimulationResult
 from src.standings import compute_standings, determine_playoff_bracket
 
@@ -267,12 +269,16 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
         # API routes
         if path == "/api/status":
             self._handle_get_status()
-        elif path == "/api/standings":
-            self._handle_get_standings()
+        elif path == "/api/standings" or path.startswith("/api/standings?"):
+            self._handle_get_standings(path)
         elif path == "/api/statistics":
             self._handle_get_statistics()
         elif path == "/api/schedule-grid":
             self._handle_get_schedule_grid()
+        elif path.startswith("/api/cp-clinch-all"):
+            self._handle_get_cp_clinch_all(path)
+        elif path.startswith("/api/cp-clinch/"):
+            self._handle_get_cp_clinch(path)
         elif path.startswith("/api/clinch-estimate"):
             self._handle_get_clinch_estimate()
         elif path.startswith("/api/team/"):
@@ -373,6 +379,9 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
+            # Invalidate cached CP solver results for the active season
+            server.cache.invalidate_cp_cache(server.season_year)
+
             # Pre-compute weekly team strengths for all cutoff weeks
             self._compute_weekly_strengths(server)
 
@@ -406,6 +415,291 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
         server.season_year = season
         logger.info("Season changed to %d", season)
         self._send_json_response(200, {"season_year": season})
+
+    def _handle_get_cp_clinch(self, path: str) -> None:
+        """Handle GET /api/cp-clinch/{team} — CP solver clinch/elimination status.
+
+        Args:
+            path: Full URL path including query string.
+        """
+        from urllib.parse import urlparse, parse_qs
+
+        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
+
+        # Parse the URL
+        parsed = urlparse(path)
+        params = parse_qs(parsed.query)
+
+        # Extract team from path: /api/cp-clinch/{team}
+        path_part = parsed.path
+        prefix = "/api/cp-clinch/"
+        team = unquote(path_part[len(prefix):])
+
+        # Strip trailing slash if present
+        team = team.rstrip("/")
+
+        # Validate team name
+        if team not in ALL_TEAMS:
+            self._send_json_response(400, {
+                "error": "Invalid team",
+                "valid_teams": sorted(ALL_TEAMS),
+            })
+            return
+
+        # Parse optional cutoff_week
+        cutoff_week: int | None = None
+        cutoff_list = params.get("cutoff_week", [])
+        if cutoff_list and cutoff_list[0]:
+            try:
+                cutoff_week = int(cutoff_list[0])
+            except (ValueError, TypeError):
+                self._send_json_response(400, {
+                    "error": "Invalid cutoff_week parameter",
+                    "details": "cutoff_week must be an integer between 1 and 18",
+                })
+                return
+            if cutoff_week < 1 or cutoff_week > 18:
+                self._send_json_response(400, {
+                    "error": "Invalid cutoff_week parameter",
+                    "details": "cutoff_week must be an integer between 1 and 18",
+                })
+                return
+
+        # Parse optional time_limit (default 30)
+        time_limit: int = 30
+        time_limit_list = params.get("time_limit", [])
+        if time_limit_list and time_limit_list[0]:
+            try:
+                time_limit = int(time_limit_list[0])
+            except (ValueError, TypeError):
+                self._send_json_response(400, {
+                    "error": "Invalid time_limit parameter",
+                    "details": "time_limit must be an integer between 1 and 300",
+                })
+                return
+            if time_limit < 1 or time_limit > 300:
+                self._send_json_response(400, {
+                    "error": "Invalid time_limit parameter",
+                    "details": "time_limit must be an integer between 1 and 300",
+                })
+                return
+
+        # Check OR-Tools availability
+        if not ORTOOLS_AVAILABLE:
+            self._send_json_response(503, {
+                "error": "OR-Tools is required for CP solver. Install with: pip install ortools>=9.9",
+            })
+            return
+
+        # Check game data exists
+        games = server.cache.get_games(server.season_year)
+        if not games:
+            self._send_json_response(409, {
+                "error": "No game data available. Fetch data first using POST /api/fetch-data",
+            })
+            return
+
+        # Auto-detect cutoff_week if omitted
+        if cutoff_week is None:
+            week_counts: dict[int, int] = {}
+            week_completed: dict[int, int] = {}
+            for g in games:
+                week_counts[g.week] = week_counts.get(g.week, 0) + 1
+                if g.status == GameStatus.COMPLETED:
+                    week_completed[g.week] = week_completed.get(g.week, 0) + 1
+            completed_weeks = set()
+            for w in week_counts:
+                if week_completed.get(w, 0) == week_counts[w]:
+                    completed_weeks.add(w)
+            cutoff_week = max(completed_weeks) if completed_weeks else 1
+
+        # Check cache
+        cached_result = server.cache.get_cp_result(team, cutoff_week, server.season_year)
+        if cached_result is not None:
+            self._send_json_response(200, self._serialize_cp_result(cached_result))
+            return
+
+        # Run solver
+        try:
+            config = CPSolverConfig(time_limit=time_limit)
+            result = solve_clinch(team, games, cutoff_week, config)
+
+            # Store result in cache
+            server.cache.store_cp_result(team, cutoff_week, server.season_year, result)
+
+            self._send_json_response(200, self._serialize_cp_result(result))
+        except Exception as e:
+            logger.exception("Error running CP solver for %s", team)
+            self._send_error_response(500, "CP solver error", str(e))
+
+    @staticmethod
+    def _serialize_cp_result(result: Any) -> dict[str, Any]:
+        """Serialize a CPSolverResult to a JSON-compatible dictionary.
+
+        Args:
+            result: A CPSolverResult instance.
+
+        Returns:
+            Dictionary suitable for JSON serialization.
+        """
+        return {
+            "team": result.team,
+            "status": result.status.value,
+            "clinched": result.clinched,
+            "eliminated": result.eliminated,
+            "exhaustive": result.exhaustive,
+            "solve_time_ms": result.solve_time_ms,
+            "num_variables": result.num_variables,
+            "minimum_seed": result.minimum_seed,
+            "magic_number": result.magic_number,
+            "error": result.error,
+            "record_groups_completed": result.record_groups_completed,
+            "record_groups_total": result.record_groups_total,
+        }
+
+    def _handle_get_cp_clinch_all(self, path: str) -> None:
+        """Handle GET /api/cp-clinch-all — CP solver clinch/elimination for all teams.
+
+        Returns clinch/elimination status for all 32 teams grouped by conference.
+
+        Args:
+            path: Full URL path including query string.
+        """
+        from urllib.parse import urlparse, parse_qs
+
+        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
+
+        # Parse the URL
+        parsed = urlparse(path)
+        params = parse_qs(parsed.query)
+
+        # Parse optional cutoff_week
+        cutoff_week: int | None = None
+        cutoff_list = params.get("cutoff_week", [])
+        if cutoff_list and cutoff_list[0]:
+            try:
+                cutoff_week = int(cutoff_list[0])
+            except (ValueError, TypeError):
+                self._send_json_response(400, {
+                    "error": "Invalid cutoff_week parameter",
+                    "details": "cutoff_week must be an integer between 1 and 18",
+                })
+                return
+            if cutoff_week < 1 or cutoff_week > 18:
+                self._send_json_response(400, {
+                    "error": "Invalid cutoff_week parameter",
+                    "details": "cutoff_week must be an integer between 1 and 18",
+                })
+                return
+
+        # Parse optional time_limit (default 30)
+        time_limit: int = 30
+        time_limit_list = params.get("time_limit", [])
+        if time_limit_list and time_limit_list[0]:
+            try:
+                time_limit = int(time_limit_list[0])
+            except (ValueError, TypeError):
+                self._send_json_response(400, {
+                    "error": "Invalid time_limit parameter",
+                    "details": "time_limit must be an integer between 1 and 300",
+                })
+                return
+            if time_limit < 1 or time_limit > 300:
+                self._send_json_response(400, {
+                    "error": "Invalid time_limit parameter",
+                    "details": "time_limit must be an integer between 1 and 300",
+                })
+                return
+
+        # Check OR-Tools availability
+        if not ORTOOLS_AVAILABLE:
+            self._send_json_response(503, {
+                "error": "OR-Tools is required for CP solver. Install with: pip install ortools>=9.9",
+            })
+            return
+
+        # Check game data exists
+        games = server.cache.get_games(server.season_year)
+        if not games:
+            self._send_json_response(409, {
+                "error": "No game data available. Fetch data first using POST /api/fetch-data",
+            })
+            return
+
+        # Auto-detect cutoff_week if omitted
+        if cutoff_week is None:
+            week_counts: dict[int, int] = {}
+            week_completed: dict[int, int] = {}
+            for g in games:
+                week_counts[g.week] = week_counts.get(g.week, 0) + 1
+                if g.status == GameStatus.COMPLETED:
+                    week_completed[g.week] = week_completed.get(g.week, 0) + 1
+            completed_weeks = set()
+            for w in week_counts:
+                if week_completed.get(w, 0) == week_counts[w]:
+                    completed_weeks.add(w)
+            cutoff_week = max(completed_weeks) if completed_weeks else 1
+
+        # Check cache first — only solve teams without cached results
+        try:
+            config = CPSolverConfig(time_limit=time_limit)
+            results: dict[str, Any] = {}
+            teams_to_solve: list[str] = []
+
+            for team_name in ALL_TEAMS:
+                cached = server.cache.get_cp_result(team_name, cutoff_week, server.season_year)
+                if cached is not None:
+                    results[team_name] = cached
+                else:
+                    teams_to_solve.append(team_name)
+
+            # Only run solver for uncached teams
+            if teams_to_solve:
+                for team_name in teams_to_solve:
+                    result = solve_clinch(team_name, games, cutoff_week, config)
+                    results[team_name] = result
+                    # Cache the result
+                    server.cache.store_cp_result(team_name, cutoff_week, server.season_year, result)
+
+            # Group results by conference, sorted alphabetically
+            conferences: dict[str, list[dict[str, Any]]] = {"AFC": [], "NFC": []}
+
+            for team_name, result in results.items():
+                conf = get_team_conference(team_name)
+                if conf not in conferences:
+                    continue
+
+                team_entry: dict[str, Any] = {
+                    "team": result.team,
+                    "status": result.status.value,
+                    "solve_time_ms": result.solve_time_ms,
+                    "num_variables": result.num_variables,
+                    "minimum_seed": result.minimum_seed,
+                    "magic_number": result.magic_number,
+                    "record_groups_completed": result.record_groups_completed,
+                    "record_groups_total": result.record_groups_total,
+                }
+                conferences[conf].append(team_entry)
+
+            # Sort alphabetically within each conference
+            for conf in conferences:
+                conferences[conf].sort(key=lambda entry: entry["team"])
+
+            response = {
+                "cutoff_week": cutoff_week,
+                "season": server.season_year,
+                "conferences": conferences,
+            }
+            self._send_json_response(200, response)
+        except BrokenPipeError:
+            # Client disconnected (e.g., page navigated away or fetch aborted)
+            pass
+        except Exception as e:
+            logger.exception("Error running CP solver for all teams")
+            try:
+                self._send_error_response(500, "CP solver error", str(e))
+            except BrokenPipeError:
+                pass
 
     def _handle_get_clinch_estimate(self) -> None:
         """Handle GET /api/clinch-estimate?team=<name> — preflight estimate."""
@@ -686,11 +980,32 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             logger.exception("Error running simulation")
             self._send_error_response(500, "Simulation error", str(e))
 
-    def _handle_get_standings(self) -> None:
-        """Handle GET /api/standings — compute and return current standings."""
+    def _handle_get_standings(self, path: str = "/api/standings") -> None:
+        """Handle GET /api/standings — compute and return current standings.
+
+        Accepts optional query parameter:
+            cutoff_week (int, 1-18): Only include games from weeks <= cutoff_week.
+                If omitted, all games are included.
+        """
+        from urllib.parse import urlparse, parse_qs
+
         server: NFLSimulatorServer = self.server  # type: ignore[assignment]
 
         try:
+            # Parse optional cutoff_week query param
+            parsed = urlparse(path)
+            params = parse_qs(parsed.query)
+            cutoff_week: int | None = None
+            cutoff_list = params.get("cutoff_week", [])
+            if cutoff_list and cutoff_list[0]:
+                try:
+                    cutoff_week = int(cutoff_list[0])
+                except (ValueError, TypeError):
+                    pass
+                else:
+                    if cutoff_week < 1 or cutoff_week > 18:
+                        cutoff_week = None
+
             games = server.cache.get_games(server.season_year)
             if not games:
                 self._send_error_response(
@@ -700,8 +1015,12 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
+            # Filter games to cutoff_week if provided
+            if cutoff_week is not None:
+                games = [g for g in games if g.week <= cutoff_week]
+
             standings = compute_standings(games)
-            bracket = determine_playoff_bracket(standings)
+            bracket = determine_playoff_bracket(standings, all_games=games)
 
             # Compute team strengths from completed games
             from src.team_strength import TeamStrengthCalculator
@@ -1301,12 +1620,15 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
         return mime_type or "application/octet-stream"
 
 
-class NFLSimulatorServer(HTTPServer):
+class NFLSimulatorServer(ThreadingMixIn, HTTPServer):
     """HTTP server for the NFL Monte Carlo Playoff Simulator.
 
-    Extends HTTPServer to hold shared application state (cache, data client,
-    season year, static directory path) accessible to request handlers.
+    Extends HTTPServer with ThreadingMixIn to handle requests concurrently,
+    allowing the CP solver to run in the background while other requests
+    (like simulation) are served in parallel.
     """
+
+    daemon_threads = True
 
     def __init__(
         self,

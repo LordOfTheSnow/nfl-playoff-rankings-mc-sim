@@ -358,7 +358,7 @@ def _check_universe(
     """
     combined = team_outcomes + other_outcomes
     standings = compute_standings(fixed_games, combined)
-    bracket = determine_playoff_bracket(standings)
+    bracket = determine_playoff_bracket(standings, all_games=fixed_games, simulated_outcomes=combined)
     return _team_in_playoffs(team, bracket)
 
 

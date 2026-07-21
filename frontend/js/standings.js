@@ -4,10 +4,17 @@
  * Displays current NFL standings grouped by conference (AFC/NFC) and division,
  * with conference filtering, clickable team names, and division leader highlighting.
  *
- * Requirements: 7.8, 11.7, 11.9, 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7
+ * Requirements: 7.8, 10.1, 10.2, 10.3, 10.5, 10.6, 11.7, 11.9, 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7
  */
 
 "use strict";
+
+/**
+ * Module-level storage for CP solver clinch/elimination results.
+ * Populated asynchronously after standings render; keyed by team name.
+ * @type {Object<string, {status: string, solve_time_ms: number, num_variables: number, minimum_seed: number|null, magic_number: number|null}>|null}
+ */
+let _cpClinchResults = null;
 
 /**
  * ESPN team logo ID mapping.
@@ -64,9 +71,13 @@ async function renderStandings(contentEl) {
     // Ignore status errors
   }
 
+  // Read cutoff week from localStorage (set by simulation controls)
+  const savedCutoff = localStorage.getItem('sim-cutoff');
+  const cutoffWeek = savedCutoff ? parseInt(savedCutoff, 10) : null;
+
   let data;
   try {
-    data = await API.getStandings();
+    data = await API.getStandings(cutoffWeek);
   } catch (err) {
     App.hideLoading();
     contentEl.innerHTML = "";
@@ -127,17 +138,30 @@ async function renderStandings(contentEl) {
   // Add legend below all tables
   const legend = document.createElement("div");
   legend.style.cssText = "margin-top:1.5rem;padding:1rem;background:var(--color-surface);border-radius:var(--radius-md);box-shadow:var(--shadow-sm);font-size:0.8rem;color:var(--color-text-muted);line-height:1.8";
-  legend.innerHTML = "<strong>Legend:</strong> " +
-    "W = Wins, " +
-    "L = Losses, " +
-    "T = Ties, " +
-    "Win% = Winning Percentage, " +
-    "Div = Division Record, " +
-    "Conf = Conference Record, " +
-    "GB = Games Behind Division Leader, " +
-    "Str = Team Strength Rating (1.000 = league average), " +
-    "Tiebreaker = H2H (Head-to-Head), Div (Division Record), Conf (Conference Record), SoV (Strength of Victory), SoS (Strength of Schedule), Pts (Net Points), Alpha (Alphabetical)";
+  legend.innerHTML = "" +
+    "<strong>Standings</strong>" +
+    "<ul style='margin:0.4rem 0 0.8rem 1.2rem;padding:0;list-style:disc'>" +
+    "<li><strong>W</strong> Wins · <strong>L</strong> Losses · <strong>T</strong> Ties · <strong>Win%</strong> Winning Percentage</li>" +
+    "<li><strong>Div</strong> Division Record · <strong>Conf</strong> Conference Record · <strong>GB</strong> Games Behind Division Leader</li>" +
+    "<li><strong>Str</strong> Team Strength Rating (1.000 = league average)</li>" +
+    "<li><strong>Tiebreaker</strong> — H2H (Head-to-Head), Div (Division Record), Conf (Conference Record), SoV (Strength of Victory), SoS (Strength of Schedule), Pts (Net Points), Alpha (Alphabetical)</li>" +
+    "</ul>" +
+    "<strong>Clinch/Elimination Badges</strong> <span style='font-weight:normal'>(hover for details)</span>" +
+    "<ul style='margin:0.4rem 0 0.8rem 1.2rem;padding:0;list-style:disc'>" +
+    "<li><span class='badge bg-success'>x</span> Clinched — mathematically guaranteed a playoff spot</li>" +
+    "<li><span class='badge bg-danger'>e</span> Eliminated — mathematically impossible to make playoffs</li>" +
+    "<li><span class='badge bg-secondary'>?</span> Inconclusive — solver timed out before reaching a proof</li>" +
+    "</ul>" +
+    "<strong>Tooltip Values</strong>" +
+    "<ul style='margin:0.4rem 0 0;padding:0 0 0 1.2rem;list-style:disc'>" +
+    "<li><strong>Solve time</strong> — wall-clock time the CP solver took for this team</li>" +
+    "<li><strong>Remaining games</strong> — unplayed games after the cutoff week that affect this team's conference</li>" +
+    "<li><strong>Scenarios checked</strong> — record groups evaluated (fewer = early termination found a proof faster)</li>" +
+    "</ul>";
   contentEl.appendChild(legend);
+
+  // Fetch CP solver clinch/elimination data (non-blocking)
+  _fetchAndApplyCPBadges(contentEl, cutoffWeek);
 }
 
 /**
@@ -316,6 +340,7 @@ function buildTeamRow(team, isLeader) {
   nameWrapper.style.display = "inline-flex";
   nameWrapper.style.alignItems = "center";
   nameWrapper.style.gap = "0.5rem";
+  nameWrapper.setAttribute("data-team-name", team.team);
 
   const logoId = TEAM_LOGO_IDS[team.team];
   if (logoId) {
@@ -485,6 +510,7 @@ function buildStatusPanel(status) {
   html += '<div class="control-field"><label for="sim-workers-st" title="Parallel CPU cores: each Monte Carlo trial is independent, so batches run simultaneously across cores. More workers = faster simulation (near-linear speedup). Uses Python multiprocessing to bypass the GIL.">Workers &#9432;</label><input type="range" id="sim-workers-st" class="form-range" min="1" max="' + cpuCount + '" value="' + savedWorkers + '" style="width:120px" title="1 = single-process (no overhead), max = all available CPU cores running trial batches in parallel"><div id="sim-workers-label-st" style="font-size:0.75rem;color:var(--color-text-muted)">' + savedWorkers + (savedWorkers === 1 ? ' core' : ' cores') + '</div></div>';
   html += '<button id="btn-run-sim-standings" class="btn btn-primary" type="button">Simulate</button>';
   html += '<button id="btn-fetch-data-standings" class="btn btn-secondary" type="button">Fetch Data</button>';
+
   html += '</div>';
   html += '</div>';
 
@@ -526,7 +552,12 @@ function buildStatusPanel(status) {
 
     // Persist values on change
     if (iterInput) iterInput.addEventListener("change", () => localStorage.setItem('sim-iterations', iterInput.value));
-    if (cutoffSel) cutoffSel.addEventListener("change", () => localStorage.setItem('sim-cutoff', cutoffSel.value));
+    if (cutoffSel) cutoffSel.addEventListener("change", () => {
+      localStorage.setItem('sim-cutoff', cutoffSel.value);
+      // Re-render standings with the new cutoff week
+      const contentEl = document.getElementById("content");
+      if (contentEl) renderStandings(contentEl);
+    });
 
     // Noise label update
     if (noiseSl) noiseSl.addEventListener("input", () => {
@@ -575,6 +606,8 @@ function buildStatusPanel(status) {
     });
 
     if (fetchBtn) fetchBtn.addEventListener("click", _handleFetchFromStandings);
+
+
   }, 0);
 
   return panel;
@@ -599,4 +632,203 @@ async function _handleFetchFromStandings() {
     App.hideLoading();
     if (btn) btn.disabled = false;
   }
+}
+
+/**
+ * Fetch CP solver clinch/elimination data and apply badges to existing team rows.
+ * Non-blocking: if the endpoint fails or is unavailable, standings remain unchanged.
+ *
+ * @param {HTMLElement} contentEl - The standings container.
+ */
+/**
+ * Silently try to load cached CP solver results. If the server responds
+ * quickly (results are cached), apply badges without showing a spinner.
+ * If the server takes too long (results not cached), abort silently.
+ *
+ * @param {HTMLElement} contentEl - The standings container.
+ * @param {number|null} cutoffWeek - Cutoff week.
+ */
+async function _tryLoadCachedCPBadges(contentEl, cutoffWeek) {
+  try {
+    let url = "/api/cp-clinch-all";
+    if (cutoffWeek != null) url += "?cutoff_week=" + cutoffWeek;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000); // 2s max
+
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (!response.ok) return;
+    const data = await response.json();
+    if (!data || !data.conferences) return;
+
+    // Build lookup and apply badges (same logic as _fetchAndApplyCPBadges)
+    const lookup = {};
+    for (const conf of Object.values(data.conferences)) {
+      if (!Array.isArray(conf)) continue;
+      for (const entry of conf) {
+        if (entry && entry.team) lookup[entry.team] = entry;
+      }
+    }
+    _cpClinchResults = lookup;
+
+    const nameWrappers = contentEl.querySelectorAll("[data-team-name]");
+    for (const wrapper of nameWrappers) {
+      const teamName = wrapper.getAttribute("data-team-name");
+      const result = lookup[teamName];
+      if (!result) continue;
+      const badge = _createClinchBadge(result);
+      if (badge) wrapper.appendChild(badge);
+    }
+  } catch (_) {
+    // Aborted or failed — no badges, no problem
+  }
+}
+
+async function _fetchAndApplyCPBadges(contentEl, cutoffWeek) {
+  // Show a subtle loading hint while CP solver runs
+  const hint = document.createElement("div");
+  hint.id = "cp-solver-hint";
+  hint.style.cssText = "margin-bottom:0.75rem;padding:0.6rem 1rem;background:var(--color-surface,#fff);border:1px solid var(--color-border,#ddd);border-radius:var(--radius-md,6px);box-shadow:var(--shadow-sm,0 1px 3px rgba(0,0,0,.1));font-size:0.85rem;color:var(--color-text-muted,#666);display:flex;align-items:center;gap:0.5rem";
+  hint.innerHTML = '<div class="spinner-border spinner-border-sm text-primary" role="status"></div> Computing clinch/elimination…';
+  contentEl.insertBefore(hint, contentEl.children[1] || null);
+
+  const data = await API.fetchCPClinchAll(cutoffWeek);
+
+  // Remove the hint
+  hint.remove();
+  if (!data || !data.conferences) {
+    _cpClinchResults = null;
+    return;
+  }
+
+  // Build a flat lookup map: team name → result object
+  const lookup = {};
+  for (const conf of Object.values(data.conferences)) {
+    if (!Array.isArray(conf)) continue;
+    for (const entry of conf) {
+      if (entry && entry.team) {
+        lookup[entry.team] = entry;
+      }
+    }
+  }
+  _cpClinchResults = lookup;
+
+  // Apply badges to all rendered team rows
+  const nameWrappers = contentEl.querySelectorAll("[data-team-name]");
+  for (const wrapper of nameWrappers) {
+    const teamName = wrapper.getAttribute("data-team-name");
+    const result = lookup[teamName];
+    if (!result) continue;
+
+    const badge = _createClinchBadge(result);
+    if (badge) {
+      wrapper.appendChild(badge);
+    }
+  }
+}
+
+/**
+ * Create a clinch/elimination badge element for a CP solver result.
+ * Includes a click handler that shows a Bootstrap popover with solver details.
+ *
+ * @param {Object} result - CP solver result for a team.
+ * @returns {HTMLElement|null} Badge span element, or null if status is "alive".
+ */
+function _createClinchBadge(result) {
+  const status = result.status;
+  if (status === "alive") return null;
+
+  const badge = document.createElement("span");
+  badge.setAttribute("data-cp-clinch-badge", status);
+  badge.setAttribute("data-team", result.team);
+  badge.className = "badge ms-1 ";
+  badge.style.cursor = "pointer";
+
+  if (status === "clinched") {
+    badge.className += "bg-success";
+    badge.textContent = "x";
+    badge.title = "Clinched playoff spot";
+  } else if (status === "eliminated") {
+    badge.className += "bg-danger";
+    badge.textContent = "e";
+    badge.title = "Eliminated from playoff contention";
+  } else if (status === "inconclusive") {
+    badge.className += "bg-secondary";
+    badge.textContent = "?";
+    badge.title = "Solver inconclusive (timed out)";
+  } else {
+    return null;
+  }
+
+  // Build tooltip content with solver details
+  const tooltipContent = _buildPopoverContent(result);
+
+  // Initialize Bootstrap tooltip on hover (auto-dismisses, no stacking)
+  badge.setAttribute("data-bs-toggle", "tooltip");
+  badge.setAttribute("data-bs-placement", "top");
+  badge.setAttribute("data-bs-html", "true");
+  badge.setAttribute("title", result.team + " — " + _statusLabel(status) + tooltipContent);
+
+  // Defer tooltip initialization until element is in the DOM
+  setTimeout(() => {
+    if (typeof bootstrap !== "undefined" && bootstrap.Tooltip) {
+      new bootstrap.Tooltip(badge, { sanitize: false });
+    }
+  }, 0);
+
+  return badge;
+}
+
+/**
+ * Build HTML content for the solver details popover.
+ *
+ * @param {Object} result - CP solver result for a team.
+ * @returns {string} HTML string for popover body.
+ */
+function _buildPopoverContent(result) {
+  let html = '<div style="font-size:0.8rem;line-height:1.6">';
+  html += '<div><strong>Solve time:</strong> ' + (result.solve_time_ms || 0) + ' ms</div>';
+  if (result.num_variables > 0) {
+    html += '<div><strong>Remaining games:</strong> ' + result.num_variables + '</div>';
+  }
+  if (result.record_groups_total > 0) {
+    html += '<div><strong>Scenarios checked:</strong> ' + (result.record_groups_completed || 0) + ' of ' + result.record_groups_total + '</div>';
+  }
+  if (result.minimum_seed != null) {
+    html += '<div><strong>Best seed:</strong> #' + result.minimum_seed + '</div>';
+  }
+  if (result.magic_number != null) {
+    html += '<div><strong>Magic number:</strong> ' + result.magic_number + ' wins to clinch</div>';
+  }
+  if (result.error) {
+    html += '<div style="color:var(--bs-danger,#dc3545);margin-top:0.25rem"><em>' + _escapePopoverHtml(result.error) + '</em></div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+/**
+ * Get a human-readable label for a clinch status.
+ *
+ * @param {string} status - Status string from solver result.
+ * @returns {string} Human-readable label.
+ */
+function _statusLabel(status) {
+  if (status === "clinched") return "Clinched";
+  if (status === "eliminated") return "Eliminated";
+  if (status === "inconclusive") return "Inconclusive";
+  return status;
+}
+
+/**
+ * Escape HTML special characters for safe popover content.
+ *
+ * @param {string} str - Raw string to escape.
+ * @returns {string} HTML-safe string.
+ */
+function _escapePopoverHtml(str) {
+  if (!str) return "";
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }

@@ -18,6 +18,12 @@ from src.data_client import Game, GameStatus
 from src.nfl_teams import NFL_TEAMS, get_team_conference, get_team_division
 
 
+# Module-level storage for simulated game winners, used by tiebreaker functions.
+# Set by determine_playoff_bracket before calling break_tie, cleared after.
+# Maps game_id -> (winner_team_name, is_tie)
+_simulated_winners: dict[str, tuple[str | None, bool]] = {}
+
+
 class Conference(Enum):
     """NFL conference."""
 
@@ -396,22 +402,85 @@ def _sort_teams_by_record(teams: list[TeamStanding]) -> list[TeamStanding]:
     return sorted(teams, key=lambda t: (-t.win_percentage, t.team))
 
 
-def determine_playoff_bracket(standings: list[TeamStanding]) -> PlayoffBracket:
+def determine_playoff_bracket(
+    standings: list[TeamStanding],
+    all_games: list[Game] | None = None,
+    simulated_game_ids: set[str] | None = None,
+    simulated_outcomes: list[tuple[str, str | None, bool]] | None = None,
+) -> PlayoffBracket:
     """Determine the 7-team playoff bracket for each conference.
 
     Selects 4 division champions (best record per division) seeded 1-4 by overall
     record, and 3 wild card teams (best remaining conference records) seeded 5-7.
     Updates TeamStanding objects in place (sets seed, is_division_champion, is_playoff_team).
 
+    When all_games is provided, uses the full NFL tiebreaker procedure (H2H,
+    division record, conference record, SoV, SoS, net points) to resolve ties.
+    Without all_games, falls back to win_percentage + alphabetical ordering.
+
     The #1 seed in each conference receives a first-round bye.
     Wild Card Round pairings: 2v7, 3v6, 4v5 (higher seed hosts).
 
     Args:
         standings: List of 32 TeamStanding objects (output of compute_standings).
+        all_games: Optional list of all season games (enables full tiebreaker logic).
+        simulated_game_ids: Optional set of simulated game IDs (for tiebreaker context).
 
     Returns:
         PlayoffBracket with afc_seeds and nfc_seeds lists (7 teams each, ordered by seed).
     """
+    if simulated_game_ids is None:
+        simulated_game_ids = set()
+
+    # Set module-level simulated_winners for tiebreaker functions to use
+    global _simulated_winners
+    if simulated_outcomes:
+        _simulated_winners = {
+            game_id: (winner, is_tie)
+            for game_id, winner, is_tie in simulated_outcomes
+        }
+    else:
+        _simulated_winners = {}
+
+    def _sort_with_tiebreakers(
+        teams: list[TeamStanding], context: str
+    ) -> list[TeamStanding]:
+        """Sort teams using full tiebreaker logic when games are available."""
+        if not teams:
+            return []
+        if len(teams) == 1:
+            return list(teams)
+
+        # If no games available, use simple win% + alphabetical fallback
+        if all_games is None:
+            return _sort_teams_by_record(teams)
+
+        # Group by win_percentage (teams with same win% are tied)
+        team_lookup = {t.team: t for t in teams}
+        sorted_by_wp = sorted(teams, key=lambda t: -t.win_percentage)
+
+        result: list[TeamStanding] = []
+        i = 0
+        while i < len(sorted_by_wp):
+            wp = sorted_by_wp[i].win_percentage
+            group = []
+            while i < len(sorted_by_wp) and sorted_by_wp[i].win_percentage == wp:
+                group.append(sorted_by_wp[i])
+                i += 1
+
+            if len(group) == 1:
+                result.append(group[0])
+            else:
+                # Use break_tie to resolve this group
+                tied_names = [t.team for t in group]
+                ordered_names = break_tie(
+                    tied_names, all_games, simulated_game_ids, context
+                )
+                for name in ordered_names:
+                    result.append(team_lookup[name])
+
+        return result
+
     bracket = PlayoffBracket()
 
     for conf in (Conference.AFC, Conference.NFC):
@@ -427,19 +496,19 @@ def determine_playoff_bracket(standings: list[TeamStanding]) -> PlayoffBracket:
             if not div_teams:
                 continue
 
-            # Sort by win_percentage descending, alphabetical as tiebreaker
-            sorted_div = _sort_teams_by_record(div_teams)
+            # Sort with full tiebreaker logic (division context)
+            sorted_div = _sort_with_tiebreakers(div_teams, "division")
             champion = sorted_div[0]
             champion.is_division_champion = True
             division_champions.append(champion)
             remaining_teams.extend(sorted_div[1:])
 
         # Step 2: Seed division champions 1-4 by overall record
-        # (with conference tiebreakers — using win_percentage + alphabetical as fallback)
-        seeded_champions = _sort_teams_by_record(division_champions)
+        # (with conference tiebreakers)
+        seeded_champions = _sort_with_tiebreakers(division_champions, "conference")
 
         # Step 3: Select 3 wild card teams from remaining conference teams
-        sorted_remaining = _sort_teams_by_record(remaining_teams)
+        sorted_remaining = _sort_with_tiebreakers(remaining_teams, "conference")
         wild_card_teams = sorted_remaining[:3]
 
         # Step 4: Assign seeds and mark playoff teams
@@ -557,7 +626,10 @@ def _get_games_between(
 
 
 def _get_record_in_games(
-    team: str, games: list[Game], simulated_game_ids: set[str]
+    team: str,
+    games: list[Game],
+    simulated_game_ids: set[str],
+    simulated_winners: dict[str, tuple[str | None, bool]] | None = None,
 ) -> tuple[int, int, int]:
     """Compute a team's W-L-T record in a subset of games.
 
@@ -565,6 +637,8 @@ def _get_record_in_games(
         team: Team name.
         games: Subset of games to compute record from.
         simulated_game_ids: Set of game IDs that were simulated.
+        simulated_winners: Optional dict mapping game_id to (winner, is_tie).
+            When provided, used instead of score fields for simulated games.
 
     Returns:
         Tuple of (wins, losses, ties).
@@ -575,7 +649,17 @@ def _get_record_in_games(
             continue
         if g.status != GameStatus.COMPLETED and g.game_id not in simulated_game_ids:
             continue
-        if g.home_score is not None and g.away_score is not None:
+
+        # For simulated games, use simulated_winners if available
+        if g.game_id in simulated_game_ids and simulated_winners and g.game_id in simulated_winners:
+            winner, is_tie = simulated_winners[g.game_id]
+            if is_tie:
+                ties += 1
+            elif winner == team:
+                wins += 1
+            else:
+                losses += 1
+        elif g.home_score is not None and g.away_score is not None:
             if g.home_score == g.away_score:
                 ties += 1
             elif (g.home_team == team and g.home_score > g.away_score) or \
@@ -584,9 +668,7 @@ def _get_record_in_games(
             else:
                 losses += 1
         elif g.game_id in simulated_game_ids:
-            # Simulated game without scores — need to infer from context
-            # This case shouldn't normally happen since simulated games
-            # are tracked via simulated_outcomes, but handle gracefully
+            # Simulated game without scores and no winner info — treat as tie
             ties += 1
     return (wins, losses, ties)
 
@@ -945,7 +1027,7 @@ def _step_head_to_head(
     # Compute win% for each team in head-to-head games
     records: dict[str, tuple[int, int, int]] = {}
     for team in teams:
-        records[team] = _get_record_in_games(team, h2h_games, simulated_game_ids)
+        records[team] = _get_record_in_games(team, h2h_games, simulated_game_ids, _simulated_winners)
 
     win_pcts: dict[str, float] = {}
     for team, (w, l, t) in records.items():
@@ -990,7 +1072,7 @@ def _step_division_record(
         div_games = _get_games_against_opponents(
             team, div_opponents, all_games, simulated_game_ids
         )
-        w, l, t = _get_record_in_games(team, div_games, simulated_game_ids)
+        w, l, t = _get_record_in_games(team, div_games, simulated_game_ids, _simulated_winners)
         win_pcts[team] = _calculate_win_percentage(w, l, t)
 
     pct_values = list(win_pcts.values())
@@ -1031,7 +1113,7 @@ def _step_common_games(
         common_games = _get_games_against_opponents(
             team, common_opps, all_games, simulated_game_ids
         )
-        w, l, t = _get_record_in_games(team, common_games, simulated_game_ids)
+        w, l, t = _get_record_in_games(team, common_games, simulated_game_ids, _simulated_winners)
         win_pcts[team] = _calculate_win_percentage(w, l, t)
 
     pct_values = list(win_pcts.values())
@@ -1071,7 +1153,7 @@ def _step_conference_record(
         conf_games = _get_games_against_opponents(
             team, conf_opponents, all_games, simulated_game_ids
         )
-        w, l, t = _get_record_in_games(team, conf_games, simulated_game_ids)
+        w, l, t = _get_record_in_games(team, conf_games, simulated_game_ids, _simulated_winners)
         win_pcts[team] = _calculate_win_percentage(w, l, t)
 
     pct_values = list(win_pcts.values())
