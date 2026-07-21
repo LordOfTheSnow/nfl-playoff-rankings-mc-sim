@@ -1,13 +1,12 @@
 services:
   simulator:
+    image: ghcr.io/lordofthesnow/nfl-playoff-rankings-mc-sim:latest
+    container_name: nfl-playoff-rankings-mc-sim
     build: .
     ports:
       - "8080:8080"
     environment:
       - SEASON=${SEASON:-}
     volumes:
-      - nfl-data:/data
+      - ./data:/data
     shm_size: "64m"
-
-volumes:
-  nfl-data:

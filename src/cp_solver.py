@@ -351,7 +351,13 @@ def _build_cpsat_model(
     return (model, game_outcome_vars, team_record_vars)
 
 
-class PlayoffValidator(cp_model.CpSolverSolutionCallback):
+if ORTOOLS_AVAILABLE:
+  _CpSolverSolutionCallback = cp_model.CpSolverSolutionCallback
+else:
+  _CpSolverSolutionCallback = object
+
+
+class PlayoffValidator(_CpSolverSolutionCallback):
     """CP-SAT solution callback that validates playoff brackets.
 
     For each feasible assignment found by CP-SAT, this callback:
@@ -666,6 +672,17 @@ def solve_clinch(
     )
     remaining_games = team_remaining_games + relevant_other_games
 
+    # --- Shortcut: no completed games → everything is undetermined ---
+    completed_games = [g for g in all_games if g.status == GameStatus.COMPLETED and g.week <= cutoff_week]
+    if not completed_games:
+        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+        return CPSolverResult(
+            team=team, status=ClinchStatus.ALIVE,
+            clinched=False, eliminated=False, exhaustive=True,
+            solve_time_ms=elapsed_ms, num_variables=0,
+            record_groups_completed=0, record_groups_total=0,
+        )
+
     # --- Shortcut: zero remaining games → just check the bracket ---
     if len(remaining_games) == 0:
         # All games are fixed. Compute standings and check if team is in playoffs.
@@ -912,20 +929,13 @@ def solve_clinch(
         clinch_beats[t] = indicator
 
     # Constraint: at least one DIVISION rival matches/beats target
+    # (This strengthens the clinch model — team can only miss if they also lose division)
     if team_div and team_div in div_teams:
         div_rival_beats = [clinch_beats[t] for t in div_teams[team_div] if t != team and t in clinch_beats]
         if div_rival_beats:
             clinch_model.add(sum(div_rival_beats) >= 1)
-        else:
-            # No division rivals → team always wins division → clinched
-            # (This shouldn't happen with 4 teams per division, but handle it)
-            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-            return CPSolverResult(
-                team=team, status=ClinchStatus.CLINCHED,
-                clinched=True, eliminated=False, exhaustive=True,
-                solve_time_ms=elapsed_ms, num_variables=num_variables,
-                record_groups_completed=0, record_groups_total=0,
-            )
+        # If no division rivals in contenders, skip this constraint.
+        # The 7-teams-above constraint alone will determine clinch.
 
     # Constraint: at least 7 total teams (including the div rival) match/beat target.
     # This means team finishes 8th or worse by wins in the conference.

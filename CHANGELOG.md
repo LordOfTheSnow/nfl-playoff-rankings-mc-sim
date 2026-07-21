@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-07-21
+
+### Changed
+- OR-Tools is now a standard dependency (was optional `[cp]` extra)
+- `pip install -e .` includes everything needed — no extras required
+- Dockerfile uses plain `pip install .` (no `.[cp]` needed)
+
+### Fixed
+- CP solver: false "clinched" for all teams when no division rivals in contenders list
+- CP solver: false "eliminated" for division winners with fewer wins than 7th-place team (Tier 1b now division-aware)
+- CP solver: crash on season with no completed games (returns "alive" for all teams)
+- Docker: `PlayoffValidator` class crash when OR-Tools not installed (`cp_model` undefined at module level)
+- Docker: compose.yaml uses directory bind mount (`./data:/data`) instead of file mount
+
 ## [0.6.0] - 2026-07-21
 
 ### Added
@@ -216,7 +230,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.3.0...v0.4.0

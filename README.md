@@ -5,7 +5,7 @@
 [![Docker Image](https://img.shields.io/badge/ghcr.io-nfl--playoff--rankings--mc--sim-blue?logo=docker)](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/pkgs/container/nfl-playoff-rankings-mc-sim)
 [![Build Status](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/actions/workflows/docker-publish.yml)
 
-**v0.6.0**
+**v0.6.1**
 
 A web application that predicts NFL playoff probabilites using Monte Carlo simulation. It fetches real game data from ESPN's public API, computes strength-of-schedule-weighted team ratings, simulates remaining games, applies official NFL tiebreaker rules, and presents probability distributions through an interactive browser UI.
 
@@ -23,11 +23,10 @@ A web application that predicts NFL playoff probabilites using Monte Carlo simul
 - Team schedule view with bye week display and per-week team strength tracking
 - Simulation results: playoff probabilities, seeding matrix, top scenarios
 - Clinching scenarios solver: find all game-outcome combinations that guarantee a playoff spot (available after week 14)
-- CP-SAT constraint solver for mathematical clinching/elimination detection (provably correct, available from week 1)
+- CP-SAT constraint solver for mathematical clinching/elimination detection using Google OR-Tools (provably correct, available from week 1)
 - Season selector in the navbar for switching seasons without restarting
 - Local SQLite caching with TTL policies
 - Responsive UI built on Bootstrap 5.3.3 (CDN) with NFL-branded styling
-- No external runtime dependencies beyond httpx (for ESPN API calls)
 
 ## Screenshots
 
@@ -56,7 +55,10 @@ cd nfl-playoff-rankings-mc-sim
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies (including dev/test dependencies)
+# Install dependencies
+pip install -e .
+
+# Or with dev/test tools (pytest, hypothesis)
 pip install -e ".[dev]"
 ```
 
@@ -291,11 +293,6 @@ When viewing standings, clinch/elimination badges appear inline next to team nam
 - **?** (grey) — solver timed out (inconclusive)
 
 Click a badge to see solver details (solve time, variables, magic number). The badges respect the cutoff week selector — changing the cutoff re-computes standings and badges to show the state at that point in the season.
-
-### Configuration
-
-- **Time limit**: 1–300 seconds per team (default: 30s). Most teams resolve in under 1 second.
-- **OR-Tools**: Optional dependency. Install with `pip install -e ".[cp]"`. The app functions normally without it — badges simply don't appear.
 
 ## Running Tests
 
