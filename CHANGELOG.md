@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-07-21
+
+### Fixed
+- Critical: `determine_playoff_bracket` did not derive `simulated_game_ids` from `simulated_outcomes` — tiebreaker functions used actual game scores instead of simulated outcomes, causing incorrect division winner determination in both MC simulation and CP solver
+- MC simulation incorrectly showed 0% playoff probability for teams that could win their division via tiebreaker in simulated scenarios (e.g., Ravens at cutoff week 16)
+
 ## [0.6.1] - 2026-07-21
 
 ### Changed
@@ -230,7 +236,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.4.0...v0.5.0

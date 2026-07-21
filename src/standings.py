@@ -430,7 +430,11 @@ def determine_playoff_bracket(
         PlayoffBracket with afc_seeds and nfc_seeds lists (7 teams each, ordered by seed).
     """
     if simulated_game_ids is None:
-        simulated_game_ids = set()
+        # Derive from simulated_outcomes if available
+        if simulated_outcomes:
+            simulated_game_ids = {gid for gid, _, _ in simulated_outcomes}
+        else:
+            simulated_game_ids = set()
 
     # Set module-level simulated_winners for tiebreaker functions to use
     global _simulated_winners
