@@ -29,6 +29,7 @@ import itertools
 import logging
 import math
 import os
+import time
 import random
 from dataclasses import dataclass, field
 from multiprocessing import Pool
@@ -568,18 +569,18 @@ def _process_team_record_batch(args: tuple) -> list[dict[str, Any]]:
 
     Args:
         args: Tuple of (team, fixed_games, team_record_combos, other_games,
-              use_sampling, strengths)
+              use_sampling, strengths, num_samples)
 
     Returns:
         List of serialized RecordGroup dicts.
     """
-    team, fixed_games, team_record_combos, other_games, use_sampling, strengths = args
+    team, fixed_games, team_record_combos, other_games, use_sampling, strengths, num_samples = args
     results = []
 
     for team_outcomes, wins, losses, ties in team_record_combos:
         if use_sampling:
             qualifying = _sample_qualifying_universes(
-                team, fixed_games, team_outcomes, other_games, strengths
+                team, fixed_games, team_outcomes, other_games, strengths, num_samples
             )
         else:
             qualifying = _enumerate_qualifying_universes(
@@ -642,6 +643,8 @@ def compute_clinching_scenarios(
     all_games: list[Game],
     cutoff_week: int,
     num_workers: int | None = None,
+    enumeration_threshold: int | None = None,
+    num_samples: int | None = None,
 ) -> ClinchingResult:
     """Compute all clinching scenarios for a team.
 
@@ -672,13 +675,21 @@ def compute_clinching_scenarios(
         team, all_games, cutoff_week, contenders
     )
 
-    use_sampling = len(other_games) > ENUMERATION_THRESHOLD
+    threshold = enumeration_threshold if enumeration_threshold is not None else ENUMERATION_THRESHOLD
+    samples = num_samples if num_samples is not None else MC_SAMPLES
+    use_sampling = len(other_games) > threshold
     method = "sampling" if use_sampling else "enumeration"
 
-    logger.info(
-        "Clinching analysis for %s: %d team games, %d relevant other games, method=%s",
-        team, len(team_games), len(other_games), method,
-    )
+    if use_sampling:
+        logger.info(
+            "Clinching analysis for %s: %d team games, %d relevant other games, method=%s, iterations=%d",
+            team, len(team_games), len(other_games), method, samples,
+        )
+    else:
+        logger.info(
+            "Clinching analysis for %s: %d team games, %d relevant other games, method=%s, enumeration_threshold=%d",
+            team, len(team_games), len(other_games), method, threshold,
+        )
 
     # Generate all game-level combos (different combos with same W-L-T matter for tiebreakers)
     team_record_combos = _generate_team_records(team, team_games)
@@ -707,14 +718,14 @@ def compute_clinching_scenarios(
     # all games; simulated_outcomes override results for post-cutoff games).
     if num_workers <= 1 or len(team_record_combos) <= 1:
         raw_results = _process_team_record_batch(
-            (team, all_games, team_record_combos, other_games, use_sampling, strengths)
+            (team, all_games, team_record_combos, other_games, use_sampling, strengths, samples)
         )
     else:
         batch_size = max(1, len(team_record_combos) // num_workers)
         batches = []
         for i in range(0, len(team_record_combos), batch_size):
             batch = team_record_combos[i:i + batch_size]
-            batches.append((team, all_games, batch, other_games, use_sampling, strengths))
+            batches.append((team, all_games, batch, other_games, use_sampling, strengths, samples))
 
         with Pool(processes=num_workers) as pool:
             batch_results = pool.map(_process_team_record_batch, batches)
@@ -817,6 +828,75 @@ def compute_clinching_scenarios(
     )
 
 
+# Cached benchmark result: milliseconds per clinching evaluation
+_benchmark_ms_per_eval: float | None = None
+_benchmark_timestamp: float = 0.0
+_BENCHMARK_TTL = 86400  # 24 hours
+
+
+def run_benchmark(all_games: list[Game]) -> float:
+    """Run a benchmark measuring the full clinching evaluation pipeline.
+
+    Simulates what the actual clinching solver does per iteration:
+    _check_universe (compute_standings + determine_playoff_bracket + overhead).
+
+    Measures single-core ms/eval. Result is cached for 24 hours.
+    """
+    global _benchmark_ms_per_eval, _benchmark_timestamp
+
+    # Check if cached result is still valid
+    now = time.time()
+    if _benchmark_ms_per_eval is not None and (now - _benchmark_timestamp) < _BENCHMARK_TTL:
+        return _benchmark_ms_per_eval
+
+    if not all_games:
+        _benchmark_ms_per_eval = 5.0  # fallback default
+        _benchmark_timestamp = now
+        return _benchmark_ms_per_eval
+
+    # Simulate the full _check_universe pipeline
+    remaining = [g for g in all_games if g.week > 14][:16]
+    team_outcomes = [(remaining[0].game_id, remaining[0].home_team, False)] if remaining else []
+    other_games = remaining[1:12] if len(remaining) > 1 else []
+
+    # Warm up
+    for i in range(5):
+        other_outcomes = [
+            _outcome_for_game(other_games[j], (i + j) % 3)
+            for j in range(len(other_games))
+        ]
+        _check_universe("Bills", all_games, team_outcomes, other_outcomes)
+
+    # Benchmark — measure _check_universe which is the actual per-iteration cost
+    n_iterations = 100
+    start = time.perf_counter()
+    for i in range(n_iterations):
+        other_outcomes = [
+            _outcome_for_game(other_games[j], (i + j) % 3)
+            for j in range(len(other_games))
+        ]
+        _check_universe("Bills", all_games, team_outcomes, other_outcomes)
+    elapsed = time.perf_counter() - start
+
+    _benchmark_ms_per_eval = (elapsed / n_iterations) * 1000
+    _benchmark_timestamp = now
+
+    logger.info("Clinching benchmark: %.2f ms/eval (%d iterations in %.2fs)",
+                _benchmark_ms_per_eval, n_iterations, elapsed)
+
+    return _benchmark_ms_per_eval
+
+
+def get_ms_per_eval(all_games: list[Game] | None = None) -> float:
+    """Get the cached ms/eval benchmark, or a default if not yet run."""
+    global _benchmark_ms_per_eval
+    if _benchmark_ms_per_eval is not None:
+        return _benchmark_ms_per_eval
+    if all_games:
+        return run_benchmark(all_games)
+    return 2.0  # conservative default
+
+
 def estimate_clinching(
     team: str,
     all_games: list[Game],
@@ -860,15 +940,15 @@ def estimate_clinching(
     # Number of game-level combos: 3^n_team (all tested for tiebreaker accuracy)
     n_team_combos = 3 ** n_team if n_team <= 4 else 81
 
+    cpu_count = os.cpu_count() or 1
+    ms_per_eval = get_ms_per_eval(all_games)
+
     if use_sampling:
-        cpu_count = os.cpu_count() or 1
         total_evals = n_team_combos * MC_SAMPLES
-        # ~2ms per eval accounts for sampling + minimality reduction overhead
-        est_seconds = (total_evals * 0.002) / cpu_count
     else:
-        cpu_count = os.cpu_count() or 1
         total_evals = n_team_combos * (3 ** n_other)
-        est_seconds = (total_evals * 0.002) / cpu_count
+
+    est_seconds = (total_evals * ms_per_eval / 1000) / cpu_count
 
     est_seconds = max(1.0, min(est_seconds, 300.0))
 
@@ -880,5 +960,7 @@ def estimate_clinching(
         "team_record_combos": n_team_combos,
         "method": method,
         "estimated_seconds": round(est_seconds, 1),
+        "ms_per_eval": round(ms_per_eval, 2),
+        "cpu_count": cpu_count,
         "contenders": contenders,
     }

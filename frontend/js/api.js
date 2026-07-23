@@ -152,9 +152,11 @@ const API = (() => {
    * @param {number|null} cutoffWeek - Cutoff week or null for auto-detect.
    * @returns {Promise<Object>} Clinching scenarios grouped by team record.
    */
-  function clinchingScenarios(team, cutoffWeek) {
+  function clinchingScenarios(team, cutoffWeek, enumerationThreshold, numSamples) {
     const body = { team };
     if (cutoffWeek != null) body.cutoff_week = cutoffWeek;
+    if (enumerationThreshold != null) body.enumeration_threshold = enumerationThreshold;
+    if (numSamples != null) body.num_samples = numSamples;
     return request("/api/clinching-scenarios", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

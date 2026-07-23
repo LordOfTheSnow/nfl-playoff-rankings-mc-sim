@@ -519,9 +519,23 @@ function _showTeamDetail(teamName, results) {
         </button>
         <span id="clinch-estimate-text" style="font-size:0.8rem;color:var(--color-text-muted)"></span>
       </div>
+      <div style="margin-top:0.5rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
+        <label for="clinch-enum-threshold" style="font-size:0.8rem;color:var(--color-text-muted);white-space:nowrap">Enumerate up to</label>
+        <input type="range" id="clinch-enum-threshold" min="5" max="14" value="9" style="width:100px">
+        <span id="clinch-enum-label" style="font-size:0.8rem;font-weight:600">9 games</span>
+        <label for="clinch-samples" style="font-size:0.8rem;color:var(--color-text-muted);white-space:nowrap;margin-left:1rem">Sampling iterations</label>
+        <input type="number" id="clinch-samples" class="form-control" min="100" max="100000" value="10000" style="width:100px;font-size:0.8rem">
+        <span id="clinch-enum-info" style="font-size:0.75rem;color:var(--color-text-muted)"></span>
+      </div>
+      <p id="clinch-mode-explanation" style="font-size:0.75rem;color:var(--color-text-muted);margin-top:0.25rem;margin-bottom:0">
+        <strong>Enumeration</strong>: checks every possible outcome combination (exhaustive, proven results).</br>
+        <strong>Sampling</strong>: tests strength-weighted random outcomes (faster, but may miss rare scenarios).</br>
+        Time estimates are rough approximations (work in progress) — actual runtime depends on the number of qualifying scenarios found and the underlying hardware.
+      </p>
       <div id="clinch-progress" style="display:none;margin-top:0.75rem;align-items:center;gap:0.75rem">
         <div class="spinner-border spinner-border-sm text-primary" role="status"><span class="visually-hidden">Computing…</span></div>
         <span id="clinch-status-text" style="font-size:0.85rem;color:var(--color-text-muted)">Computing clinching scenarios…</span>
+        <button id="btn-clinch-cancel" class="btn btn-sm btn-outline-danger" type="button">Cancel</button>
       </div>
       <div id="clinch-results"></div>
     </div>`;
@@ -537,6 +551,56 @@ function _showTeamDetail(teamName, results) {
     // Use the simulation's cutoff week so the solver matches the sim context
     const cutoffWeek = results.cutoff_week_used || null;
 
+    // Slider logic
+    const enumSlider = document.getElementById("clinch-enum-threshold");
+    const enumLabel = document.getElementById("clinch-enum-label");
+    const enumInfo = document.getElementById("clinch-enum-info");
+    let relevantGames = 0;
+    let teamRecordCombos = 1;
+    let msPerEval = 2.0;
+    let serverCpuCount = parseInt(localStorage.getItem("sim-workers"), 10) || 4;
+
+    function updateEnumLabel() {
+      const val = parseInt(enumSlider.value, 10);
+      enumLabel.textContent = val + " games";
+      if (relevantGames > 0) {
+        if (relevantGames <= val) {
+          const combos = Math.pow(3, relevantGames) * teamRecordCombos;
+          const estLow = Math.max(1, Math.round((combos * msPerEval * 2 / 1000) / serverCpuCount));
+          const estHigh = Math.max(estLow + 1, Math.round((combos * msPerEval * 20 / 1000) / serverCpuCount));
+          enumInfo.textContent = "→ enumeration · " + combos.toLocaleString() + " evaluations · " + _formatTime(estLow) + " – " + _formatTime(estHigh);
+        } else {
+          const samplingIters = samplesInput ? parseInt(samplesInput.value, 10) || 10000 : 10000;
+          const samplingEvals = samplingIters * teamRecordCombos;
+          const estLow = Math.max(1, Math.round((samplingEvals * msPerEval * 2 / 1000) / serverCpuCount));
+          const estHigh = Math.max(estLow + 1, Math.round((samplingEvals * msPerEval * 20 / 1000) / serverCpuCount));
+          enumInfo.textContent = "→ sampling · " + samplingIters.toLocaleString() + " trials × " + teamRecordCombos + " records · " + _formatTime(estLow) + " – " + _formatTime(estHigh);
+        }
+      }
+    }
+    function _formatTime(sec) {
+      if (sec < 60) return sec + "s";
+      return Math.floor(sec / 60) + "m " + (sec % 60) + "s";
+    }
+    const samplesInput = document.getElementById("clinch-samples");
+    // Restore from localStorage
+    const savedThreshold = localStorage.getItem("clinch-enum-threshold");
+    const savedSamples = localStorage.getItem("clinch-samples");
+    if (savedThreshold && enumSlider) enumSlider.value = savedThreshold;
+    if (savedSamples && samplesInput) samplesInput.value = savedSamples;
+    if (enumSlider) {
+      enumSlider.addEventListener("input", () => {
+        localStorage.setItem("clinch-enum-threshold", enumSlider.value);
+        updateEnumLabel();
+      });
+    }
+    if (samplesInput) {
+      samplesInput.addEventListener("input", () => {
+        localStorage.setItem("clinch-samples", samplesInput.value);
+        updateEnumLabel();
+      });
+    }
+
     // Fetch estimate on render
     API.clinchEstimate(teamName, cutoffWeek).then(est => {
       const estEl = document.getElementById("clinch-estimate-text");
@@ -546,7 +610,12 @@ function _showTeamDetail(teamName, results) {
         clinchBtn.title = est.reason || "Not available";
         estEl.textContent = est.reason || "Not available before week 14";
       } else {
-        estEl.textContent = `~${est.estimated_seconds}s · ${est.method} · ${est.relevant_games} relevant games`;
+        relevantGames = est.relevant_games;
+        teamRecordCombos = est.team_record_combos || 1;
+        msPerEval = est.ms_per_eval || 2.0;
+        serverCpuCount = est.cpu_count || 4;
+        estEl.textContent = est.relevant_games + " relevant games · " + teamRecordCombos + " team record combinations";
+        updateEnumLabel();
       }
     }).catch(() => {});
 
@@ -554,9 +623,14 @@ function _showTeamDetail(teamName, results) {
       const progress = document.getElementById("clinch-progress");
       const statusText = document.getElementById("clinch-status-text");
       const resultsDiv = document.getElementById("clinch-results");
+      const cancelBtn = document.getElementById("btn-clinch-cancel");
       clinchBtn.disabled = true;
       progress.style.display = "flex";
       resultsDiv.innerHTML = "";
+
+      // AbortController for cancellation
+      const abortController = new AbortController();
+      cancelBtn.addEventListener("click", () => abortController.abort(), { once: true });
 
       // Cycle through status messages with elapsed time
       const messages = [
@@ -582,7 +656,25 @@ function _showTeamDetail(teamName, results) {
       const timerInterval = setInterval(updateStatus, 1000);
 
       try {
-        const data = await API.clinchingScenarios(teamName, cutoffWeek);
+        const enumThreshold = enumSlider ? parseInt(enumSlider.value, 10) : null;
+        const numSamples = samplesInput ? parseInt(samplesInput.value, 10) : null;
+        const numWorkers = parseInt(localStorage.getItem("sim-workers"), 10) || null;
+        const body = { team: teamName };
+        if (cutoffWeek != null) body.cutoff_week = cutoffWeek;
+        if (enumThreshold != null) body.enumeration_threshold = enumThreshold;
+        if (numSamples != null) body.num_samples = numSamples;
+        if (numWorkers != null) body.num_workers = numWorkers;
+        const response = await fetch("/api/clinching-scenarios", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: abortController.signal,
+        });
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          throw new Error(err.message || "Server error");
+        }
+        const data = await response.json();
         clearInterval(msgInterval);
         clearInterval(timerInterval);
         progress.style.display = "none";
@@ -591,7 +683,11 @@ function _showTeamDetail(teamName, results) {
         clearInterval(msgInterval);
         clearInterval(timerInterval);
         progress.style.display = "none";
-        resultsDiv.innerHTML = `<p style="color:var(--color-accent);margin-top:0.5rem">${err.message || "Clinching analysis failed."}</p>`;
+        if (err.name === "AbortError") {
+          resultsDiv.innerHTML = '<p style="color:var(--color-text-muted);margin-top:0.5rem">Cancelled.</p>';
+        } else {
+          resultsDiv.innerHTML = `<p style="color:var(--color-accent);margin-top:0.5rem">${err.message || "Clinching analysis failed."}</p>`;
+        }
       } finally {
         clinchBtn.disabled = false;
       }

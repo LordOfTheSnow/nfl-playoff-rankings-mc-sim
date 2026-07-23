@@ -747,7 +747,9 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                     completed_weeks.add(w)
             cutoff_week = max(completed_weeks) if completed_weeks else 0
 
-        from src.clinching import estimate_clinching
+        from src.clinching import estimate_clinching, run_benchmark
+        # Lazy benchmark: runs once on first estimate request, cached for 24h
+        run_benchmark(games)
         result = estimate_clinching(team, games, cutoff_week)
         result["cutoff_week"] = cutoff_week
         self._send_json_response(200, result)
@@ -798,7 +800,22 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
 
         try:
             from src.clinching import compute_clinching_scenarios
-            result = compute_clinching_scenarios(team, games, cutoff_week)
+            enum_threshold = body.get("enumeration_threshold")
+            if enum_threshold is not None:
+                enum_threshold = int(enum_threshold)
+                if enum_threshold < 1 or enum_threshold > 18:
+                    enum_threshold = None
+            num_samples = body.get("num_samples")
+            if num_samples is not None:
+                num_samples = int(num_samples)
+                if num_samples < 100 or num_samples > 100000:
+                    num_samples = None
+            num_workers = body.get("num_workers")
+            if num_workers is not None:
+                num_workers = int(num_workers)
+                if num_workers < 1 or num_workers > (os.cpu_count() or 16):
+                    num_workers = None
+            result = compute_clinching_scenarios(team, games, cutoff_week, num_workers=num_workers, enumeration_threshold=enum_threshold, num_samples=num_samples)
 
             if result.error:
                 self._send_error_response(400, result.error, "")

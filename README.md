@@ -5,13 +5,11 @@
 [![Docker Image](https://img.shields.io/badge/ghcr.io-nfl--playoff--rankings--mc--sim-blue?logo=docker)](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/pkgs/container/nfl-playoff-rankings-mc-sim)
 [![Build Status](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/actions/workflows/docker-publish.yml)
 
-**v0.6.2**
+**v0.7.0**
 
 A web application that predicts NFL playoff probabilites using Monte Carlo simulation. It fetches real game data from ESPN's public API, computes strength-of-schedule-weighted team ratings, simulates remaining games, applies official NFL tiebreaker rules, and presents probability distributions through an interactive browser UI.
 
 > **Work in Progress** — This project is under active development. Features may change and some functionality is incomplete.
-
-> **⚠️ Known Issue (v0.6.2):** The Clinching Scenarios solver has a significant performance regression compared to v0.5.0. Scenarios that previously completed in ~30-60 seconds now take 5-7 minutes. This will be investigated and fixed in a future release.
 
 ## Features
 

@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-23
+
+### Added
+- CP solver architecture rework: pure constraint-based (no callbacks, no enumeration)
+  - Three-tier solver: arithmetic fast-paths → division clinch → CP-SAT constraint model
+  - Division-aware elimination: models division winners with H2H tiebreaker constraints
+  - Wild card modeled correctly: counts only non-division-winners as competitors
+  - Zero remaining games shortcut: uses standings engine directly
+  - 0.3s for all 32 teams (was 30-60s+ before)
+- Clinching scenarios: user-configurable enumeration threshold slider (5-14 games)
+- Clinching scenarios: user-configurable sampling iterations (100-100,000)
+- Clinching scenarios: cancel button to abort long-running computations
+- Clinching scenarios: time estimate shown as range (accounts for variable post-processing)
+- Clinching scenarios: uses same CPU core count as main MC simulation
+- Server-side benchmark: measures actual ms/eval on first clinch-estimate request (cached 24h)
+- CP solver badges auto-run on standings page load (no manual button needed)
+- OR-Tools is now a standard dependency (was optional `[cp]` extra)
+- Favicon: Monte Carlo die (SVG)
+- Docker: compose.yaml uses directory bind mount (`./data:/data`)
+
+### Fixed
+- Critical: `determine_playoff_bracket` did not derive `simulated_game_ids` from `simulated_outcomes` — tiebreaker used actual scores instead of simulated outcomes in MC simulation
+- CP solver: false "clinched" when no division rivals in contenders list
+- CP solver: false "eliminated" for division winners with fewer wins than 7th-place team
+- CP solver: crash on season with no completed games
+- Docker: `PlayoffValidator` class crash when OR-Tools not installed
+- Clinching scenarios: enumeration threshold configurable (default lowered from 13 to 9)
+
+### Changed
+- Clinching scenarios log output shows iterations (sampling) or threshold (enumeration)
+- Frontend standings page: CP solver runs automatically, cached results load instantly
+- Server: ThreadingMixIn for concurrent requests
+- SQLite: `check_same_thread=False` for thread safety
+
 ## [0.6.2] - 2026-07-21
 
 ### Fixed
@@ -236,7 +270,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.5.0...v0.6.0
