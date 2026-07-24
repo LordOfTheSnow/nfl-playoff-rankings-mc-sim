@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Update Bootstrap from 5.3.3 to 5.3.8
+
 ## [0.7.1] - 2026-07-24
 
 ### Added

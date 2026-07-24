@@ -26,7 +26,7 @@ A web application that predicts NFL playoff probabilites using Monte Carlo simul
 - CP-SAT constraint solver for mathematical clinching/elimination detection using Google OR-Tools (provably correct, available from week 1)
 - Season selector in the navbar for switching seasons without restarting
 - Local SQLite caching with TTL policies
-- Responsive UI built on Bootstrap 5.3.3 (CDN) with NFL-branded styling
+- Responsive UI built on Bootstrap 5.3.8 (CDN) with NFL-branded styling
 
 ## Screenshots
 
