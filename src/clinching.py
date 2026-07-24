@@ -33,11 +33,14 @@ import time
 import random
 from dataclasses import dataclass, field
 from multiprocessing import Pool
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from src.data_client import Game, GameStatus
 from src.nfl_teams import NFL_TEAMS, get_team_conference
 from src.standings import compute_standings, determine_playoff_bracket
+
+if TYPE_CHECKING:
+    from src.cache import Cache
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +133,7 @@ class ClinchingResult:
         method: "enumeration" or "sampling".
         exhaustive: True if enumeration was used (results are complete).
         relevant_games_count: Number of relevant other games identified.
+        total_evals: Total universe evaluations performed by the solver.
         contenders: List of same-conference contender team names.
         error: Error message if analysis could not be performed.
     """
@@ -139,6 +143,7 @@ class ClinchingResult:
     method: str = "enumeration"
     exhaustive: bool = True
     relevant_games_count: int = 0
+    total_evals: int = 0
     contenders: list[str] = field(default_factory=list)
     error: str | None = None
 
@@ -818,6 +823,12 @@ def compute_clinching_scenarios(
             # then B is redundant (A already guarantees the outcome).
             rg.scenarios = _remove_dominated_scenarios(rg.scenarios)
 
+    # Compute total_evals for external timing calculation
+    if use_sampling:
+        total_evals = len(team_record_combos) * samples
+    else:
+        total_evals = len(team_record_combos) * (3 ** len(other_games))
+
     return ClinchingResult(
         team=team,
         record_groups=record_groups,
@@ -825,6 +836,7 @@ def compute_clinching_scenarios(
         exhaustive=not use_sampling,
         relevant_games_count=len(other_games),
         contenders=contenders,
+        total_evals=total_evals,
     )
 
 
@@ -887,9 +899,17 @@ def run_benchmark(all_games: list[Game]) -> float:
     return _benchmark_ms_per_eval
 
 
-def get_ms_per_eval(all_games: list[Game] | None = None) -> float:
-    """Get the cached ms/eval benchmark, or a default if not yet run."""
+def get_ms_per_eval(all_games: list[Game] | None = None, cache: "Cache | None" = None) -> float:
+    """Get ms/eval from historical data or fall back to benchmark."""
     global _benchmark_ms_per_eval
+
+    if cache is not None:
+        timings = cache.get_solver_timings()
+        if timings:
+            total = sum(t["ms_per_eval"] for t in timings)
+            return total / len(timings)
+
+    # Fallback: existing behavior
     if _benchmark_ms_per_eval is not None:
         return _benchmark_ms_per_eval
     if all_games:
@@ -901,6 +921,7 @@ def estimate_clinching(
     team: str,
     all_games: list[Game],
     cutoff_week: int,
+    cache: "Cache | None" = None,
 ) -> dict[str, Any]:
     """Lightweight preflight estimate for the clinching solver.
 
@@ -941,7 +962,7 @@ def estimate_clinching(
     n_team_combos = 3 ** n_team if n_team <= 4 else 81
 
     cpu_count = os.cpu_count() or 1
-    ms_per_eval = get_ms_per_eval(all_games)
+    ms_per_eval = get_ms_per_eval(all_games, cache=cache)
 
     if use_sampling:
         total_evals = n_team_combos * MC_SAMPLES

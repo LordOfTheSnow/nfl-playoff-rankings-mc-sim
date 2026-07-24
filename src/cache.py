@@ -13,7 +13,7 @@ import json
 import logging
 import sqlite3
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.cp_solver import CPSolverResult
@@ -97,6 +97,15 @@ class Cache:
                 result_json TEXT NOT NULL,
                 computed_at TEXT NOT NULL,
                 PRIMARY KEY (team, cutoff_week, season)
+            );
+
+            CREATE TABLE IF NOT EXISTS solver_timing (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ms_per_eval REAL NOT NULL,
+                method TEXT NOT NULL,
+                relevant_games_count INTEGER NOT NULL,
+                total_evals INTEGER NOT NULL,
+                recorded_at TEXT NOT NULL
             );
         """)
         self._conn.commit()
@@ -425,6 +434,97 @@ class Cache:
             (season,),
         )
         self._conn.commit()
+
+    def store_solver_timing(
+        self,
+        ms_per_eval: float,
+        method: str,
+        relevant_games_count: int,
+        total_evals: int,
+    ) -> None:
+        """Store a solver timing measurement and prune old records.
+
+        Inserts the measurement with the current UTC timestamp, then
+        deletes all records beyond the 50 most recent.
+
+        Args:
+            ms_per_eval: Milliseconds per evaluation (wall-clock / total_evals * 1000).
+            method: "enumeration" or "sampling".
+            relevant_games_count: Number of relevant other games in the analysis.
+            total_evals: Total number of universe evaluations performed.
+        """
+        now = datetime.now(UTC).isoformat()
+        self._conn.execute(
+            """INSERT INTO solver_timing
+               (ms_per_eval, method, relevant_games_count, total_evals, recorded_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (ms_per_eval, method, relevant_games_count, total_evals, now),
+        )
+        # Prune: keep only the 50 most recent records
+        self._conn.execute(
+            """DELETE FROM solver_timing WHERE id NOT IN (
+                SELECT id FROM solver_timing ORDER BY recorded_at DESC LIMIT 50
+            )"""
+        )
+        self._conn.commit()
+
+    def store_solver_timing(
+        self,
+        ms_per_eval: float,
+        method: str,
+        relevant_games_count: int,
+        total_evals: int,
+    ) -> None:
+        """Store a solver timing measurement with the current UTC timestamp.
+
+        After inserting, prunes records beyond the 50 most recent to maintain
+        a rolling window.
+
+        Args:
+            ms_per_eval: Milliseconds per evaluation.
+            method: Solver method used (e.g., "enumeration", "sampling").
+            relevant_games_count: Number of relevant games in the solve.
+            total_evals: Total number of evaluations performed.
+        """
+        now = datetime.now(UTC).isoformat()
+        self._conn.execute(
+            "INSERT INTO solver_timing (ms_per_eval, method, relevant_games_count, total_evals, recorded_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (ms_per_eval, method, relevant_games_count, total_evals, now),
+        )
+        # Prune records beyond the 50 most recent
+        self._conn.execute(
+            "DELETE FROM solver_timing WHERE id NOT IN "
+            "(SELECT id FROM solver_timing ORDER BY recorded_at DESC LIMIT 50)"
+        )
+        self._conn.commit()
+
+    def get_solver_timings(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Retrieve the most recent solver timing measurements.
+
+        Args:
+            limit: Maximum number of records to return (default 50).
+
+        Returns:
+            List of dicts with keys: ms_per_eval, method,
+            relevant_games_count, total_evals, recorded_at.
+            Ordered by recorded_at descending.
+        """
+        rows = self._conn.execute(
+            "SELECT ms_per_eval, method, relevant_games_count, total_evals, recorded_at "
+            "FROM solver_timing ORDER BY recorded_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [
+            {
+                "ms_per_eval": row["ms_per_eval"],
+                "method": row["method"],
+                "relevant_games_count": row["relevant_games_count"],
+                "total_evals": row["total_evals"],
+                "recorded_at": row["recorded_at"],
+            }
+            for row in rows
+        ]
 
     def close(self) -> None:
         """Close the database connection."""

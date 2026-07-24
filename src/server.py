@@ -16,6 +16,7 @@ import json
 import logging
 import mimetypes
 import os
+import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
@@ -281,6 +282,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             self._handle_get_cp_clinch(path)
         elif path.startswith("/api/clinch-estimate"):
             self._handle_get_clinch_estimate()
+        elif path == "/api/solver-timings":
+            self._handle_get_solver_timings()
         elif path.startswith("/api/team/"):
             team_name = path[len("/api/team/"):]
             self._handle_get_team(team_name)
@@ -747,12 +750,24 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                     completed_weeks.add(w)
             cutoff_week = max(completed_weeks) if completed_weeks else 0
 
-        from src.clinching import estimate_clinching, run_benchmark
-        # Lazy benchmark: runs once on first estimate request, cached for 24h
-        run_benchmark(games)
-        result = estimate_clinching(team, games, cutoff_week)
+        from src.clinching import estimate_clinching
+        result = estimate_clinching(team, games, cutoff_week, cache=server.cache)
         result["cutoff_week"] = cutoff_week
         self._send_json_response(200, result)
+
+    def _handle_get_solver_timings(self) -> None:
+        """Handle GET /api/solver-timings — return stored timing history."""
+        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
+        timings = server.cache.get_solver_timings()
+        count = len(timings)
+        avg_ms_per_eval = (
+            sum(t["ms_per_eval"] for t in timings) / count if count > 0 else 0.0
+        )
+        self._send_json_response(200, {
+            "timings": timings,
+            "count": count,
+            "avg_ms_per_eval": round(avg_ms_per_eval, 4),
+        })
 
     def _handle_post_clinching_scenarios(self) -> None:
         """Handle POST /api/clinching-scenarios — compute clinching scenarios for a team."""
@@ -815,6 +830,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 num_workers = int(num_workers)
                 if num_workers < 1 or num_workers > (os.cpu_count() or 16):
                     num_workers = None
+            start_time = time.perf_counter()
             result = compute_clinching_scenarios(team, games, cutoff_week, num_workers=num_workers, enumeration_threshold=enum_threshold, num_samples=num_samples)
 
             if result.error:
@@ -824,7 +840,23 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             # Serialize result
             response = self._serialize_clinching_result(result)
             response["cutoff_week"] = cutoff_week
-            self._send_json_response(200, response)
+
+            try:
+                self._send_json_response(200, response)
+            except BrokenPipeError:
+                # User cancelled (AbortController abort) — do NOT store timing
+                return
+
+            # Successfully delivered response → store timing
+            elapsed_seconds = time.perf_counter() - start_time
+            if result.total_evals > 0:
+                ms_per_eval = (elapsed_seconds * 1000) / result.total_evals
+                server.cache.store_solver_timing(
+                    ms_per_eval=ms_per_eval,
+                    method=result.method,
+                    relevant_games_count=result.relevant_games_count,
+                    total_evals=result.total_evals,
+                )
         except Exception as e:
             logger.exception("Error computing clinching scenarios")
             self._send_error_response(500, "Clinching analysis error", str(e))

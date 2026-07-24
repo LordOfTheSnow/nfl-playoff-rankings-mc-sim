@@ -210,6 +210,16 @@ const API = (() => {
     }
   }
 
+  /**
+   * Get solver timing history.
+   * GET /api/solver-timings
+   *
+   * @returns {Promise<{timings: Object[], count: number, avg_ms_per_eval: number}>}
+   */
+  function solverTimings() {
+    return request("/api/solver-timings");
+  }
+
   return {
     fetchStatus,
     fetchData,
@@ -222,5 +232,6 @@ const API = (() => {
     getScheduleGrid,
     setSeason,
     fetchCPClinchAll,
+    solverTimings,
   };
 })();

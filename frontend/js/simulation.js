@@ -228,6 +228,77 @@ async function _handleFetchData() {
 }
 
 /**
+ * Handle the "Timing History" button click.
+ * Opens a modal showing solver timing history from the API.
+ */
+async function _handleTimingHistory() {
+  // Create the modal element if it doesn't exist yet
+  let modalEl = document.getElementById("timingHistoryModal");
+  if (!modalEl) {
+    modalEl = document.createElement("div");
+    modalEl.className = "modal fade";
+    modalEl.id = "timingHistoryModal";
+    modalEl.tabIndex = -1;
+    modalEl.setAttribute("aria-labelledby", "timingHistoryModalLabel");
+    modalEl.setAttribute("aria-hidden", "true");
+    modalEl.innerHTML = `
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="timingHistoryModalLabel">Solver Timing History</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body" id="timingHistoryBody">
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modalEl);
+  }
+
+  const bodyEl = document.getElementById("timingHistoryBody");
+  bodyEl.innerHTML = '<div class="text-center"><div class="spinner-border spinner-border-sm" role="status"><span class="visually-hidden">Loading…</span></div></div>';
+
+  // Show modal immediately with loading state
+  const modal = new bootstrap.Modal(modalEl);
+  modal.show();
+
+  try {
+    const data = await API.solverTimings();
+    if (!data.timings || data.timings.length === 0) {
+      bodyEl.innerHTML = '<div class="alert alert-info">No timing data collected yet. Run the clinching solver to start building calibration data.</div>';
+    } else {
+      let rows = "";
+      for (const t of data.timings) {
+        const recordedAt = t.recorded_at ? new Date(t.recorded_at).toLocaleString() : "—";
+        rows += `<tr>
+          <td style="text-align:right">${t.ms_per_eval.toFixed(2)}</td>
+          <td>${_escapeHtml(t.method)}</td>
+          <td style="text-align:right">${t.relevant_games_count}</td>
+          <td style="text-align:right">${t.total_evals.toLocaleString()}</td>
+          <td>${recordedAt}</td>
+        </tr>`;
+      }
+      bodyEl.innerHTML = `
+        <p class="text-muted">These measurements are collected after each solver run and used to calibrate time estimates. The system keeps the last 50 measurements.</p>
+        <p><strong>${data.count} measurements</strong>, avg ${data.avg_ms_per_eval.toFixed(2)} ms/eval</p>
+        <div style="max-height: 300px; overflow-y: auto;">
+          <table class="table table-sm table-striped">
+            <thead><tr><th>ms/eval</th><th>Method</th><th>Games</th><th>Evaluations</th><th>Recorded At</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      `;
+    }
+  } catch (err) {
+    bodyEl.innerHTML = `<div class="alert alert-danger">Failed to load timing data: ${_escapeHtml(err.message || "Unknown error")}</div>`;
+  }
+}
+
+/**
  * Render the simulation results view.
  *
  * @param {HTMLElement} contentEl - The main content container element.
@@ -517,6 +588,9 @@ function _showTeamDetail(teamName, results) {
         <button id="btn-clinching" class="btn btn-secondary" type="button" data-team="${_escapeHtml(teamName)}">
           Clinching Scenarios
         </button>
+        <button id="btn-timing-history" class="btn btn-sm btn-outline-info" type="button">
+          Timing History
+        </button>
         <span id="clinch-estimate-text" style="font-size:0.8rem;color:var(--color-text-muted)"></span>
       </div>
       <div style="margin-top:0.5rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
@@ -545,6 +619,12 @@ function _showTeamDetail(teamName, results) {
   panel.hidden = false;
   panel.scrollIntoView({ behavior: "smooth", block: "start" });
 
+  // Wire up Timing History button
+  const timingBtn = document.getElementById("btn-timing-history");
+  if (timingBtn) {
+    timingBtn.addEventListener("click", _handleTimingHistory);
+  }
+
   // Wire up clinching scenarios button
   const clinchBtn = document.getElementById("btn-clinching");
   if (clinchBtn) {
@@ -566,14 +646,14 @@ function _showTeamDetail(teamName, results) {
       if (relevantGames > 0) {
         if (relevantGames <= val) {
           const combos = Math.pow(3, relevantGames) * teamRecordCombos;
-          const estLow = Math.max(1, Math.round((combos * msPerEval * 2 / 1000) / serverCpuCount));
-          const estHigh = Math.max(estLow + 1, Math.round((combos * msPerEval * 20 / 1000) / serverCpuCount));
+          const estLow = Math.max(1, Math.round((combos * msPerEval * 8 / 1000) / serverCpuCount));
+          const estHigh = Math.max(estLow + 1, Math.round((combos * msPerEval * 15 / 1000) / serverCpuCount));
           enumInfo.textContent = "→ enumeration · " + combos.toLocaleString() + " evaluations · " + _formatTime(estLow) + " – " + _formatTime(estHigh);
         } else {
           const samplingIters = samplesInput ? parseInt(samplesInput.value, 10) || 10000 : 10000;
           const samplingEvals = samplingIters * teamRecordCombos;
-          const estLow = Math.max(1, Math.round((samplingEvals * msPerEval * 2 / 1000) / serverCpuCount));
-          const estHigh = Math.max(estLow + 1, Math.round((samplingEvals * msPerEval * 20 / 1000) / serverCpuCount));
+          const estLow = Math.max(1, Math.round((samplingEvals * msPerEval * 8 / 1000) / serverCpuCount));
+          const estHigh = Math.max(estLow + 1, Math.round((samplingEvals * msPerEval * 15 / 1000) / serverCpuCount));
           enumInfo.textContent = "→ sampling · " + samplingIters.toLocaleString() + " trials × " + teamRecordCombos + " records · " + _formatTime(estLow) + " – " + _formatTime(estHigh);
         }
       }

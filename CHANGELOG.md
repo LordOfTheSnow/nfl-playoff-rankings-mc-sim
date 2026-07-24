@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-07-24
+
+### Added
+- Adaptive solver timing: `get_ms_per_eval()` uses historical timing data from cache instead of on-demand benchmarking
+- SQLite `solver_timing` table stores per-run timing measurements (rolling window of 50 records)
+- `GET /api/solver-timings` endpoint returning timing history with count and average ms/eval
+- "Timing History" button and modal in the clinching section showing collected calibration data
+- `ClinchingResult.total_evals` field exposing actual evaluation count for external timing computation
+- Server stores timing after each successful clinching scenarios response delivery
+
+### Changed
+- Clinch estimate endpoint no longer runs explicit `run_benchmark()` — uses adaptive cache-based timing
+- Time estimate range multipliers adjusted from 2×–20× to 8×–15× for more realistic predictions
+- `estimate_clinching()` accepts optional `cache` parameter for adaptive timing
+
+### Fixed
+- Time estimate lower bound was unrealistically optimistic (2× multiplier didn't account for minimality testing overhead)
+- Timing modal table used monospace `.numeric` class causing inconsistent font sizes — replaced with plain right-alignment
+
 ## [0.7.0] - 2026-07-23
 
 ### Added
@@ -270,7 +289,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.6.0...v0.6.1
