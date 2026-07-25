@@ -355,7 +355,10 @@ def _check_universe(
     team_outcomes: list[tuple[str, str | None, bool]],
     other_outcomes: list[tuple[str, str | None, bool]],
 ) -> bool:
-    """Check if the team makes the playoffs in this universe.
+    """Check if the team makes the playoffs in this universe (fast path).
+
+    Uses simplified tiebreaker resolution (win% + alphabetical) for speed.
+    Suitable for brute-force enumeration where performance matters.
 
     Args:
         team: Target team name.
@@ -366,10 +369,34 @@ def _check_universe(
     """
     combined = team_outcomes + other_outcomes
     standings = compute_standings(fixed_games, combined)
-    # Use fast bracket (no tiebreaker resolution) for brute-force enumeration.
-    # Full tiebreakers are too slow for 100K+ calls; win% + alphabetical is
-    # sufficient for finding clinching scenarios.
     bracket = determine_playoff_bracket(standings)
+    return _team_in_playoffs(team, bracket)
+
+
+def _check_universe_full(
+    team: str,
+    fixed_games: list[Game],
+    team_outcomes: list[tuple[str, str | None, bool]],
+    other_outcomes: list[tuple[str, str | None, bool]],
+) -> bool:
+    """Check if the team makes the playoffs in this universe (full tiebreakers).
+
+    Uses the complete NFL tiebreaker procedure (H2H, division record,
+    conference record, SoV, SoS, etc.). Slower but accurate for cases
+    where the team can only qualify by winning tiebreakers.
+
+    Args:
+        team: Target team name.
+        fixed_games: ALL season games (the lookup needs all game_ids).
+            The simulated outcomes override results for remaining games.
+        team_outcomes: Simulated outcomes for the team's remaining games.
+        other_outcomes: Simulated outcomes for other remaining games.
+    """
+    combined = team_outcomes + other_outcomes
+    standings = compute_standings(fixed_games, combined)
+    bracket = determine_playoff_bracket(
+        standings, all_games=fixed_games, simulated_outcomes=combined,
+    )
     return _team_in_playoffs(team, bracket)
 
 
@@ -443,12 +470,74 @@ def _sample_qualifying_universes(
     return qualifying
 
 
+def _enumerate_qualifying_universes_full(
+    team: str,
+    fixed_games: list[Game],
+    team_outcomes: list[tuple[str, str | None, bool]],
+    other_games: list[Game],
+) -> list[list[tuple[str, str | None, bool]]]:
+    """Enumerate all other-game outcome combinations using full tiebreakers.
+
+    Same as _enumerate_qualifying_universes but uses _check_universe_full
+    for accurate tiebreaker resolution. Only called as a second pass when
+    the fast path found no qualifying universes but the MC simulation
+    indicates a non-zero playoff probability.
+
+    Returns:
+        List of other_outcomes lists for qualifying universes.
+    """
+    qualifying: list[list[tuple[str, str | None, bool]]] = []
+    n = len(other_games)
+
+    for combo in itertools.product(range(3), repeat=n):
+        other_outcomes = [
+            _outcome_for_game(other_games[i], combo[i])
+            for i in range(n)
+        ]
+        if _check_universe_full(team, fixed_games, team_outcomes, other_outcomes):
+            qualifying.append(other_outcomes)
+
+    return qualifying
+
+
+def _sample_qualifying_universes_full(
+    team: str,
+    fixed_games: list[Game],
+    team_outcomes: list[tuple[str, str | None, bool]],
+    other_games: list[Game],
+    strengths: dict[str, float],
+    num_samples: int = MC_SAMPLES,
+) -> list[list[tuple[str, str | None, bool]]]:
+    """Strength-weighted Monte Carlo sampling using full tiebreakers.
+
+    Same as _sample_qualifying_universes but uses _check_universe_full
+    for accurate tiebreaker resolution. Only called as a second pass when
+    the fast path found no qualifying universes but the MC simulation
+    indicates a non-zero playoff probability.
+
+    Returns:
+        List of other_outcomes lists for qualifying universes found by sampling.
+    """
+    qualifying: list[list[tuple[str, str | None, bool]]] = []
+
+    for _ in range(num_samples):
+        other_outcomes = [
+            _simulate_game_outcome(game, strengths)
+            for game in other_games
+        ]
+        if _check_universe_full(team, fixed_games, team_outcomes, other_outcomes):
+            qualifying.append(other_outcomes)
+
+    return qualifying
+
+
 def _extract_minimal_scenarios(
     team: str,
     fixed_games: list[Game],
     team_outcomes: list[tuple[str, str | None, bool]],
     other_games: list[Game],
     qualifying_universes: list[list[tuple[str, str | None, bool]]],
+    use_full_tiebreakers: bool = False,
 ) -> list[ClinchingScenario]:
     """Extract strictly minimal condition sets from qualifying universes.
 
@@ -457,6 +546,16 @@ def _extract_minimal_scenarios(
     the playoffs in at least one possible other-game combination).
 
     Then deduplicate to get unique minimal scenarios.
+
+    Args:
+        team: Target team name.
+        fixed_games: All season games.
+        team_outcomes: Simulated outcomes for the team's remaining games.
+        other_games: Relevant other remaining games.
+        qualifying_universes: List of qualifying other-outcome combinations.
+        use_full_tiebreakers: If True, use full NFL tiebreaker resolution for
+            the necessity check (slower but required when qualifying universes
+            were found via full tiebreakers).
 
     Returns:
         List of unique ClinchingScenario objects, sorted by fewest conditions.
@@ -467,6 +566,9 @@ def _extract_minimal_scenarios(
     # Cap universes processed — minimality testing is O(n_conditions) standings
     # calls per universe, which gets expensive with many qualifying universes.
     universes_to_process = qualifying_universes[:MAX_QUALIFYING_FOR_MINIMALITY]
+
+    # Select the appropriate universe checker
+    checker = _check_universe_full if use_full_tiebreakers else _check_universe
 
     game_lookup = {g.game_id: g for g in other_games}
     seen_scenarios: set[frozenset[tuple[str, int]]] = set()
@@ -487,7 +589,7 @@ def _extract_minimal_scenarios(
                 modified = list(universe)
                 modified[i] = alt_outcome
 
-                if not _check_universe(team, fixed_games, team_outcomes, modified):
+                if not checker(team, fixed_games, team_outcomes, modified):
                     is_necessary = True
                     break
 
@@ -574,15 +676,23 @@ def _process_team_record_batch(args: tuple) -> list[dict[str, Any]]:
 
     Args:
         args: Tuple of (team, fixed_games, team_record_combos, other_games,
-              use_sampling, strengths, num_samples)
+              use_sampling, strengths, num_samples, playoff_probability)
 
     Returns:
         List of serialized RecordGroup dicts.
     """
-    team, fixed_games, team_record_combos, other_games, use_sampling, strengths, num_samples = args
+    team, fixed_games, team_record_combos, other_games, use_sampling, strengths, num_samples, playoff_probability = args
     results = []
 
+    # Determine the maximum possible wins across all combos to limit
+    # expensive full-tiebreaker retries to only the best records.
+    # Only the highest-win records have a realistic chance of qualifying
+    # via tiebreakers.
+    max_combo_wins = max((w for _, w, _, _ in team_record_combos), default=0)
+
     for team_outcomes, wins, losses, ties in team_record_combos:
+        used_full_tiebreakers = False
+
         if use_sampling:
             qualifying = _sample_qualifying_universes(
                 team, fixed_games, team_outcomes, other_games, strengths, num_samples
@@ -592,6 +702,28 @@ def _process_team_record_batch(args: tuple) -> list[dict[str, Any]]:
                 team, fixed_games, team_outcomes, other_games
             )
 
+        if not qualifying and playoff_probability > 0 and wins >= max_combo_wins - 1:
+            # Fast path found no qualifying universes, but the MC simulation
+            # indicates this team has a non-zero playoff probability. Retry
+            # with full NFL tiebreaker resolution (H2H, division record,
+            # conference record, SoV, SoS) which is slower but accurate.
+            # Only retry for the team's best records (max wins or 1 fewer)
+            # since lower records are extremely unlikely to qualify via
+            # tiebreakers alone.
+            logger.info(
+                "Retrying %s (%d-%d-%d) with full tiebreakers (MC prob=%.1f%%)",
+                team, wins, losses, ties, playoff_probability,
+            )
+            used_full_tiebreakers = True
+            if use_sampling:
+                qualifying = _sample_qualifying_universes_full(
+                    team, fixed_games, team_outcomes, other_games, strengths, num_samples
+                )
+            else:
+                qualifying = _enumerate_qualifying_universes_full(
+                    team, fixed_games, team_outcomes, other_games
+                )
+
         if not qualifying:
             results.append({
                 "wins": wins, "losses": losses, "ties": ties,
@@ -599,6 +731,7 @@ def _process_team_record_batch(args: tuple) -> list[dict[str, Any]]:
                 "scenarios": [],
                 "no_path": True,
                 "clinches_regardless": False,
+                "_used_full_tiebreakers": used_full_tiebreakers,
             })
             continue
 
@@ -612,6 +745,26 @@ def _process_team_record_batch(args: tuple) -> list[dict[str, Any]]:
             # If every single sample qualified, it's very likely a true clinch
             clinches_regardless = (len(qualifying) == MC_SAMPLES)
 
+        # If fast path claims "clinches regardless" but the MC simulation
+        # shows < 100% probability, the simplified tiebreakers are too
+        # generous. Re-verify with full tiebreakers.
+        if clinches_regardless and not used_full_tiebreakers and playoff_probability > 0 and playoff_probability < 100.0:
+            logger.info(
+                "Verifying clinch for %s (%d-%d-%d) with full tiebreakers (MC prob=%.1f%%)",
+                team, wins, losses, ties, playoff_probability,
+            )
+            if use_sampling:
+                qualifying = _sample_qualifying_universes_full(
+                    team, fixed_games, team_outcomes, other_games, strengths, num_samples
+                )
+                clinches_regardless = (len(qualifying) == num_samples)
+            else:
+                qualifying = _enumerate_qualifying_universes_full(
+                    team, fixed_games, team_outcomes, other_games
+                )
+                clinches_regardless = (len(qualifying) == total_universes)
+            used_full_tiebreakers = True
+
         if clinches_regardless:
             # No need for minimality reduction — team clinches no matter what
             results.append({
@@ -620,11 +773,13 @@ def _process_team_record_batch(args: tuple) -> list[dict[str, Any]]:
                 "scenarios": [],
                 "no_path": False,
                 "clinches_regardless": True,
+                "_used_full_tiebreakers": used_full_tiebreakers,
             })
             continue
 
         scenarios = _extract_minimal_scenarios(
-            team, fixed_games, team_outcomes, other_games, qualifying
+            team, fixed_games, team_outcomes, other_games, qualifying,
+            use_full_tiebreakers=used_full_tiebreakers,
         )
 
         # Filter out 0-condition scenarios — they are artifacts of the
@@ -638,6 +793,7 @@ def _process_team_record_batch(args: tuple) -> list[dict[str, Any]]:
             "scenarios": scenarios,
             "no_path": False,
             "clinches_regardless": False,
+            "_used_full_tiebreakers": used_full_tiebreakers,
         })
 
     return results
@@ -650,6 +806,7 @@ def compute_clinching_scenarios(
     num_workers: int | None = None,
     enumeration_threshold: int | None = None,
     num_samples: int | None = None,
+    playoff_probability: float = 0.0,
 ) -> ClinchingResult:
     """Compute all clinching scenarios for a team.
 
@@ -660,6 +817,11 @@ def compute_clinching_scenarios(
         all_games: All season games.
         cutoff_week: Games up to this week are fixed (completed).
         num_workers: Number of worker processes (None = auto-detect).
+        enumeration_threshold: Max other games for brute-force enumeration.
+        num_samples: Number of MC samples when using sampling method.
+        playoff_probability: MC simulation playoff probability for this team
+            (0.0 to 100.0). When > 0 and the fast path finds no qualifying
+            universes, a second pass with full NFL tiebreakers is triggered.
 
     Returns:
         ClinchingResult with all scenarios grouped by team record.
@@ -723,14 +885,14 @@ def compute_clinching_scenarios(
     # all games; simulated_outcomes override results for post-cutoff games).
     if num_workers <= 1 or len(team_record_combos) <= 1:
         raw_results = _process_team_record_batch(
-            (team, all_games, team_record_combos, other_games, use_sampling, strengths, samples)
+            (team, all_games, team_record_combos, other_games, use_sampling, strengths, samples, playoff_probability)
         )
     else:
         batch_size = max(1, len(team_record_combos) // num_workers)
         batches = []
         for i in range(0, len(team_record_combos), batch_size):
             batch = team_record_combos[i:i + batch_size]
-            batches.append((team, all_games, batch, other_games, use_sampling, strengths, samples))
+            batches.append((team, all_games, batch, other_games, use_sampling, strengths, samples, playoff_probability))
 
         with Pool(processes=num_workers) as pool:
             batch_results = pool.map(_process_team_record_batch, batches)
@@ -823,11 +985,29 @@ def compute_clinching_scenarios(
             # then B is redundant (A already guarantees the outcome).
             rg.scenarios = _remove_dominated_scenarios(rg.scenarios)
 
-    # Compute total_evals for external timing calculation
+    # Compute total_evals for external timing calculation.
+    # This counts all universe evaluations performed, including full-tiebreaker
+    # retries triggered by the two-pass logic.
     if use_sampling:
-        total_evals = len(team_record_combos) * samples
+        base_evals = len(team_record_combos) * samples
     else:
-        total_evals = len(team_record_combos) * (3 ** len(other_games))
+        base_evals = len(team_record_combos) * (3 ** len(other_games))
+
+    # Count additional evaluations from full-tiebreaker second passes.
+    # These occur when: (a) fast path found no qualifying universes but MC sim
+    # indicates a chance, or (b) fast path claimed clinch but MC sim < 100%.
+    retry_count = 0
+    max_combo_wins = max((w for _, w, _, _ in team_record_combos), default=0)
+    for result_entry in raw_results:
+        # The batch function retried this combo if it used full tiebreakers
+        # and wasn't already on the fast-path result
+        if result_entry.get("_used_full_tiebreakers", False):
+            retry_count += 1
+
+    if use_sampling:
+        total_evals = base_evals + retry_count * samples
+    else:
+        total_evals = base_evals + retry_count * (3 ** len(other_games))
 
     return ClinchingResult(
         team=team,

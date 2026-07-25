@@ -53,15 +53,30 @@ def _json_error(code: int, message: str, details: str = "") -> tuple[int, dict[s
     }
 
 
-def _serialize_simulation_result(result: SimulationResult) -> dict[str, Any]:
+def _serialize_simulation_result(
+    result: SimulationResult,
+    games: list[Game] | None = None,
+) -> dict[str, Any]:
     """Serialize a SimulationResult to a JSON-compatible dictionary.
 
     Args:
         result: The simulation result to serialize.
+        games: Optional list of all games for the season. When provided,
+            current team records (W-L-T) are computed from completed games
+            up to the simulation's cutoff week and included in each team entry.
 
     Returns:
         Dictionary suitable for JSON serialization.
     """
+    # Compute current team records from completed games (up to cutoff week)
+    team_records: dict[str, str] = {}
+    if games is not None:
+        standings = compute_standings(
+            [g for g in games if g.week <= result.cutoff_week]
+        )
+        for ts in standings:
+            team_records[ts.team] = f"{ts.wins}-{ts.losses}-{ts.ties}"
+
     team_results: list[dict[str, Any]] = []
     for team_name, tr in result.team_results.items():
         seed_probs: dict[str, float] = {}
@@ -72,6 +87,7 @@ def _serialize_simulation_result(result: SimulationResult) -> dict[str, Any]:
             "team": tr.team,
             "conference": tr.conference,
             "division": tr.division,
+            "record": team_records.get(tr.team, "0-0-0"),
             "playoff_probability": round(tr.playoff_probability * 100, 1),
             "seed_probabilities": seed_probs,
             "strength_rating": round(tr.strength_rating, 4),
@@ -831,7 +847,10 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 if num_workers < 1 or num_workers > (os.cpu_count() or 16):
                     num_workers = None
             start_time = time.perf_counter()
-            result = compute_clinching_scenarios(team, games, cutoff_week, num_workers=num_workers, enumeration_threshold=enum_threshold, num_samples=num_samples)
+            playoff_probability = body.get("playoff_probability", 0.0)
+            if not isinstance(playoff_probability, (int, float)):
+                playoff_probability = 0.0
+            result = compute_clinching_scenarios(team, games, cutoff_week, num_workers=num_workers, enumeration_threshold=enum_threshold, num_samples=num_samples, playoff_probability=float(playoff_probability))
 
             if result.error:
                 self._send_error_response(400, result.error, "")
@@ -1021,7 +1040,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 iterations / elapsed if elapsed > 0 else 0,
             )
 
-            response = _serialize_simulation_result(result)
+            response = _serialize_simulation_result(result, games=games)
             self._send_json_response(200, response)
         except ValueError as e:
             self._send_error_response(400, "Invalid simulation parameters", str(e))

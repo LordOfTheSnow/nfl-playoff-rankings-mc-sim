@@ -7,7 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-07-25
+
+### Added
+- Team record (W-L-T) column in the Playoff Probabilities tables
+- Two-pass clinching solver: fast tiebreaker pass followed by full NFL tiebreaker verification when results conflict with Monte Carlo simulation probabilities
+- Regression tests for clinching tiebreaker accuracy (Falcons false "no path", Buccaneers false "clinch")
+
+### Fixed
+- Clinching solver reported "No path to playoffs" for teams that could qualify only by winning tiebreakers (e.g., Falcons 2024 week 17 with 22% MC probability). Root cause: `_check_universe` used simplified win% + alphabetical tiebreakers which never resolved H2H, division record, or strength of victory
+- Clinching solver falsely reported "clinches regardless" for teams that would lose tiebreakers in some universes (e.g., Buccaneers 2024 week 17 at 77% MC probability when losing their final game). Fast tiebreakers placed them ahead alphabetically in ties they'd actually lose
+- Minimality reduction in clinching scenarios used fast tiebreakers even when qualifying universes came from the full-tiebreaker pass, producing incorrect all-conditions-necessary scenarios. Now uses full tiebreakers for the necessity check when appropriate
+- `total_evals` in solver timing history did not account for additional evaluations from full-tiebreaker retries, causing misleading timing data
+- Docker bind mount created `nfl_cache.db` as root, preventing the local Python process from writing to the same database. Container now runs as the host user via `user: "${UID:-1000}:${GID:-1000}"` in compose.yaml
+
 ### Changed
+- Full-tiebreaker retry limited to top record combinations (within 1 win of best possible finish) to avoid excessive runtime for teams with many remaining games
+- Clinching solver `compute_clinching_scenarios()` accepts optional `playoff_probability` parameter to trigger tiebreaker verification only when needed
 - Update Bootstrap from 5.3.3 to 5.3.8
 
 ## [0.7.1] - 2026-07-24
@@ -292,7 +308,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.2...HEAD
+[0.7.2]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.6.1...v0.6.2

@@ -382,6 +382,7 @@ function _renderPlayoffProbabilityTables(teamResults) {
           <tr>
             <th>#</th>
             <th class="team-name">Team</th>
+            <th>Record</th>
             <th>Division</th>
             <th>Playoff %</th>
             <th>Strength</th>
@@ -399,6 +400,7 @@ function _renderPlayoffProbabilityTables(teamResults) {
         <td class="team-name">
           ${logoHtml}<a href="#" data-team-click="${_escapeHtml(team.team)}" class="team-link">${_escapeHtml(team.team)}</a>
         </td>
+        <td class="numeric">${_escapeHtml(team.record || "0-0-0")}</td>
         <td>${_escapeHtml(team.division)}</td>
         <td class="numeric">${team.playoff_probability.toFixed(1)}%</td>
         <td class="numeric">${team.strength_rating.toFixed(3)}</td>
@@ -744,6 +746,16 @@ function _showTeamDetail(teamName, results) {
         if (enumThreshold != null) body.enumeration_threshold = enumThreshold;
         if (numSamples != null) body.num_samples = numSamples;
         if (numWorkers != null) body.num_workers = numWorkers;
+        // Pass MC playoff probability so the solver can trigger full tiebreaker
+        // resolution when the fast path finds no qualifying universes.
+        if (window._simulationResults) {
+          const teamResult = window._simulationResults.team_results.find(
+            (t) => t.team === teamName
+          );
+          if (teamResult) {
+            body.playoff_probability = teamResult.playoff_probability;
+          }
+        }
         const response = await fetch("/api/clinching-scenarios", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
