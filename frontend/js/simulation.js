@@ -627,7 +627,7 @@ function _showTeamDetail(teamName, results) {
           Timing History
         </button>
         <button id="btn-export-performance" class="btn btn-sm btn-outline-secondary" type="button" title="Export solver performance as markdown">
-          Export
+          Export Performance Data
         </button>
         <span id="clinch-estimate-text" style="font-size:0.8rem;color:var(--color-text-muted)"></span>
       </div>
