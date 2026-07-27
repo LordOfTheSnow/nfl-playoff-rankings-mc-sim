@@ -300,6 +300,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             self._handle_get_clinch_estimate()
         elif path == "/api/solver-timings":
             self._handle_get_solver_timings()
+        elif path == "/api/export-solver-performance":
+            self._handle_get_export_solver_performance()
         elif path.startswith("/api/team/"):
             team_name = path[len("/api/team/"):]
             self._handle_get_team(team_name)
@@ -785,6 +787,35 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             "avg_ms_per_eval": round(avg_ms_per_eval, 4),
         })
 
+    def _handle_get_export_solver_performance(self) -> None:
+        """Handle GET /api/export-solver-performance — write solver performance to project file.
+
+        Reads existing doc/solver-performance.md (if present), inserts new timing
+        entries from the database that aren't already in the file, recalculates
+        factors, and writes back. This accumulates results across platforms.
+        """
+        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
+        try:
+            from src.experience_export import export_timings_to_file
+            timings = server.cache.get_solver_timings()
+            if not timings:
+                self._send_json_response(200, {
+                    "status": "no_data",
+                    "message": "No timing data to export. Run the clinching solver first.",
+                })
+                return
+
+            output_path = server.perf_export_path or "doc/solver-performance.md"
+            entries_added = export_timings_to_file(timings, output_path)
+            self._send_json_response(200, {
+                "status": "ok",
+                "entries_added": entries_added,
+                "output_path": output_path,
+            })
+        except Exception as e:
+            logger.exception("Error exporting solver performance")
+            self._send_error_response(500, "Export error", str(e))
+
     def _handle_post_clinching_scenarios(self) -> None:
         """Handle POST /api/clinching-scenarios — compute clinching scenarios for a team."""
         server: NFLSimulatorServer = self.server  # type: ignore[assignment]
@@ -876,6 +907,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                     relevant_games_count=result.relevant_games_count,
                     total_evals=result.total_evals,
                 )
+
         except Exception as e:
             logger.exception("Error computing clinching scenarios")
             self._send_error_response(500, "Clinching analysis error", str(e))
@@ -1704,6 +1736,7 @@ class NFLSimulatorServer(ThreadingMixIn, HTTPServer):
         season_year: int | None = None,
         static_dir: str = "frontend",
         db_path: str = "nfl_cache.db",
+        perf_export_path: str | None = None,
     ) -> None:
         """Initialize the server with configuration.
 
@@ -1712,12 +1745,14 @@ class NFLSimulatorServer(ThreadingMixIn, HTTPServer):
             season_year: NFL season year (default: current year).
             static_dir: Directory containing frontend static files (default "frontend").
             db_path: Path to the SQLite cache database file (default "nfl_cache.db").
+            perf_export_path: Path for the solver performance export file (default None).
         """
         if season_year is None:
             season_year = datetime.now().year
 
         self.season_year: int = season_year
         self.static_dir: str = static_dir
+        self.perf_export_path: str | None = perf_export_path
         self.cache: Cache = Cache(db_path=db_path)
         self.data_client: DataClient = DataClient(self.cache)
 
@@ -1786,6 +1821,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="nfl_cache.db",
         help="Path to the SQLite cache database file (default: nfl_cache.db)",
     )
+    parser.add_argument(
+        "--perf-export-path",
+        type=str,
+        default=None,
+        help="Absolute path for the solver performance export file.",
+    )
 
     return parser.parse_args(argv)
 
@@ -1814,6 +1855,7 @@ def main(argv: list[str] | None = None) -> None:
         season_year=args.season,
         static_dir=args.static_dir,
         db_path=args.db_path,
+        perf_export_path=args.perf_export_path,
     )
     server.start()
 

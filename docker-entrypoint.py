@@ -75,6 +75,10 @@ def resolve_config(env_vars: dict, cmd_args: list[str]) -> list[str]:
     if "--db-path" not in cmd_args:
         args.extend(["--db-path", "/data/nfl_cache.db"])
 
+    # Check if --perf-export-path is in cmd_args
+    if "--perf-export-path" not in cmd_args:
+        args.extend(["--perf-export-path", "/data/doc/solver-performance.md"])
+
     # Append any CMD overrides
     args.extend(cmd_args)
 

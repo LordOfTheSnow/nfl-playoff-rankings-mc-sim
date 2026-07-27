@@ -228,6 +228,39 @@ async function _handleFetchData() {
 }
 
 /**
+ * Handle the "Export" button click.
+ * Writes timing data to doc/solver-performance.md in the project directory.
+ */
+async function _handleExportPerformance() {
+  const btn = document.getElementById("btn-export-performance");
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Exporting…";
+  try {
+    const response = await fetch("/api/export-solver-performance");
+    const data = await response.json();
+    if (!response.ok) {
+      btn.textContent = "Failed";
+      setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2000);
+      return;
+    }
+    if (data.status === "no_data") {
+      btn.textContent = "No data";
+      setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2000);
+    } else if (data.entries_added === 0) {
+      btn.textContent = "Already up to date";
+      setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2000);
+    } else {
+      btn.textContent = "+" + data.entries_added + " entries";
+      setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2000);
+    }
+  } catch (err) {
+    btn.textContent = "Error";
+    setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2000);
+  }
+}
+
+/**
  * Handle the "Timing History" button click.
  * Opens a modal showing solver timing history from the API.
  */
@@ -593,6 +626,9 @@ function _showTeamDetail(teamName, results) {
         <button id="btn-timing-history" class="btn btn-sm btn-outline-info" type="button">
           Timing History
         </button>
+        <button id="btn-export-performance" class="btn btn-sm btn-outline-secondary" type="button" title="Export solver performance as markdown">
+          Export
+        </button>
         <span id="clinch-estimate-text" style="font-size:0.8rem;color:var(--color-text-muted)"></span>
       </div>
       <div style="margin-top:0.5rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
@@ -625,6 +661,12 @@ function _showTeamDetail(teamName, results) {
   const timingBtn = document.getElementById("btn-timing-history");
   if (timingBtn) {
     timingBtn.addEventListener("click", _handleTimingHistory);
+  }
+
+  // Wire up Export button (downloads solver-performance.md)
+  const exportBtn = document.getElementById("btn-export-performance");
+  if (exportBtn) {
+    exportBtn.addEventListener("click", _handleExportPerformance);
   }
 
   // Wire up clinching scenarios button
