@@ -303,7 +303,8 @@ pytest tests/ -v
 
 ## ToDo
 
-(none currently)
+- **Vectorize standings computation with NumPy**: Rewrite the MC simulation hot path to process all trials simultaneously as batched array operations. Game outcome simulation (random draws + strength comparisons) and W/L/T record accumulation can be expressed as matrix operations over a `(trials, games)` array, eliminating per-trial Python loops. The tiebreaker logic would remain in Python but only be invoked for the subset of trials where teams are actually tied in win percentage. Expected 5–15× overall speedup for the simulation pipeline.
+- **Clinched Division and Clinched Homefield Advantage badges**: Extend the CP solver to detect when a team has mathematically clinched its division title or the #1 seed (homefield advantage through the playoffs). Display as additional badge types alongside the existing clinched/eliminated indicators on the standings page.
 
 ## Disclaimer
 
