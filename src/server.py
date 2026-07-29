@@ -906,6 +906,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                     method=result.method,
                     relevant_games_count=result.relevant_games_count,
                     total_evals=result.total_evals,
+                    num_workers=num_workers or os.cpu_count() or 1,
                 )
 
         except Exception as e:

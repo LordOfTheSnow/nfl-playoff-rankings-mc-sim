@@ -619,6 +619,7 @@ function _showTeamDetail(teamName, results) {
       <p style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:0.75rem">
         Find all game-outcome combinations that guarantee ${_escapeHtml(teamName)} a playoff spot.
       </p>
+      <p id="clinch-estimate-text" style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:0.75rem"></p>
       <div class="d-flex gap-2 flex-wrap align-items-center">
         <button id="btn-clinching" class="btn btn-secondary" type="button" data-team="${_escapeHtml(teamName)}">
           Clinching Scenarios
@@ -629,7 +630,6 @@ function _showTeamDetail(teamName, results) {
         <button id="btn-export-performance" class="btn btn-sm btn-outline-secondary" type="button" title="Export solver performance as markdown">
           Export Performance Data
         </button>
-        <span id="clinch-estimate-text" style="font-size:0.8rem;color:var(--color-text-muted)"></span>
       </div>
       <div style="margin-top:0.5rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
         <label for="clinch-enum-threshold" style="font-size:0.8rem;color:var(--color-text-muted);white-space:nowrap">Enumerate up to</label>
@@ -642,6 +642,7 @@ function _showTeamDetail(teamName, results) {
       <p id="clinch-mode-explanation" style="font-size:0.75rem;color:var(--color-text-muted);margin-top:0.25rem;margin-bottom:0">
         <strong>Enumeration</strong>: checks every possible outcome combination (exhaustive, proven results).</br>
         <strong>Sampling</strong>: tests strength-weighted random outcomes (faster, but may miss rare scenarios).</br>
+        <strong>Export Performance Data</strong>: writes solver timing measurements to <code>doc/solver-performance.md</code> for cross-platform comparison. One row per method, using the median of the last 50 runs.</br>
         Time estimates are rough approximations (work in progress) — actual runtime depends on the number of qualifying scenarios found and the underlying hardware.
       </p>
       <div id="clinch-progress" style="display:none;margin-top:0.75rem;align-items:center;gap:0.75rem">

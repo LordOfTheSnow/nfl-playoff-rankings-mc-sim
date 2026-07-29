@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Solver performance export: "Export Performance Data" button writes timing benchmarks to `doc/solver-performance.md` for cross-platform hardware comparison
+- `GET /api/export-solver-performance` endpoint generates compacted performance data from the timing database
+- `num_workers` column in `solver_timing` table (with auto-migration for existing databases) — records actual parallelism used per run
+- "CPU Cores" in the performance file now reflects the Workers slider setting, enabling benchmarks at different parallelism levels on the same hardware
+- Performance factor calculation groups by hardware (cpu_model, cpu_cores) — same hardware always gets factor 1.0; factor only differentiates across platforms
+- CPU model detection prefers `/proc/cpuinfo` over `platform.processor()` to avoid generic architecture strings like "x86_64"
+
+### Changed
+- Clinching solver timing storage includes `num_workers` used for the run
+- Solver performance export compacts multiple measurements into one row per unique (CPU Model, CPU Cores, Method) using the median
+- Performance file rows sorted by factor ascending, grouped by hardware
+
 ## [0.7.2] - 2026-07-25
 
 ### Added

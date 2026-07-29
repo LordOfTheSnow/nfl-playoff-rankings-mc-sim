@@ -23,6 +23,7 @@ A web application that predicts NFL playoff probabilites using Monte Carlo simul
 - Team schedule view with bye week display and per-week team strength tracking
 - Simulation results: playoff probabilities, seeding matrix, top scenarios
 - Clinching scenarios solver: find all game-outcome combinations that guarantee a playoff spot (available after week 14)
+- Solver performance export: one-click export of timing benchmarks to `doc/solver-performance.md` for cross-platform hardware comparison
 - CP-SAT constraint solver for mathematical clinching/elimination detection using Google OR-Tools (provably correct, available from week 1)
 - Season selector in the navbar for switching seasons without restarting
 - Local SQLite caching with TTL policies
@@ -41,6 +42,26 @@ A web application that predicts NFL playoff probabilites using Monte Carlo simul
 ![Standings after week 16, 2025](/doc/img/screenshot-standings.png)
 
 *Standings page after week 16 of the 2025. Note the clinching or elimination badges next to the teams already qualified for the playoffs or eliminated.
+
+## Solver Performance Export
+
+The "Export Performance Data" button in the Clinching Scenarios section writes solver timing benchmarks to `doc/solver-performance.md`. This file is designed to be committed to the repository for cross-platform comparison.
+
+**How it works:**
+- Each clinching solver run stores its timing (ms/eval, method, worker count) in the local SQLite database (rolling window of 50 measurements)
+- Clicking "Export Performance Data" computes the median for each unique (CPU Model, CPU Cores, Method) combination and writes one row per combination
+- The file preserves entries from other platforms — check out on a different machine, run the solver, click Export, and both sets of results appear side-by-side
+- The "Factor" column compares hardware groups: factor > 1.0 means faster than median, < 1.0 means slower
+- "CPU Cores" reflects the number of workers used (set via the Workers slider in Simulation parameters), not necessarily the total hardware cores
+
+**Example output:**
+
+```markdown
+| CPU Model | CPU Cores | Relevant Games | Wall Clock (s) | Method | Total Evals | Factor |
+| --- | ---: | ---: | ---: | --- | ---: | ---: |
+| Apple M3 Max | 14 | 9 | 5.00 | enumeration | 19683 | 1.4 |
+| 12th Gen Intel(R) Core(TM) i5-1245U | 12 | 9 | 19.68 | enumeration | 19683 | 0.6 |
+```
 
 ## Setup
 

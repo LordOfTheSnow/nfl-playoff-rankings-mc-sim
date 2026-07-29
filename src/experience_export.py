@@ -58,6 +58,9 @@ def get_cpu_info() -> tuple[int, str]:
     # Try /proc/cpuinfo first — it has the detailed model on Linux
     cpu_model = _read_cpuinfo_model()
     if cpu_model == "Unknown":
+        # Try sysctl on macOS
+        cpu_model = _read_sysctl_cpu_model()
+    if cpu_model == "Unknown":
         # Fall back to platform.processor(), but skip generic arch strings
         proc = platform.processor()
         if proc and proc not in _GENERIC_ARCH_STRINGS:
@@ -67,7 +70,7 @@ def get_cpu_info() -> tuple[int, str]:
 
 
 def _read_cpuinfo_model() -> str:
-    """Read CPU model from /proc/cpuinfo. Returns 'Unknown' on failure."""
+    """Read CPU model from /proc/cpuinfo (Linux). Returns 'Unknown' on failure."""
     try:
         with open("/proc/cpuinfo", "r") as f:
             for line in f:
@@ -76,6 +79,23 @@ def _read_cpuinfo_model() -> str:
                     if len(parts) == 2:
                         return parts[1].strip()
     except OSError:
+        pass
+    return "Unknown"
+
+
+def _read_sysctl_cpu_model() -> str:
+    """Read CPU model via sysctl (macOS). Returns 'Unknown' on failure."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["sysctl", "-n", "machdep.cpu.brand_string"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
         pass
     return "Unknown"
 
@@ -347,15 +367,14 @@ def generate_solver_performance_markdown(timings: list[dict]) -> str:
 
 
 def export_timings_to_file(timings: list[dict], output_path: str) -> int:
-    """Export timing data to a project-local markdown file, accumulating results.
+    """Export timing data to a project-local markdown file, compacted by hardware+method.
 
-    Reads the existing file (preserving entries from other platforms/CPUs),
-    adds new rows for the current machine from the timing database, recalculates
-    factors across ALL entries, and writes back.
+    Groups all timing measurements by (CPU Model, CPU Cores, Method) and writes
+    one row per group using the median wall clock and median total evals. This
+    keeps the file compact while accumulating cross-platform results.
 
-    This allows cross-platform comparison: run on machine A, commit the file,
-    check out on machine B, run there, click Export — both sets of results
-    end up in the same file.
+    Preserves existing rows from other platforms (read from the file). Replaces
+    the row for the current platform+method if it already exists (updated median).
 
     Args:
         timings: List of timing dicts from cache (ms_per_eval, method,
@@ -363,85 +382,97 @@ def export_timings_to_file(timings: list[dict], output_path: str) -> int:
         output_path: Path to the output file (e.g. "doc/solver-performance.md").
 
     Returns:
-        Number of new entries added.
+        Number of rows written for the current platform.
     """
+    from collections import defaultdict
+
     cpu_cores, cpu_model = get_cpu_info()
     path = Path(output_path)
 
-    # Build new entries from timing data
-    new_entries: list[SolverPerformanceEntry] = []
-    for t in timings:
-        total_evals = t.get("total_evals", 0)
-        ms_per_eval = t.get("ms_per_eval", 0.0)
-        wall_clock = (ms_per_eval * total_evals) / 1000.0 if total_evals > 0 else 0.0
+    if not timings:
+        return 0
 
-        new_entries.append(SolverPerformanceEntry(
+    # Group timings by (method, num_workers) and compute medians
+    method_worker_groups: dict[tuple[str, int], list[dict]] = defaultdict(list)
+    for t in timings:
+        workers = t.get("num_workers", 0) or cpu_cores  # fallback for old records
+        method_worker_groups[(t.get("method", "unknown"), workers)].append(t)
+
+    # Build one compacted entry per (method, num_workers) for the current hardware
+    current_entries: list[SolverPerformanceEntry] = []
+    for (method, workers), group in method_worker_groups.items():
+        wall_clocks = []
+        total_evals_list = []
+        relevant_games_list = []
+        for t in group:
+            evals = t.get("total_evals", 0)
+            ms_per = t.get("ms_per_eval", 0.0)
+            wall_clocks.append((ms_per * evals) / 1000.0 if evals > 0 else 0.0)
+            total_evals_list.append(evals)
+            relevant_games_list.append(t.get("relevant_games_count", 0))
+
+        current_entries.append(SolverPerformanceEntry(
             cpu_model=cpu_model,
-            cpu_cores=cpu_cores,
-            relevant_games_count=t.get("relevant_games_count", 0),
-            wall_clock_seconds=round(wall_clock, 2),
-            method=t.get("method", "unknown"),
-            total_evals=total_evals,
+            cpu_cores=workers,
+            relevant_games_count=int(statistics.median(relevant_games_list)),
+            wall_clock_seconds=round(statistics.median(wall_clocks), 2),
+            method=method,
+            total_evals=int(statistics.median(total_evals_list)),
         ))
 
-    if not new_entries:
+    if not current_entries:
         return 0
 
     # Ensure parent directory exists
     if not path.parent.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Read existing file content (may have entries from other platforms)
+    # Read existing file and parse rows from OTHER platforms
+    other_entries: list[SolverPerformanceEntry] = []
     if path.exists():
         existing_content = path.read_text()
-    else:
-        existing_content = ""
-
-    # Parse existing rows to avoid duplicates
-    existing_signatures: set[tuple] = set()
-    if existing_content:
         for line in existing_content.split("\n"):
             if line.startswith("| ") and "---" not in line and "CPU Model" not in line:
                 cols = [c.strip() for c in line.split("|")]
-                if len(cols) >= 7:
-                    # Signature: (cpu_model, cores, relevant_games, wall_clock, method, evals)
-                    existing_signatures.add((cols[1], cols[2], cols[3], cols[4], cols[5], cols[6]))
+                if len(cols) >= 8:
+                    try:
+                        row_model = cols[1]
+                        row_cores = int(cols[2])
+                        # Skip rows from the current platform (we're replacing them)
+                        if row_model == cpu_model:
+                            continue
+                        other_entries.append(SolverPerformanceEntry(
+                            cpu_model=row_model,
+                            cpu_cores=row_cores,
+                            relevant_games_count=int(cols[3]),
+                            wall_clock_seconds=float(cols[4]),
+                            method=cols[5],
+                            total_evals=int(cols[6]),
+                        ))
+                    except (ValueError, IndexError):
+                        continue
 
-    # Filter to only truly new entries
-    entries_to_add: list[SolverPerformanceEntry] = []
-    for entry in new_entries:
-        sig = (
-            entry.cpu_model,
-            str(entry.cpu_cores),
-            str(entry.relevant_games_count),
-            f"{entry.wall_clock_seconds:.2f}",
-            entry.method,
-            str(entry.total_evals),
-        )
-        if sig not in existing_signatures:
-            entries_to_add.append(entry)
+    # Combine: other platforms + current platform entries
+    all_entries = other_entries + current_entries
 
-    if not entries_to_add:
-        return 0
+    # Compute factors across all entries
+    rows_data = [
+        (e.cpu_cores, e.wall_clock_seconds, e.total_evals, e.cpu_model, e.relevant_games_count)
+        for e in all_entries
+    ]
+    factors = _compute_factors(rows_data)
 
-    # Build or extend the file
-    if not existing_content or _TABLE_HEADER not in existing_content:
-        # Fresh file — write header + all new entries
-        content = _FILE_HEADER + _TABLE_HEADER + _TABLE_SEPARATOR
-        rows_data = [(e.cpu_cores, e.wall_clock_seconds, e.total_evals, e.cpu_model, e.relevant_games_count) for e in entries_to_add]
-        factors = _compute_factors(rows_data)
-        for entry, factor in zip(entries_to_add, factors):
-            content += format_table_row(entry, factor)
-        path.write_text(content)
-    else:
-        # Insert each new entry using _parse_and_insert_row (handles grouping + factor recalc)
-        content = existing_content
-        for entry in entries_to_add:
-            row = format_table_row(entry, factor=1.0)
-            content = _parse_and_insert_row(content, row, entry.cpu_model, entry.cpu_cores)
-        path.write_text(content)
+    # Sort by factor (ascending), then by cpu_model+cores to group same hardware
+    paired = list(zip(all_entries, factors))
+    paired.sort(key=lambda ef: (ef[1], ef[0].cpu_model, ef[0].cpu_cores))
 
-    return len(entries_to_add)
+    # Write the file
+    content = _FILE_HEADER + _TABLE_HEADER + _TABLE_SEPARATOR
+    for entry, factor in paired:
+        content += format_table_row(entry, factor)
+
+    path.write_text(content)
+    return len(current_entries)
 
 
 def export_solver_performance(

@@ -105,10 +105,27 @@ class Cache:
                 method TEXT NOT NULL,
                 relevant_games_count INTEGER NOT NULL,
                 total_evals INTEGER NOT NULL,
+                num_workers INTEGER NOT NULL DEFAULT 0,
                 recorded_at TEXT NOT NULL
             );
         """)
         self._conn.commit()
+
+        # Migrations: add columns to existing tables if missing
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Apply schema migrations for existing databases."""
+        # Add num_workers column to solver_timing if it doesn't exist
+        cols = {
+            row[1]
+            for row in self._conn.execute("PRAGMA table_info(solver_timing)").fetchall()
+        }
+        if "num_workers" not in cols:
+            self._conn.execute(
+                "ALTER TABLE solver_timing ADD COLUMN num_workers INTEGER NOT NULL DEFAULT 0"
+            )
+            self._conn.commit()
 
     def store_games(self, games: list[Game], year: int) -> None:
         """Store games in the cache with current UTC timestamp.
@@ -441,39 +458,7 @@ class Cache:
         method: str,
         relevant_games_count: int,
         total_evals: int,
-    ) -> None:
-        """Store a solver timing measurement and prune old records.
-
-        Inserts the measurement with the current UTC timestamp, then
-        deletes all records beyond the 50 most recent.
-
-        Args:
-            ms_per_eval: Milliseconds per evaluation (wall-clock / total_evals * 1000).
-            method: "enumeration" or "sampling".
-            relevant_games_count: Number of relevant other games in the analysis.
-            total_evals: Total number of universe evaluations performed.
-        """
-        now = datetime.now(UTC).isoformat()
-        self._conn.execute(
-            """INSERT INTO solver_timing
-               (ms_per_eval, method, relevant_games_count, total_evals, recorded_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (ms_per_eval, method, relevant_games_count, total_evals, now),
-        )
-        # Prune: keep only the 50 most recent records
-        self._conn.execute(
-            """DELETE FROM solver_timing WHERE id NOT IN (
-                SELECT id FROM solver_timing ORDER BY recorded_at DESC LIMIT 50
-            )"""
-        )
-        self._conn.commit()
-
-    def store_solver_timing(
-        self,
-        ms_per_eval: float,
-        method: str,
-        relevant_games_count: int,
-        total_evals: int,
+        num_workers: int = 0,
     ) -> None:
         """Store a solver timing measurement with the current UTC timestamp.
 
@@ -485,12 +470,13 @@ class Cache:
             method: Solver method used (e.g., "enumeration", "sampling").
             relevant_games_count: Number of relevant games in the solve.
             total_evals: Total number of evaluations performed.
+            num_workers: Number of parallel workers used for this run.
         """
         now = datetime.now(UTC).isoformat()
         self._conn.execute(
-            "INSERT INTO solver_timing (ms_per_eval, method, relevant_games_count, total_evals, recorded_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (ms_per_eval, method, relevant_games_count, total_evals, now),
+            "INSERT INTO solver_timing (ms_per_eval, method, relevant_games_count, total_evals, num_workers, recorded_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (ms_per_eval, method, relevant_games_count, total_evals, num_workers, now),
         )
         # Prune records beyond the 50 most recent
         self._conn.execute(
@@ -511,7 +497,7 @@ class Cache:
             Ordered by recorded_at descending.
         """
         rows = self._conn.execute(
-            "SELECT ms_per_eval, method, relevant_games_count, total_evals, recorded_at "
+            "SELECT ms_per_eval, method, relevant_games_count, total_evals, num_workers, recorded_at "
             "FROM solver_timing ORDER BY recorded_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
@@ -521,6 +507,7 @@ class Cache:
                 "method": row["method"],
                 "relevant_games_count": row["relevant_games_count"],
                 "total_evals": row["total_evals"],
+                "num_workers": row["num_workers"],
                 "recorded_at": row["recorded_at"],
             }
             for row in rows
