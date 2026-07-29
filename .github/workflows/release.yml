@@ -12,6 +12,10 @@ jobs:
     permissions:
       contents: write
 
+    outputs:
+      new_release: ${{ steps.check_tag.outputs.exists == 'false' }}
+      tag: ${{ steps.version.outputs.tag }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -76,3 +80,15 @@ jobs:
             --notes-file /tmp/release_body.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    needs: release
+    if: needs.release.outputs.new_release == 'true'
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
