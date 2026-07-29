@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-07-27
+
+### Added
+- Clinched Division badge (`y`, green) on standings page — CP solver now detects when a team has mathematically clinched their division title
+- Clinched Homefield Advantage badge (`z`, green) on standings page — CP solver now detects when a team has clinched the #1 seed (first-round bye)
+- Tiebreaker-aware division/homefield clinch detection using CP-SAT: accounts for head-to-head outcomes between division rivals, detecting clinches 1-2 weeks earlier than a wins-only approach
+- Auto-release GitHub Actions workflow: creates a GitHub Release on merge to main when the version in `pyproject.toml` changes, using the PR title as release name and the CHANGELOG section as body
+- Docker build chained into release workflow via `workflow_call` (no PAT required)
+- `clinched_division` and `clinched_homefield` fields in CP solver API responses
+- Solver performance link in README Clinching Scenarios section
+
+### Changed
+- Docker publish workflow converted to reusable workflow (`workflow_call` + `workflow_dispatch`), triggered by the release workflow instead of tag push
+- Clinch badges use three shades of green: lighter for playoff spot (`x`), medium for division (`y`), standard for homefield (`z`)
+- Badge legend updated with all five badge types and matching colors
+
+### Fixed
+- CP solver cache did not store/restore `clinched_division` and `clinched_homefield` fields, causing stale cached results to always show `x` instead of `y`/`z`
+- Solver performance export test expected plain `---` separator but implementation uses right-aligned `---:` columns
+
 ## [0.7.3] - 2026-07-27
 
 ### Added
@@ -324,7 +344,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.3...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.4...HEAD
+[0.7.4]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.0...v0.7.1

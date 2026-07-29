@@ -568,6 +568,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             "status": result.status.value,
             "clinched": result.clinched,
             "eliminated": result.eliminated,
+            "clinched_division": result.clinched_division,
+            "clinched_homefield": result.clinched_homefield,
             "exhaustive": result.exhaustive,
             "solve_time_ms": result.solve_time_ms,
             "num_variables": result.num_variables,
@@ -693,6 +695,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 team_entry: dict[str, Any] = {
                     "team": result.team,
                     "status": result.status.value,
+                    "clinched_division": result.clinched_division,
+                    "clinched_homefield": result.clinched_homefield,
                     "solve_time_ms": result.solve_time_ms,
                     "num_variables": result.num_variables,
                     "minimum_seed": result.minimum_seed,

@@ -148,7 +148,9 @@ async function renderStandings(contentEl) {
     "</ul>" +
     "<strong>Clinch/Elimination Badges</strong> <span style='font-weight:normal'>(hover for details)</span>" +
     "<ul style='margin:0.4rem 0 0.8rem 1.2rem;padding:0;list-style:disc'>" +
-    "<li><span class='badge bg-success'>x</span> Clinched — mathematically guaranteed a playoff spot</li>" +
+    "<li><span class='badge text-white' style='background-color:#6fdb9f'>x</span> Clinched — mathematically guaranteed a playoff spot</li>" +
+    "<li><span class='badge text-white' style='background-color:#2ecc71'>y</span> Clinched Division — mathematically guaranteed the division title</li>" +
+    "<li><span class='badge bg-success'>z</span> Clinched Homefield — mathematically guaranteed the #1 seed (first-round bye)</li>" +
     "<li><span class='badge bg-danger'>e</span> Eliminated — mathematically impossible to make playoffs</li>" +
     "<li><span class='badge bg-secondary'>?</span> Inconclusive — solver timed out before reaching a proof</li>" +
     "</ul>" +
@@ -747,9 +749,21 @@ function _createClinchBadge(result) {
   badge.style.cursor = "pointer";
 
   if (status === "clinched") {
-    badge.className += "bg-success";
-    badge.textContent = "x";
-    badge.title = "Clinched playoff spot";
+    if (result.clinched_homefield) {
+      badge.className += "bg-success";
+      badge.textContent = "z";
+      badge.title = "Clinched #1 seed (homefield advantage)";
+    } else if (result.clinched_division) {
+      badge.className += "text-white";
+      badge.style.backgroundColor = "#2ecc71";
+      badge.textContent = "y";
+      badge.title = "Clinched division title";
+    } else {
+      badge.className += "text-white";
+      badge.style.backgroundColor = "#6fdb9f";
+      badge.textContent = "x";
+      badge.title = "Clinched playoff spot";
+    }
   } else if (status === "eliminated") {
     badge.className += "bg-danger";
     badge.textContent = "e";
@@ -763,13 +777,21 @@ function _createClinchBadge(result) {
   }
 
   // Build tooltip content with solver details
+  let statusText;
+  if (status === "clinched" && result.clinched_homefield) {
+    statusText = "Clinched #1 seed";
+  } else if (status === "clinched" && result.clinched_division) {
+    statusText = "Clinched division";
+  } else {
+    statusText = _statusLabel(status);
+  }
   const tooltipContent = _buildPopoverContent(result);
 
   // Initialize Bootstrap tooltip on hover (auto-dismisses, no stacking)
   badge.setAttribute("data-bs-toggle", "tooltip");
   badge.setAttribute("data-bs-placement", "top");
   badge.setAttribute("data-bs-html", "true");
-  badge.setAttribute("title", result.team + " — " + _statusLabel(status) + tooltipContent);
+  badge.setAttribute("title", result.team + " — " + statusText + tooltipContent);
 
   // Defer tooltip initialization until element is in the DOM
   setTimeout(() => {

@@ -5,7 +5,7 @@
 [![Docker Image](https://img.shields.io/badge/ghcr.io-nfl--playoff--rankings--mc--sim-blue?logo=docker)](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/pkgs/container/nfl-playoff-rankings-mc-sim)
 [![Build Status](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/actions/workflows/docker-publish.yml)
 
-**v0.7.3**
+**v0.7.4**
 
 A web application that predicts NFL playoff probabilites using Monte Carlo simulation. It fetches real game data from ESPN's public API, computes strength-of-schedule-weighted team ratings, simulates remaining games, applies official NFL tiebreaker rules, and presents probability distributions through an interactive browser UI.
 
@@ -253,6 +253,8 @@ The CP solver uses [Google OR-Tools CP-SAT](https://developers.google.com/optimi
 ### What it answers
 
 - **Clinched**: No possible combination of remaining game outcomes can prevent this team from making the playoffs.
+- **Clinched Division**: No possible combination of remaining game outcomes can prevent this team from winning their division title.
+- **Clinched Homefield Advantage**: No possible combination of remaining game outcomes can prevent this team from earning the #1 seed (first-round bye).
 - **Eliminated**: No possible combination of remaining game outcomes can result in this team making the playoffs.
 - **Alive**: Neither clinched nor eliminated — the team's fate still depends on future results.
 
@@ -323,7 +325,6 @@ pytest tests/ -v
 ## ToDo
 
 - **Vectorize standings computation with NumPy**: Rewrite the MC simulation hot path to process all trials simultaneously as batched array operations. Game outcome simulation (random draws + strength comparisons) and W/L/T record accumulation can be expressed as matrix operations over a `(trials, games)` array, eliminating per-trial Python loops. The tiebreaker logic would remain in Python but only be invoked for the subset of trials where teams are actually tied in win percentage. Expected 5–15× overall speedup for the simulation pipeline.
-- **Clinched Division and Clinched Homefield Advantage badges**: Extend the CP solver to detect when a team has mathematically clinched its division title or the #1 seed (homefield advantage through the playoffs). Display as additional badge types alongside the existing clinched/eliminated indicators on the standings page.
 
 ## Disclaimer
 
