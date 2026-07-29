@@ -12,7 +12,7 @@ dependencies = [
 cp = ["ortools>=9.9"]
 dev = [
     "pytest==9.1.1",
-    "hypothesis==6.157.2",
+    "hypothesis==6.161.8",
     "httpx==0.28.1",
     "ortools>=9.9",
 ]
