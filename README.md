@@ -5,7 +5,7 @@
 [![Docker Image](https://img.shields.io/badge/ghcr.io-nfl--playoff--rankings--mc--sim-blue?logo=docker)](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/pkgs/container/nfl-playoff-rankings-mc-sim)
 [![Build Status](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/actions/workflows/docker-publish.yml)
 
-**v0.7.2**
+**v0.7.3**
 
 A web application that predicts NFL playoff probabilites using Monte Carlo simulation. It fetches real game data from ESPN's public API, computes strength-of-schedule-weighted team ratings, simulates remaining games, applies official NFL tiebreaker rules, and presents probability distributions through an interactive browser UI.
 
@@ -23,6 +23,7 @@ A web application that predicts NFL playoff probabilites using Monte Carlo simul
 - Team schedule view with bye week display and per-week team strength tracking
 - Simulation results: playoff probabilities, seeding matrix, top scenarios
 - Clinching scenarios solver: find all game-outcome combinations that guarantee a playoff spot (available after week 14)
+- Solver performance export: one-click export of timing benchmarks to `doc/solver-performance.md` for cross-platform hardware comparison
 - CP-SAT constraint solver for mathematical clinching/elimination detection using Google OR-Tools (provably correct, available from week 1)
 - Season selector in the navbar for switching seasons without restarting
 - Local SQLite caching with TTL policies
@@ -41,6 +42,24 @@ A web application that predicts NFL playoff probabilites using Monte Carlo simul
 ![Standings after week 16, 2025](/doc/img/screenshot-standings.png)
 
 *Standings page after week 16 of the 2025. Note the clinching or elimination badges next to the teams already qualified for the playoffs or eliminated.
+
+## Solver Performance Export
+
+The "Export Performance Data" button in the Clinching Scenarios section writes solver timing benchmarks to [`doc/solver-performance.md`](doc/solver-performance.md). This file is designed to be committed to the repository for cross-platform comparison.
+
+**How it works:**
+- Each clinching solver run stores its timing (ms/eval, method, worker count) in the local SQLite database (rolling window of 50 measurements)
+- Clicking "Export Performance Data" computes the median for each unique (CPU Model, CPU Cores, Method) combination and writes one row per combination
+- The file preserves entries from other platforms — check out on a different machine, run the solver, click Export, and both sets of results appear side-by-side
+- The "Factor" column compares hardware groups: factor > 1.0 means faster than median, < 1.0 means slower
+- "CPU Cores" reflects the number of workers used (set via the Workers slider in Simulation parameters), not necessarily the total hardware cores
+
+**Example output:**
+
+| CPU Model | CPU Cores | Relevant Games | Wall Clock (s) | Method | Total Evals | Factor |
+| --- | ---: | ---: | ---: | --- | ---: | ---: |
+| Apple M3 Max | 14 | 9 | 5.00 | enumeration | 19683 | 0.6 |
+| 12th Gen Intel(R) Core(TM) i5-1245U | 12 | 9 | 19.68 | enumeration | 19683 | 1.4 |
 
 ## Setup
 
@@ -303,7 +322,8 @@ pytest tests/ -v
 
 ## ToDo
 
-(none currently)
+- **Vectorize standings computation with NumPy**: Rewrite the MC simulation hot path to process all trials simultaneously as batched array operations. Game outcome simulation (random draws + strength comparisons) and W/L/T record accumulation can be expressed as matrix operations over a `(trials, games)` array, eliminating per-trial Python loops. The tiebreaker logic would remain in Python but only be invoked for the subset of trials where teams are actually tied in win percentage. Expected 5–15× overall speedup for the simulation pipeline.
+- **Clinched Division and Clinched Homefield Advantage badges**: Extend the CP solver to detect when a team has mathematically clinched its division title or the #1 seed (homefield advantage through the playoffs). Display as additional badge types alongside the existing clinched/eliminated indicators on the standings page.
 
 ## Disclaimer
 

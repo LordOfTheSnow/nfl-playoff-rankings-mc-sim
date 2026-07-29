@@ -1,0 +1,162 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "1.1 Create test file with all test cases for experience export": [
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785157586005
+      },
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785157593622
+      },
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785157856347
+      }
+    ],
+    "1.2 Create test file for docker-entrypoint.py `--perf-export-path` injection": [
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785157586120
+      },
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785157594434
+      },
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785157857268
+      }
+    ],
+    "2.1 Create `src/experience_export.py` with `SolverPerformanceEntry` dataclass and `get_cpu_info()`": [
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785157586184
+      },
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785157861030
+      },
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785157985855
+      }
+    ],
+    "2.2 Implement `_compute_factors()`, `format_table_row()`, `_parse_and_insert_row()`, and `export_solver_performance()`": [
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785157586251
+      },
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785157989657
+      },
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785158108838
+      }
+    ],
+    "2.3 Modify `docker-entrypoint.py` to inject `--perf-export-path`": [
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785157586303
+      },
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785157990474
+      },
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785158109669
+      }
+    ],
+    "2.4 Modify `src/server.py` to accept `--perf-export-path` and pass it to `export_solver_performance()`": [
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785157586353
+      },
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785158113024
+      },
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785158191274
+      }
+    ],
+    "3. Checkpoint": [
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785157586406
+      },
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785158228705
+      },
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785158231592
+      }
+    ],
+    "5. Final checkpoint": [
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785157586467
+      },
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785158250757
+      },
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785158253912
+      }
+    ],
+    "1. Write test skeletons encoding expected behavior": [
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785157857313
+      }
+    ],
+    "2. Implement experience export module": [
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785158191382
+      }
+    ],
+    "4. Property-based tests and integration": [
+      {
+        "executionId": "8e00a255-9965-4538-846e-9ec50bf582b1",
+        "chatSessionId": "sess_c3c0c2e2-14c6-4ad9-8470-2f4ae6a2c840",
+        "timestamp": 1785158247787
+      }
+    ]
+  }
+}

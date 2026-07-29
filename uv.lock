@@ -180,7 +180,7 @@ wheels = [
 
 [[package]]
 name = "nfl-monte-carlo-simulator"
-version = "0.7.0"
+version = "0.7.3"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
