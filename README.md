@@ -45,7 +45,7 @@ A web application that predicts NFL playoff probabilites using Monte Carlo simul
 
 ## Solver Performance Export
 
-The "Export Performance Data" button in the Clinching Scenarios section writes solver timing benchmarks to `doc/solver-performance.md`. This file is designed to be committed to the repository for cross-platform comparison.
+The "Export Performance Data" button in the Clinching Scenarios section writes solver timing benchmarks to [`doc/solver-performance.md`](doc/solver-performance.md). This file is designed to be committed to the repository for cross-platform comparison.
 
 **How it works:**
 - Each clinching solver run stores its timing (ms/eval, method, worker count) in the local SQLite database (rolling window of 50 measurements)
@@ -56,12 +56,10 @@ The "Export Performance Data" button in the Clinching Scenarios section writes s
 
 **Example output:**
 
-```markdown
 | CPU Model | CPU Cores | Relevant Games | Wall Clock (s) | Method | Total Evals | Factor |
 | --- | ---: | ---: | ---: | --- | ---: | ---: |
-| Apple M3 Max | 14 | 9 | 5.00 | enumeration | 19683 | 1.4 |
-| 12th Gen Intel(R) Core(TM) i5-1245U | 12 | 9 | 19.68 | enumeration | 19683 | 0.6 |
-```
+| Apple M3 Max | 14 | 9 | 5.00 | enumeration | 19683 | 0.6 |
+| 12th Gen Intel(R) Core(TM) i5-1245U | 12 | 9 | 19.68 | enumeration | 19683 | 1.4 |
 
 ## Setup
 
