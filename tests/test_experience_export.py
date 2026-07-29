@@ -355,7 +355,7 @@ class TestExportSolverPerformance:
         content = output_file.read_text()
         assert content.startswith("# Solver Performance\n\n")
         assert "| CPU Model | CPU Cores | Relevant Games | Wall Clock (s) | Method | Total Evals | Factor |" in content
-        assert "| --- | --- | --- | --- | --- | --- | --- |" in content
+        assert "| --- | ---: | ---: | ---: | --- | ---: | ---: |" in content
         # Verify data row exists
         data_lines = [l for l in content.split("\n") if l.startswith("| ") and "---" not in l and "CPU Model" not in l]
         assert len(data_lines) == 1
