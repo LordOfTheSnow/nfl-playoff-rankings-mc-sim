@@ -1,5 +1,7 @@
 # Solver Performance
 
+[← Back to README](../README.md) | [How this data is generated](technical.md#solver-performance-export)
+
 | CPU Model | CPU Cores | Relevant Games | Wall Clock (s) | Method | Total Evals | Factor |
 | --- | ---: | ---: | ---: | --- | ---: | ---: |
 | 12th Gen Intel(R) Core(TM) i5-1245U | 12 | 5 | 0.68 | enumeration | 1458 | 0.9 |

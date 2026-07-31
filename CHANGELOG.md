@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Restructured documentation: README trimmed to introduction, screenshots, setup, usage, and Docker; algorithm and technical details moved to dedicated files
+- New `doc/api.md` — full API reference with all 13 endpoints and example responses
+- New `doc/algorithms.md` — team strength ratings, clinching scenarios solver, CP solver with ASCII diagrams
+- New `doc/technical.md` — parallel simulation architecture and solver performance export with data flow diagrams
+- Cross-navigation links added between all doc files (back-to-README, sibling links)
+- `_FILE_HEADER` in `src/experience_export.py` now includes navigation links so they survive export overwrites
+
+### Fixed
+- Docker bind-mount example in README corrected from single-file mount (`./nfl_cache.db:/data/nfl_cache.db`) to directory mount (`./data:/data`)
+- Restored lost "Clinched Division and Clinched Homefield Advantage badges" ToDo item (dropped during a merge conflict)
+
+### Added
+- `.kiro/steering/docs-sync.md` — steering file that triggers on any `src/**/*.py` change to prompt documentation sync checks
+
 ## [0.7.4] - 2026-07-27
 
 ### Added

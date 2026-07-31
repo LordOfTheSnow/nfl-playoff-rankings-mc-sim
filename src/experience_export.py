@@ -37,7 +37,11 @@ class SolverPerformanceEntry:
     total_evals: int
 
 
-_FILE_HEADER = "# Solver Performance\n\n"
+_FILE_HEADER = (
+    "# Solver Performance\n\n"
+    "[← Back to README](../README.md) | "
+    "[How this data is generated](technical.md#solver-performance-export)\n\n"
+)
 _TABLE_HEADER = "| CPU Model | CPU Cores | Relevant Games | Wall Clock (s) | Method | Total Evals | Factor |\n"
 _TABLE_SEPARATOR = "| --- | ---: | ---: | ---: | --- | ---: | ---: |\n"
 
