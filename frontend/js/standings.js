@@ -1,8 +1,10 @@
 /**
  * Standings view rendering for the NFL Monte Carlo Playoff Simulator.
  *
- * Displays current NFL standings grouped by conference (AFC/NFC) and division,
- * with conference filtering, clickable team names, and division leader highlighting.
+ * "Ledger" design (Modernist system): dense per-division tables grouped by
+ * conference, a Season/Simulation card, conference filtering, clinch/eliminate
+ * badges, and a tiebreaker column — see design_handoff_standings_redesign/
+ * for the source spec this view implements.
  *
  * Requirements: 7.8, 10.1, 10.2, 10.3, 10.5, 10.6, 11.7, 11.9, 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7
  */
@@ -56,6 +58,33 @@ const TEAM_LOGO_IDS = {
 };
 
 /**
+ * Short tiebreaker code (from the server's `tiebreaker` field, e.g. "Div 4-1-0")
+ * expanded to a human-readable rule name for the tooltip.
+ */
+const TIEBREAKER_RULE_NAMES = {
+  H2H: "head-to-head record",
+  Div: "division record",
+  Conf: "conference record",
+  SoV: "strength of victory",
+  SoS: "strength of schedule",
+  Pts: "net points",
+  Alpha: "alphabetical order (final tiebreaker)",
+};
+
+/**
+ * Ledger table column abbreviations, expanded for the legend card — one
+ * entry per line rather than run together as inline prose.
+ */
+const COLUMN_DEFS = [
+  ["W / L / T", "Wins, losses, ties"],
+  ["PCT", "Winning percentage"],
+  ["DIV", "Division record"],
+  ["CONF", "Conference record"],
+  ["GB", "Games behind the division leader"],
+  ["STR", "Team strength rating (1.000 = league average)"],
+];
+
+/**
  * Render the standings view into the given container element.
  *
  * @param {HTMLElement} contentEl - The main content container to render into.
@@ -81,46 +110,49 @@ async function renderStandings(contentEl) {
   } catch (err) {
     App.hideLoading();
     contentEl.innerHTML = "";
+    const root = _buildStandingsRoot();
+    contentEl.appendChild(root);
     // Show status info even when standings fail
     if (status && status.total_games === 0) {
-      contentEl.appendChild(buildStatusPanel(status));
+      root.appendChild(buildStatusPanel(status));
     } else if (status) {
-      contentEl.appendChild(buildStatusPanel(status));
+      root.appendChild(buildStatusPanel(status));
       App.showError(err.message || "Failed to load standings.");
     } else {
       const empty = document.createElement("div");
       empty.className = "empty-state";
       empty.innerHTML = "<p>Unable to load standings. Go to Simulate and click Fetch Data first.</p>";
-      contentEl.appendChild(empty);
+      root.appendChild(empty);
     }
     return;
   }
 
   App.hideLoading();
 
+  contentEl.innerHTML = "";
+  const root = _buildStandingsRoot();
+  contentEl.appendChild(root);
+
   if (!data || !data.conferences) {
-    contentEl.innerHTML = "";
     if (status) {
-      contentEl.appendChild(buildStatusPanel(status));
+      root.appendChild(buildStatusPanel(status));
     } else {
       const empty = document.createElement("div");
       empty.className = "empty-state";
       empty.innerHTML = "<p>No standings data available. Please fetch data first.</p>";
-      contentEl.appendChild(empty);
+      root.appendChild(empty);
     }
     return;
   }
 
-  contentEl.innerHTML = "";
-
   // Show status summary
   if (status && status.total_games > 0) {
-    contentEl.appendChild(buildStatusPanel(status));
+    root.appendChild(buildStatusPanel(status));
   }
 
   // Build filter bar
   const filterBar = buildFilterBar();
-  contentEl.appendChild(filterBar);
+  root.appendChild(filterBar);
 
   // Build conference sections
   const conferences = data.conferences;
@@ -129,74 +161,66 @@ async function renderStandings(contentEl) {
   for (const conf of conferenceNames) {
     if (!conferences[conf]) continue;
     const section = buildConferenceSection(conf, conferences[conf]);
-    contentEl.appendChild(section);
+    root.appendChild(section);
   }
 
   // Apply default filter (All)
-  applyConferenceFilter("All", contentEl);
+  applyConferenceFilter("All", root);
 
   // Add legend below all tables
-  const legend = document.createElement("div");
-  legend.style.cssText = "margin-top:1.5rem;padding:1rem;background:var(--color-surface);border-radius:var(--radius-md);box-shadow:var(--shadow-sm);font-size:0.8rem;color:var(--color-text-muted);line-height:1.8";
-  legend.innerHTML = "" +
-    "<strong>Standings</strong>" +
-    "<ul style='margin:0.4rem 0 0.8rem 1.2rem;padding:0;list-style:disc'>" +
-    "<li><strong>W</strong> Wins · <strong>L</strong> Losses · <strong>T</strong> Ties · <strong>Win%</strong> Winning Percentage</li>" +
-    "<li><strong>Div</strong> Division Record · <strong>Conf</strong> Conference Record · <strong>GB</strong> Games Behind Division Leader</li>" +
-    "<li><strong>Str</strong> Team Strength Rating (1.000 = league average)</li>" +
-    "<li><strong>Tiebreaker</strong> — H2H (Head-to-Head), Div (Division Record), Conf (Conference Record), SoV (Strength of Victory), SoS (Strength of Schedule), Pts (Net Points), Alpha (Alphabetical)</li>" +
-    "</ul>" +
-    "<strong>Clinch/Elimination Badges</strong> <span style='font-weight:normal'>(hover for details)</span>" +
-    "<ul style='margin:0.4rem 0 0.8rem 1.2rem;padding:0;list-style:disc'>" +
-    "<li><span class='badge text-white' style='background-color:#6fdb9f'>x</span> Clinched — mathematically guaranteed a playoff spot</li>" +
-    "<li><span class='badge text-white' style='background-color:#2ecc71'>y</span> Clinched Division — mathematically guaranteed the division title</li>" +
-    "<li><span class='badge bg-success'>z</span> Clinched Homefield — mathematically guaranteed the #1 seed (first-round bye)</li>" +
-    "<li><span class='badge bg-danger'>e</span> Eliminated — mathematically impossible to make playoffs</li>" +
-    "<li><span class='badge bg-secondary'>?</span> Inconclusive — solver timed out before reaching a proof</li>" +
-    "</ul>" +
-    "<strong>Tooltip Values</strong>" +
-    "<ul style='margin:0.4rem 0 0;padding:0 0 0 1.2rem;list-style:disc'>" +
-    "<li><strong>Solve time</strong> — wall-clock time the CP solver took for this team</li>" +
-    "<li><strong>Remaining games</strong> — unplayed games after the cutoff week that affect this team's conference</li>" +
-    "<li><strong>Scenarios checked</strong> — record groups evaluated (fewer = early termination found a proof faster)</li>" +
-    "</ul>";
-  contentEl.appendChild(legend);
+  root.appendChild(buildLegend());
 
   // Fetch CP solver clinch/elimination data (non-blocking)
-  _fetchAndApplyCPBadges(contentEl, cutoffWeek);
+  _fetchAndApplyCPBadges(root, cutoffWeek);
 }
 
 /**
- * Build the conference filter bar with AFC/NFC/All buttons.
+ * Create the scoping root element for the Modernist standings page.
+ * Everything rendered by this module lives inside it so its typography/token
+ * overrides don't leak into the still-Bootstrap-styled views.
+ *
+ * @returns {HTMLElement}
+ */
+function _buildStandingsRoot() {
+  const root = document.createElement("div");
+  root.className = "mdn-standings";
+  return root;
+}
+
+/**
+ * Build the conference filter bar with AFC/NFC/All segmented control.
  *
  * @returns {HTMLElement} The filter bar element.
  */
 function buildFilterBar() {
   const bar = document.createElement("div");
-  bar.className = "card card-body mb-3 d-flex flex-row align-items-center gap-3";
+  bar.style.cssText = "display:flex;align-items:center;gap:14px;margin:22px 0 4px";
 
   const label = document.createElement("span");
-  label.className = "text-muted";
-  label.textContent = "Conference:";
+  label.className = "mdn-stat-lbl";
+  label.style.fontSize = "10px";
+  label.textContent = "Conference";
   bar.appendChild(label);
+
+  const seg = document.createElement("div");
+  seg.className = "mdn-seg";
 
   const filters = ["All", "AFC", "NFC"];
   for (const filter of filters) {
-    const btn = document.createElement("button");
-    btn.className = filter === "All" ? "btn btn-sm btn-primary" : "btn btn-sm btn-outline-primary";
-    btn.textContent = filter;
-    btn.setAttribute("data-filter", filter);
-    btn.addEventListener("click", function () {
-      // Update active state
-      bar.querySelectorAll("[data-filter]").forEach(function (b) {
-        b.className = "btn btn-sm btn-outline-primary";
+    const opt = document.createElement("span");
+    opt.className = "mdn-seg-opt" + (filter === "All" ? " active" : "");
+    opt.textContent = filter;
+    opt.setAttribute("data-filter", filter);
+    opt.addEventListener("click", function () {
+      seg.querySelectorAll("[data-filter]").forEach(function (o) {
+        o.classList.remove("active");
       });
-      btn.className = "btn btn-sm btn-primary";
-      // Apply filter
+      opt.classList.add("active");
       applyConferenceFilter(filter, bar.parentElement);
     });
-    bar.appendChild(btn);
+    seg.appendChild(opt);
   }
+  bar.appendChild(seg);
 
   return bar;
 }
@@ -208,7 +232,8 @@ function buildFilterBar() {
  * @param {HTMLElement} container - The parent container with conference sections.
  */
 function applyConferenceFilter(filter, container) {
-  const sections = container.querySelectorAll(".conference-section");
+  if (!container) return;
+  const sections = container.querySelectorAll(".mdn-conf-section");
   sections.forEach(function (section) {
     const conf = section.getAttribute("data-conference");
     if (filter === "All" || conf === filter) {
@@ -228,97 +253,91 @@ function applyConferenceFilter(filter, container) {
  */
 function buildConferenceSection(conferenceName, divisions) {
   const section = document.createElement("div");
-  section.className = "conference-section";
+  section.className = "mdn-conf-section";
   section.setAttribute("data-conference", conferenceName);
 
-  const header = document.createElement("h2");
-  header.className =
-    "conference-header conference-header--" + conferenceName.toLowerCase();
+  const header = document.createElement("div");
+  header.className = "mdn-conf-head";
 
   const confLogo = document.createElement("img");
   confLogo.src = "img/logos/" + conferenceName.toLowerCase() + ".png";
   confLogo.alt = conferenceName + " logo";
-  confLogo.width = 28;
-  confLogo.height = 28;
-  confLogo.style.verticalAlign = "middle";
-  confLogo.style.marginRight = "0.5rem";
+  confLogo.width = 26;
+  confLogo.height = 26;
   header.appendChild(confLogo);
 
-  const confText = document.createTextNode(conferenceName);
-  header.appendChild(confText);
+  const h2 = document.createElement("h2");
+  h2.textContent = conferenceName;
+  header.appendChild(h2);
   section.appendChild(header);
+
+  const grid = document.createElement("div");
+  grid.className = "mdn-div-grid";
 
   const divisionOrder = ["East", "North", "South", "West"];
   for (const divName of divisionOrder) {
     if (!divisions[divName]) continue;
-    const divSection = buildDivisionSection(divName, divisions[divName]);
-    section.appendChild(divSection);
+    grid.appendChild(buildDivisionSection(divName, divisions[divName]));
   }
+  section.appendChild(grid);
 
   return section;
 }
 
 /**
- * Build a division section with its standings table.
+ * Build a division section with its ledger table.
  *
  * @param {string} divisionName - Division name (East, North, South, West).
  * @param {Array} teams - Array of team standings objects.
  * @returns {HTMLElement} The division section element.
  */
 function buildDivisionSection(divisionName, teams) {
-  const section = document.createElement("div");
-  section.className = "card mb-3";
+  const wrap = document.createElement("div");
 
-  const header = document.createElement("div");
-  header.className = "card-header text-uppercase text-muted fw-semibold small";
-  header.textContent = divisionName;
-  section.appendChild(header);
-
-  // Use server-provided sort order (tiebreaker-aware)
-  const sorted = teams;
+  const label = document.createElement("div");
+  label.className = "mdn-div-lbl";
+  label.textContent = divisionName;
+  wrap.appendChild(label);
 
   const table = document.createElement("table");
-  table.className = "table table-striped table-hover standings-table mb-0";
+  table.className = "mdn-led-table";
 
   // Table header
   const thead = document.createElement("thead");
   const headerRow = document.createElement("tr");
   const columns = [
-    { label: "Team", cls: "team-name" },
-    { label: "W", cls: "numeric" },
-    { label: "L", cls: "numeric" },
-    { label: "T", cls: "numeric" },
-    { label: "Win%", cls: "numeric" },
-    { label: "Div", cls: "numeric" },
-    { label: "Conf", cls: "numeric" },
-    { label: "GB", cls: "numeric" },
-    { label: "Str", cls: "numeric" },
-    { label: "Tiebreaker", cls: "numeric-left" },
+    { label: "Team" },
+    { label: "W", num: true },
+    { label: "L", num: true },
+    { label: "T", num: true },
+    { label: "Pct", num: true },
+    { label: "Div", num: true },
+    { label: "Conf", num: true },
+    { label: "GB", num: true },
+    { label: "Str", num: true },
+    { label: "Tiebreaker" },
   ];
 
   for (const col of columns) {
     const th = document.createElement("th");
     th.textContent = col.label;
-    if (col.cls) {
-      th.className = col.cls;
+    if (col.num) {
+      th.className = "mdn-num";
     }
     headerRow.appendChild(th);
   }
   thead.appendChild(headerRow);
   table.appendChild(thead);
 
-  // Table body
+  // Table body — use server-provided sort order (tiebreaker-aware)
   const tbody = document.createElement("tbody");
-  for (let i = 0; i < sorted.length; i++) {
-    const team = sorted[i];
-    const isLeader = i === 0;
-    const row = buildTeamRow(team, isLeader);
-    tbody.appendChild(row);
+  for (let i = 0; i < teams.length; i++) {
+    tbody.appendChild(buildTeamRow(teams[i], i === 0));
   }
   table.appendChild(tbody);
 
-  section.appendChild(table);
-  return section;
+  wrap.appendChild(table);
+  return wrap;
 }
 
 /**
@@ -331,33 +350,29 @@ function buildDivisionSection(divisionName, teams) {
 function buildTeamRow(team, isLeader) {
   const row = document.createElement("tr");
   if (isLeader) {
-    row.className = "division-leader";
+    row.className = "mdn-leader";
   }
 
   // Team name cell with logo and clickable link
   const nameCell = document.createElement("td");
-  nameCell.className = "team-name";
+  nameCell.className = "mdn-tm";
 
-  const nameWrapper = document.createElement("span");
-  nameWrapper.style.display = "inline-flex";
-  nameWrapper.style.alignItems = "center";
-  nameWrapper.style.gap = "0.5rem";
+  const nameWrapper = document.createElement("div");
+  nameWrapper.className = "mdn-team-cell";
   nameWrapper.setAttribute("data-team-name", team.team);
 
   const logoId = TEAM_LOGO_IDS[team.team];
   if (logoId) {
     const logo = document.createElement("img");
     logo.src = "img/logos/" + logoId + ".png";
-    logo.alt = team.team + " logo";
+    logo.alt = "";
     logo.width = 20;
     logo.height = 20;
-    logo.style.flexShrink = "0";
-    logo.style.verticalAlign = "middle";
     nameWrapper.appendChild(logo);
   }
 
   const link = document.createElement("a");
-  link.className = "team-link";
+  link.className = "mdn-team-link";
   link.href = "#team/" + encodeURIComponent(team.team);
   link.textContent = team.team;
   link.addEventListener("click", function (e) {
@@ -368,61 +383,64 @@ function buildTeamRow(team, isLeader) {
   nameCell.appendChild(nameWrapper);
   row.appendChild(nameCell);
 
-  // Wins
-  const winsCell = document.createElement("td");
-  winsCell.className = "numeric";
-  winsCell.textContent = team.wins != null ? team.wins : 0;
-  row.appendChild(winsCell);
-
-  // Losses
-  const lossesCell = document.createElement("td");
-  lossesCell.className = "numeric";
-  lossesCell.textContent = team.losses != null ? team.losses : 0;
-  row.appendChild(lossesCell);
-
-  // Ties
-  const tiesCell = document.createElement("td");
-  tiesCell.className = "numeric";
-  tiesCell.textContent = team.ties != null ? team.ties : 0;
-  row.appendChild(tiesCell);
-
-  // Win percentage
-  const wpCell = document.createElement("td");
-  wpCell.className = "numeric";
-  wpCell.textContent = formatWinPercentage(team.win_percentage);
-  row.appendChild(wpCell);
-
-  // Division record
-  const divCell = document.createElement("td");
-  divCell.className = "numeric";
-  divCell.textContent = team.division_record || "0-0-0";
-  row.appendChild(divCell);
-
-  // Conference record
-  const confCell = document.createElement("td");
-  confCell.className = "numeric";
-  confCell.textContent = team.conference_record || "0-0-0";
-  row.appendChild(confCell);
-
-  // Games behind
-  const gbCell = document.createElement("td");
-  gbCell.className = "numeric";
-  gbCell.textContent = formatGamesBehind(team.games_behind);
-  row.appendChild(gbCell);
-
-  // Strength rating
-  const strCell = document.createElement("td");
-  strCell.className = "numeric";
-  strCell.textContent = team.strength != null ? team.strength.toFixed(3) : "1.000";
-  row.appendChild(strCell);
+  row.appendChild(_numCell(team.wins != null ? team.wins : 0));
+  row.appendChild(_numCell(team.losses != null ? team.losses : 0));
+  row.appendChild(_numCell(team.ties != null ? team.ties : 0));
+  row.appendChild(_numCell(formatWinPercentage(team.win_percentage)));
+  row.appendChild(_numCell(team.division_record || "0-0-0"));
+  row.appendChild(_numCell(team.conference_record || "0-0-0"));
+  row.appendChild(_numCell(formatGamesBehind(team.games_behind)));
+  row.appendChild(_numCell(team.strength != null ? team.strength.toFixed(3) : "1.000"));
 
   // Tiebreaker
   const tbCell = document.createElement("td");
-  tbCell.className = "numeric-left";
-  tbCell.textContent = team.tiebreaker || "";
+  if (team.tiebreaker) {
+    tbCell.appendChild(_buildTiebreakerTag(team.tiebreaker));
+  }
   row.appendChild(tbCell);
 
   return row;
+}
+
+/**
+ * Build a right-aligned numeric table cell.
+ *
+ * @param {string|number} value - Cell content.
+ * @returns {HTMLTableCellElement}
+ */
+function _numCell(value) {
+  const td = document.createElement("td");
+  td.className = "mdn-num";
+  td.textContent = value;
+  return td;
+}
+
+/**
+ * Build the outlined "Tiebreaker" chip + hover tooltip for a tied team.
+ * The server only reports a short code (e.g. "Div 4-1-0"); the tooltip
+ * expands the rule name since the API doesn't return the rival team or
+ * full comparison.
+ *
+ * @param {string} tiebreaker - Short tiebreaker string, e.g. "Div 4-1-0".
+ * @returns {HTMLElement}
+ */
+function _buildTiebreakerTag(tiebreaker) {
+  const wrap = document.createElement("span");
+  wrap.className = "mdn-tt-wrap";
+
+  const tag = document.createElement("span");
+  tag.className = "mdn-tag mdn-tag-outline";
+  tag.textContent = tiebreaker;
+  wrap.appendChild(tag);
+
+  const code = tiebreaker.split(" ")[0];
+  const ruleName = TIEBREAKER_RULE_NAMES[code] || "tiebreaker rule";
+  const pop = document.createElement("span");
+  pop.className = "mdn-tt-pop";
+  pop.textContent = "Seeded by " + ruleName + ": " + tiebreaker + ".";
+  wrap.appendChild(pop);
+
+  return wrap;
 }
 
 /**
@@ -443,28 +461,65 @@ function formatWinPercentage(wp) {
  * @returns {string} Formatted games behind (e.g., "—" for leader, "2.0", "0.5").
  */
 function formatGamesBehind(gb) {
-  if (gb == null || gb === 0) return "\u2014";
-  if (gb % 1 === 0) return gb.toFixed(1);
+  if (gb == null || gb === 0) return "—";
   return gb.toFixed(1);
 }
 
 /**
- * Build a status panel showing data fetch summary.
+ * Build the bottom legend card explaining columns and status tags.
+ *
+ * @returns {HTMLElement}
+ */
+function buildLegend() {
+  const card = document.createElement("div");
+  card.className = "mdn-card mdn-legend";
+  card.style.marginTop = "8px";
+
+  const kicker = document.createElement("div");
+  kicker.className = "mdn-card-kicker";
+  kicker.textContent = "Legend";
+  card.appendChild(kicker);
+
+  const colsHeading = document.createElement("div");
+  colsHeading.innerHTML = "<strong>Columns</strong>";
+  colsHeading.style.cssText = "margin-top:8px;margin-bottom:4px";
+  card.appendChild(colsHeading);
+
+  const colsTable = document.createElement("table");
+  colsTable.className = "mdn-legend-table";
+  const colsBody = document.createElement("tbody");
+  for (const [abbr, meaning] of COLUMN_DEFS) {
+    const row = document.createElement("tr");
+    const abbrCell = document.createElement("td");
+    abbrCell.textContent = abbr;
+    const meaningCell = document.createElement("td");
+    meaningCell.textContent = meaning;
+    row.appendChild(abbrCell);
+    row.appendChild(meaningCell);
+    colsBody.appendChild(row);
+  }
+  colsTable.appendChild(colsBody);
+  card.appendChild(colsTable);
+
+  return card;
+}
+
+/**
+ * Build a status panel showing data fetch summary and simulation controls.
  *
  * @param {Object} status - Status object from /api/status.
  * @returns {HTMLElement} The status panel element.
  */
 function buildStatusPanel(status) {
   const panel = document.createElement("div");
-  panel.className = "card card-body mb-3";
+  panel.className = "mdn-card";
 
   if (!status || status.total_games === 0) {
-    panel.innerHTML = `
-      <p style="color:var(--color-text-muted)">No data fetched yet. Click <strong>Fetch Data</strong> to load game data from ESPN.</p>
-      <div style="margin-top:0.75rem">
-        <button id="btn-fetch-data-standings" class="btn btn-primary" type="button">Fetch Data</button>
-      </div>
-    `;
+    panel.innerHTML =
+      '<p style="color:rgba(32,30,29,.6)">No data fetched yet. Click <strong>Fetch data</strong> to load game data from ESPN.</p>' +
+      '<div style="margin-top:0.75rem">' +
+      '<button id="btn-fetch-data-standings" class="mdn-btn mdn-btn-primary" type="button">Fetch data</button>' +
+      '</div>';
     setTimeout(() => {
       const btn = document.getElementById("btn-fetch-data-standings");
       if (btn) btn.addEventListener("click", _handleFetchFromStandings);
@@ -472,56 +527,82 @@ function buildStatusPanel(status) {
     return panel;
   }
 
+  panel.style.cssText += ";display:grid;grid-template-columns:1.1fr 1.6fr;gap:32px";
+
   const gamesPerWeek = status.games_per_week || {};
+  const pctCompleted = status.expected_total > 0 ? Math.round(((status.completed || 0) / status.expected_total) * 100) : 0;
 
-  let html = '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:1rem">';
+  const savedCutoffLS = localStorage.getItem('sim-cutoff');
+  const cutoffTitle = savedCutoffLS
+    ? "Week " + savedCutoffLS + " cutoff"
+    : "Auto cutoff — week " + (status.weeks_completed || status.weeks_fetched || 0);
 
-  // Left: data status
-  html += '<div>';
-  html += '<h2 style="font-size:1.1rem;margin-bottom:0.5rem">Season ' + status.season_year + ' Data</h2>';
-  var pctCompleted = status.expected_total > 0 ? Math.round(((status.completed || 0) / status.expected_total) * 100) : 0;
-  html += '<div style="display:flex;gap:1.5rem;flex-wrap:wrap;font-size:0.85rem">';
-  html += '<span><strong>Weeks loaded:</strong> ' + status.weeks_fetched + ' of 18</span>';
-  html += '<span><strong>Weeks completed:</strong> ' + (status.weeks_completed || 0) + ' of 18</span>';
-  html += '<span><strong>Games loaded:</strong> ' + status.total_games + ' of ' + status.expected_total + '</span>';
-  html += '<span><strong>Games completed:</strong> ' + (status.completed || 0) + ' of ' + status.expected_total + ' (' + pctCompleted + '%)</span>';
-  if (status.in_progress > 0) {
-    html += '<span style="color:var(--color-warning)"><strong>In Progress:</strong> ' + status.in_progress + '</span>';
-  }
+  // --- Left column: season data ---
+  let html = '<div>';
+  html += '<div class="mdn-card-kicker">Season data</div>';
+  html += '<div class="mdn-card-title">' + status.season_year + ' · ' + cutoffTitle + '</div>';
+  html += '<div style="display:flex;gap:28px;margin-top:12px;flex-wrap:wrap">';
+  html += '<div><div class="mdn-stat-lbl">Weeks loaded</div><div class="mdn-stat-val">' + status.weeks_fetched + ' / 18</div></div>';
+  html += '<div><div class="mdn-stat-lbl">Weeks completed</div><div class="mdn-stat-val">' + (status.weeks_completed || 0) + ' / 18</div></div>';
+  html += '<div><div class="mdn-stat-lbl">Games loaded</div><div class="mdn-stat-val">' + status.total_games + ' / ' + status.expected_total + '</div></div>';
+  html += '<div><div class="mdn-stat-lbl">Games completed</div><div class="mdn-stat-val">' + (status.completed || 0) + ' / ' + status.expected_total + ' (' + pctCompleted + '%)</div></div>';
   html += '</div>';
   if (status.last_fetch_time) {
     const fetchDate = new Date(status.last_fetch_time);
-    html += '<p style="font-size:0.75rem;color:var(--color-text-muted);margin-top:0.25rem">Last fetched: ' + fetchDate.toLocaleString() + '</p>';
+    html += '<p class="mdn-hint">Last fetched ' + fetchDate.toLocaleString() +
+      (status.in_progress > 0 ? ' · ' + status.in_progress + ' game(s) in progress' : '') + '</p>';
   }
   html += '</div>';
 
-  // Right: simulation controls
-  html += '<div>';
-  html += '<h2 style="font-size:1.1rem;margin-bottom:0.5rem">Simulation</h2>';
-  html += '<div style="display:flex;flex-wrap:wrap;gap:1.5rem;align-items:flex-end">';
-  html += '<div class="control-field"><label for="sim-iterations-st" title="Number of Monte Carlo trials to run. More iterations = more accurate probabilities but longer runtime. 10,000 is a good balance; 100,000+ for high precision.">Iterations &#9432;</label><input type="number" id="sim-iterations-st" class="form-control" min="100" max="1000000" value="' + (parseInt(localStorage.getItem('sim-iterations'), 10) || 10000) + '" style="width:130px" title="100–1,000,000 simulation trials"></div>';
-  html += '<div class="control-field"><label for="sim-cutoff-st" title="Games up to and including this week use real results. Games after this week are simulated. Auto = latest completed week.">Cutoff &#9432;</label><select id="sim-cutoff-st" class="form-select" style="width:auto;min-width:110px" title="Games after this week will be simulated using team strength ratings"><option value="">Auto</option>';
-  for (let w = 1; w <= 18; w++) { html += '<option value="' + w + '"' + (localStorage.getItem('sim-cutoff') == w ? ' selected' : '') + '>Week ' + w + '</option>'; }
-  html += '</select></div>';
-  const savedNoise = localStorage.getItem('sim-noise') || '20';
-  const noiseVal = (parseInt(savedNoise, 10) / 100).toFixed(2);
-  const noiseLabel = parseFloat(noiseVal) <= 0.05 ? "none" : parseFloat(noiseVal) <= 0.15 ? "low" : parseFloat(noiseVal) <= 0.25 ? "moderate" : parseFloat(noiseVal) <= 0.4 ? "high" : "chaotic";
-  html += '<div class="control-field"><label for="sim-noise-st" title="Per-game strength noise: adds random variance to each simulated game outcome, modeling the unpredictability of real NFL games (\'any given Sunday\')">Noise &#9432;</label><input type="range" id="sim-noise-st" class="form-range" min="0" max="100" value="' + savedNoise + '" style="width:120px" title="0 = pure strength, 0.2 = moderate variance, 0.5+ = very chaotic"><div id="sim-noise-label-st" style="font-size:0.75rem;color:var(--color-text-muted)">' + noiseVal + ' — ' + noiseLabel + '</div></div>';
+  // --- Right column: simulation controls ---
   const cpuCount = (status && status.cpu_count) ? status.cpu_count : 4;
   const savedWorkers = parseInt(localStorage.getItem('sim-workers'), 10) || cpuCount;
-  html += '<div class="control-field"><label for="sim-workers-st" title="Parallel CPU cores: each Monte Carlo trial is independent, so batches run simultaneously across cores. More workers = faster simulation (near-linear speedup). Uses Python multiprocessing to bypass the GIL.">Workers &#9432;</label><input type="range" id="sim-workers-st" class="form-range" min="1" max="' + cpuCount + '" value="' + savedWorkers + '" style="width:120px" title="1 = single-process (no overhead), max = all available CPU cores running trial batches in parallel"><div id="sim-workers-label-st" style="font-size:0.75rem;color:var(--color-text-muted)">' + savedWorkers + (savedWorkers === 1 ? ' core' : ' cores') + '</div></div>';
-  html += '<button id="btn-run-sim-standings" class="btn btn-primary" type="button">Simulate</button>';
-  html += '<button id="btn-fetch-data-standings" class="btn btn-secondary" type="button">Fetch Data</button>';
+  const savedNoise = localStorage.getItem('sim-noise') || '20';
+  const noiseVal = (parseInt(savedNoise, 10) / 100).toFixed(2);
+  const noiseLabel = _noiseLabel(parseFloat(noiseVal));
 
-  html += '</div>';
-  html += '</div>';
+  html += '<div>';
+  html += '<div class="mdn-card-kicker">Simulation</div>';
+  html += '<div style="display:flex;gap:22px;align-items:flex-start;flex-wrap:wrap;margin-top:6px">';
 
-  html += '</div>';
+  html += '<div class="mdn-field" style="width:110px">' +
+    '<label for="sim-iterations-st">Iterations' +
+    _infoIcon("Number of Monte Carlo trials to run. More iterations = more accurate probabilities but longer runtime.") +
+    '</label>' +
+    '<input class="mdn-input" type="number" id="sim-iterations-st" min="100" max="1000000" value="' +
+    (parseInt(localStorage.getItem('sim-iterations'), 10) || 10000) + '"></div>';
 
-  // Total games info line
-  html += '<p id="sim-total-st" style="font-size:0.8rem;color:var(--color-text-muted);margin-top:0.5rem"></p>';
-  // Progress spinner
-  html += '<div id="sim-progress-st" style="margin-top:0.75rem;display:none;align-items:center;gap:0.75rem"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Running simulation…</span></div><span style="font-size:0.9rem;color:var(--color-text-muted)">Running simulation…</span></div>';
+  html += '<div class="mdn-field" style="width:110px">' +
+    '<label for="sim-cutoff-st">Cutoff' +
+    _infoIcon("Games up to and including this week use real results. Games after this week are simulated. Auto = latest completed week.") +
+    '</label>' +
+    '<select class="mdn-input" id="sim-cutoff-st"><option value="">Auto</option>';
+  for (let w = 1; w <= 18; w++) {
+    html += '<option value="' + w + '"' + (savedCutoffLS == w ? ' selected' : '') + '>Week ' + w + '</option>';
+  }
+  html += '</select></div>';
+
+  html += '<div class="mdn-field" style="width:140px">' +
+    '<label for="sim-noise-st">Noise' +
+    _infoIcon("Per-game strength noise: adds random variance to each simulated game outcome, modeling the unpredictability of real NFL games (\"Any given Sunday\").") +
+    '</label>' +
+    '<input type="range" class="mdn-input" id="sim-noise-st" min="0" max="100" value="' + savedNoise + '">' +
+    '<div class="mdn-hint" id="sim-noise-label-st">' + noiseVal + ' — ' + noiseLabel + '</div></div>';
+
+  html += '<div class="mdn-field" style="width:130px">' +
+    '<label for="sim-workers-st">Workers' +
+    _infoIcon("Parallel CPU cores: each Monte Carlo trial is independent, so batches run simultaneously across cores. More workers = faster simulation.") +
+    '</label>' +
+    '<input type="range" class="mdn-input" id="sim-workers-st" min="1" max="' + cpuCount + '" value="' + savedWorkers + '">' +
+    '<div class="mdn-hint" id="sim-workers-label-st">' + savedWorkers + (savedWorkers === 1 ? ' core' : ' cores') + '</div></div>';
+
+  html += '<button id="btn-run-sim-standings" class="mdn-btn mdn-btn-primary" type="button" style="margin-top:23px">Simulate</button>';
+  html += '<button id="btn-fetch-data-standings" class="mdn-btn mdn-btn-secondary" type="button" style="margin-top:23px">Fetch data</button>';
+  html += '</div>';
+  html += '<p class="mdn-hint" id="sim-total-st" style="margin-top:10px"></p>';
+  html += '<div id="sim-progress-st" style="margin-top:0.75rem;display:none;align-items:center;gap:0.6rem">' +
+    '<span class="mdn-spinner"></span><span class="mdn-hint">Running simulation…</span></div>';
+  html += '</div>';
 
   panel.innerHTML = html;
 
@@ -530,6 +611,7 @@ function buildStatusPanel(status) {
     const iterInput = document.getElementById("sim-iterations-st");
     const cutoffSel = document.getElementById("sim-cutoff-st");
     const noiseSl = document.getElementById("sim-noise-st");
+    const workersSl = document.getElementById("sim-workers-st");
     const runBtn = document.getElementById("btn-run-sim-standings");
     const fetchBtn = document.getElementById("btn-fetch-data-standings");
     const totalEl = document.getElementById("sim-total-st");
@@ -564,14 +646,13 @@ function buildStatusPanel(status) {
     // Noise label update
     if (noiseSl) noiseSl.addEventListener("input", () => {
       const val = (parseInt(noiseSl.value, 10) / 100).toFixed(2);
-      const label = parseFloat(val) <= 0.05 ? "none" : parseFloat(val) <= 0.15 ? "low" : parseFloat(val) <= 0.25 ? "moderate" : parseFloat(val) <= 0.4 ? "high" : "chaotic";
+      const label = _noiseLabel(parseFloat(val));
       const labelEl = document.getElementById("sim-noise-label-st");
       if (labelEl) labelEl.textContent = val + " — " + label;
       localStorage.setItem('sim-noise', noiseSl.value);
     });
 
     // Workers label update
-    const workersSl = document.getElementById("sim-workers-st");
     if (workersSl) workersSl.addEventListener("input", () => {
       const val = parseInt(workersSl.value, 10);
       const labelEl = document.getElementById("sim-workers-label-st");
@@ -608,11 +689,46 @@ function buildStatusPanel(status) {
     });
 
     if (fetchBtn) fetchBtn.addEventListener("click", _handleFetchFromStandings);
-
-
   }, 0);
 
   return panel;
+}
+
+/**
+ * Build a hoverable info icon + tooltip popover for a simulation control label.
+ *
+ * @param {string} text - Tooltip explanation text.
+ * @returns {string} HTML string.
+ */
+function _infoIcon(text) {
+  return ' <span class="mdn-tt-wrap"><span class="mdn-info-ic">i</span>' +
+    '<span class="mdn-tt-pop">' + _escapeHtmlAttr(text) + '</span></span>';
+}
+
+/**
+ * Qualitative label for a 0.0–1.0 noise value.
+ *
+ * @param {number} val - Noise value (0.0–1.0).
+ * @returns {string}
+ */
+function _noiseLabel(val) {
+  if (val <= 0.05) return "none";
+  if (val <= 0.15) return "low";
+  if (val <= 0.25) return "moderate";
+  if (val <= 0.4) return "high";
+  return "chaotic";
+}
+
+/**
+ * Escape a string for safe insertion as HTML text content built via string
+ * concatenation (used only for tooltip copy, never user-controlled data).
+ *
+ * @param {string} str
+ * @returns {string}
+ */
+function _escapeHtmlAttr(str) {
+  if (!str) return "";
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 /**
@@ -636,12 +752,6 @@ async function _handleFetchFromStandings() {
   }
 }
 
-/**
- * Fetch CP solver clinch/elimination data and apply badges to existing team rows.
- * Non-blocking: if the endpoint fails or is unavailable, standings remain unchanged.
- *
- * @param {HTMLElement} contentEl - The standings container.
- */
 /**
  * Silently try to load cached CP solver results. If the server responds
  * quickly (results are cached), apply badges without showing a spinner.
@@ -688,12 +798,19 @@ async function _tryLoadCachedCPBadges(contentEl, cutoffWeek) {
   }
 }
 
+/**
+ * Fetch CP solver clinch/elimination data and apply badges to existing team rows.
+ * Non-blocking: if the endpoint fails or is unavailable, standings remain unchanged.
+ *
+ * @param {HTMLElement} contentEl - The standings container.
+ * @param {number|null} cutoffWeek - Cutoff week.
+ */
 async function _fetchAndApplyCPBadges(contentEl, cutoffWeek) {
   // Show a subtle loading hint while CP solver runs
   const hint = document.createElement("div");
   hint.id = "cp-solver-hint";
-  hint.style.cssText = "margin-bottom:0.75rem;padding:0.6rem 1rem;background:var(--color-surface,#fff);border:1px solid var(--color-border,#ddd);border-radius:var(--radius-md,6px);box-shadow:var(--shadow-sm,0 1px 3px rgba(0,0,0,.1));font-size:0.85rem;color:var(--color-text-muted,#666);display:flex;align-items:center;gap:0.5rem";
-  hint.innerHTML = '<div class="spinner-border spinner-border-sm text-primary" role="status"></div> Computing clinch/elimination…';
+  hint.style.cssText = "margin-bottom:0.75rem;padding:0.6rem 1rem;background:#fff;border:1px solid var(--mdn-divider);font-size:0.85rem;color:rgba(32,30,29,.6);display:flex;align-items:center;gap:0.6rem";
+  hint.innerHTML = '<span class="mdn-spinner"></span> Computing clinch/elimination…';
   contentEl.insertBefore(hint, contentEl.children[1] || null);
 
   const data = await API.fetchCPClinchAll(cutoffWeek);
@@ -732,125 +849,84 @@ async function _fetchAndApplyCPBadges(contentEl, cutoffWeek) {
 }
 
 /**
- * Create a clinch/elimination badge element for a CP solver result.
- * Includes a click handler that shows a Bootstrap popover with solver details.
+ * Create a clinch/elimination status tag (with hover tooltip) for a CP
+ * solver result. Tag label/style follows the legend: #1 SEED, DIVISION,
+ * CLINCHED, ELIMINATED, PENDING.
  *
  * @param {Object} result - CP solver result for a team.
- * @returns {HTMLElement|null} Badge span element, or null if status is "alive".
+ * @returns {HTMLElement|null} Tag+tooltip wrapper element, or null if status is "alive".
  */
 function _createClinchBadge(result) {
   const status = result.status;
   if (status === "alive") return null;
 
-  const badge = document.createElement("span");
-  badge.setAttribute("data-cp-clinch-badge", status);
-  badge.setAttribute("data-team", result.team);
-  badge.className = "badge ms-1 ";
-  badge.style.cursor = "pointer";
+  const tag = document.createElement("span");
+  tag.style.marginLeft = "6px";
 
-  if (status === "clinched") {
-    if (result.clinched_homefield) {
-      badge.className += "bg-success";
-      badge.textContent = "z";
-      badge.title = "Clinched #1 seed (homefield advantage)";
-    } else if (result.clinched_division) {
-      badge.className += "text-white";
-      badge.style.backgroundColor = "#2ecc71";
-      badge.textContent = "y";
-      badge.title = "Clinched division title";
-    } else {
-      badge.className += "text-white";
-      badge.style.backgroundColor = "#6fdb9f";
-      badge.textContent = "x";
-      badge.title = "Clinched playoff spot";
-    }
+  let statusText;
+  if (status === "clinched" && result.clinched_homefield) {
+    tag.className = "mdn-tag mdn-tag-accent";
+    tag.textContent = "#1 SEED";
+    statusText = "Clinched #1 seed (homefield advantage)";
+  } else if (status === "clinched" && result.clinched_division) {
+    tag.className = "mdn-tag mdn-tag-accent-division";
+    tag.textContent = "DIVISION";
+    statusText = "Clinched division title";
+  } else if (status === "clinched") {
+    tag.className = "mdn-tag mdn-tag-outline";
+    tag.style.cursor = "default";
+    tag.textContent = "CLINCHED";
+    statusText = "Clinched a playoff spot";
   } else if (status === "eliminated") {
-    badge.className += "bg-danger";
-    badge.textContent = "e";
-    badge.title = "Eliminated from playoff contention";
+    tag.className = "mdn-tag mdn-tag-elim";
+    tag.textContent = "ELIMINATED";
+    statusText = "Eliminated from playoff contention";
   } else if (status === "inconclusive") {
-    badge.className += "bg-secondary";
-    badge.textContent = "?";
-    badge.title = "Solver inconclusive (timed out)";
+    tag.className = "mdn-tag mdn-tag-outline-dashed";
+    tag.textContent = "PENDING";
+    statusText = "Inconclusive — solver timed out before reaching a proof";
   } else {
     return null;
   }
 
-  // Build tooltip content with solver details
-  let statusText;
-  if (status === "clinched" && result.clinched_homefield) {
-    statusText = "Clinched #1 seed";
-  } else if (status === "clinched" && result.clinched_division) {
-    statusText = "Clinched division";
-  } else {
-    statusText = _statusLabel(status);
-  }
-  const tooltipContent = _buildPopoverContent(result);
+  const wrap = document.createElement("span");
+  wrap.className = "mdn-tt-wrap";
+  wrap.setAttribute("data-cp-clinch-badge", status);
+  wrap.setAttribute("data-team", result.team);
+  wrap.appendChild(tag);
 
-  // Initialize Bootstrap tooltip on hover (auto-dismisses, no stacking)
-  badge.setAttribute("data-bs-toggle", "tooltip");
-  badge.setAttribute("data-bs-placement", "top");
-  badge.setAttribute("data-bs-html", "true");
-  badge.setAttribute("title", result.team + " — " + statusText + tooltipContent);
+  const pop = document.createElement("span");
+  pop.className = "mdn-tt-pop";
+  pop.textContent = result.team + " — " + statusText + _buildPopoverText(result);
+  wrap.appendChild(pop);
 
-  // Defer tooltip initialization until element is in the DOM
-  setTimeout(() => {
-    if (typeof bootstrap !== "undefined" && bootstrap.Tooltip) {
-      new bootstrap.Tooltip(badge, { sanitize: false });
-    }
-  }, 0);
-
-  return badge;
+  return wrap;
 }
 
 /**
- * Build HTML content for the solver details popover.
+ * Build the plain-text tooltip body with solver details (one line per fact,
+ * matching the tooltip's `white-space: pre-line` styling).
  *
  * @param {Object} result - CP solver result for a team.
- * @returns {string} HTML string for popover body.
+ * @returns {string} Text starting with a newline, or "" if no detail available.
  */
-function _buildPopoverContent(result) {
-  let html = '<div style="font-size:0.8rem;line-height:1.6">';
-  html += '<div><strong>Solve time:</strong> ' + (result.solve_time_ms || 0) + ' ms</div>';
+function _buildPopoverText(result) {
+  const lines = [];
+  lines.push("Solve time: " + (result.solve_time_ms || 0) + " ms");
   if (result.num_variables > 0) {
-    html += '<div><strong>Remaining games:</strong> ' + result.num_variables + '</div>';
+    lines.push("Remaining games: " + result.num_variables);
   }
   if (result.record_groups_total > 0) {
-    html += '<div><strong>Scenarios checked:</strong> ' + (result.record_groups_completed || 0) + ' of ' + result.record_groups_total + '</div>';
+    lines.push("Scenarios checked: " + (result.record_groups_completed || 0) + " of " + result.record_groups_total);
   }
   if (result.minimum_seed != null) {
-    html += '<div><strong>Best seed:</strong> #' + result.minimum_seed + '</div>';
+    lines.push("Best seed: #" + result.minimum_seed);
   }
   if (result.magic_number != null) {
-    html += '<div><strong>Magic number:</strong> ' + result.magic_number + ' wins to clinch</div>';
+    lines.push("Magic number: " + result.magic_number + " wins to clinch");
   }
   if (result.error) {
-    html += '<div style="color:var(--bs-danger,#dc3545);margin-top:0.25rem"><em>' + _escapePopoverHtml(result.error) + '</em></div>';
+    lines.push(result.error);
   }
-  html += '</div>';
-  return html;
-}
-
-/**
- * Get a human-readable label for a clinch status.
- *
- * @param {string} status - Status string from solver result.
- * @returns {string} Human-readable label.
- */
-function _statusLabel(status) {
-  if (status === "clinched") return "Clinched";
-  if (status === "eliminated") return "Eliminated";
-  if (status === "inconclusive") return "Inconclusive";
-  return status;
-}
-
-/**
- * Escape HTML special characters for safe popover content.
- *
- * @param {string} str - Raw string to escape.
- * @returns {string} HTML-safe string.
- */
-function _escapePopoverHtml(str) {
-  if (!str) return "";
-  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return lines.length ? "\n" + lines.join("\n") : "";
 }

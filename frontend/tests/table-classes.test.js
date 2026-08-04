@@ -70,16 +70,14 @@ const scheduleDataArbitrary = fc.record({
 // --- Property Tests ---
 
 describe("Property 2: Table Bootstrap class assignment", () => {
-  it("standings tables have 'table table-striped table-hover' classes", () => {
+  it("standings tables have the 'mdn-led-table' Modernist ledger class", () => {
     fc.assert(
       fc.property(divisionNameArbitrary, teamsArrayArbitrary, (divName, teams) => {
         const section = buildDivisionSection(divName, teams);
         const table = section.querySelector("table");
 
         expect(table).not.toBeNull();
-        expect(table.classList.contains("table")).toBe(true);
-        expect(table.classList.contains("table-striped")).toBe(true);
-        expect(table.classList.contains("table-hover")).toBe(true);
+        expect(table.classList.contains("mdn-led-table")).toBe(true);
       }),
       { numRuns: 100 }
     );

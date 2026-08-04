@@ -5,8 +5,9 @@
  *
  * Property 10: For any team logo <img> element rendered in the application,
  * its width and height attributes SHALL be 20×20 when inside a standings
- * table row, 28×28 when inside a conference header, and 32×32 when inside
- * the site header/navbar.
+ * table row, 26×26 when inside a conference header, and 30×30 when inside
+ * the site header/navbar (Modernist "Ledger" redesign — see
+ * design_handoff_standings_redesign/).
  */
 
 import { describe, it, expect } from "vitest";
@@ -73,31 +74,31 @@ describe("Property 10: Team logo sizing by context", () => {
     );
   });
 
-  it("conference header logos are 28×28", () => {
+  it("conference header logos are 26×26", () => {
     fc.assert(
       fc.property(conferenceArbitrary, teamsArbitrary, (conf, teams) => {
         const divisions = { East: teams };
         const section = buildConferenceSection(conf, divisions);
 
-        // The conference header img is inside the <h2> element
-        const headerImg = section.querySelector("h2 img");
+        // The conference header img is a sibling of the <h2>, inside .mdn-conf-head
+        const headerImg = section.querySelector(".mdn-conf-head img");
 
         expect(headerImg).not.toBeNull();
-        expect(headerImg.width).toBe(28);
-        expect(headerImg.height).toBe(28);
+        expect(headerImg.width).toBe(26);
+        expect(headerImg.height).toBe(26);
       }),
       { numRuns: 100 }
     );
   });
 
-  it("navbar logo is 32×32", () => {
+  it("navbar logo is 30×30", () => {
     // The navbar logo is static HTML set up in setup.js.
     // We verify it once — it's not generated dynamically, so a single
     // assertion suffices (no randomized input dimension).
-    const navbarImg = document.querySelector("nav.navbar img");
+    const navbarImg = document.querySelector("nav.mdn-nav img");
 
     expect(navbarImg).not.toBeNull();
-    expect(navbarImg.getAttribute("width")).toBe("32");
-    expect(navbarImg.getAttribute("height")).toBe("32");
+    expect(navbarImg.getAttribute("width")).toBe("30");
+    expect(navbarImg.getAttribute("height")).toBe("30");
   });
 });

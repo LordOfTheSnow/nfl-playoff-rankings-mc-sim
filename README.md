@@ -18,7 +18,7 @@ A web application that predicts NFL playoff probabilities using Monte Carlo simu
 - Monte Carlo simulation with configurable iterations, cutoff week, and game noise
 - Parallel simulation across multiple CPU cores for faster execution
 - Full NFL tiebreaker implementation (head-to-head, division/conference record, strength of victory/schedule, point-based steps) with proper step labeling in standings display
-- Interactive standings view with team logos and tiebreaker annotations
+- Interactive standings view with team logos, clinch/division/#1-seed/eliminated status tags, and hover-tooltip tiebreaker explanations
 - League-wide schedule grid showing all 32 teams x 18 weeks with scores and bye weeks
 - Team schedule view with bye week display and per-week team strength tracking
 - Simulation results: playoff probabilities, seeding matrix, top scenarios
@@ -27,7 +27,7 @@ A web application that predicts NFL playoff probabilities using Monte Carlo simu
 - Solver performance export: one-click export of timing benchmarks to `doc/solver-performance.md`
 - Season selector in the navbar for switching seasons without restarting
 - Local SQLite caching with TTL policies
-- Responsive UI built on Bootstrap 5.3.8 (CDN) with NFL-branded styling
+- Standings page and app-wide nav redesigned in a flat "Modernist" style (Archivo type, red accent, zero corner radius); Schedule, Statistics, and Results still use the original Bootstrap 5.3.8 (CDN) styling
 
 ## Screenshots
 
@@ -37,11 +37,11 @@ A web application that predicts NFL playoff probabilities using Monte Carlo simu
 
 *Clinching scenarios for the Detroit Lions — season 2025, cutoff week 15, showing all paths to the playoffs grouped by remaining record.*
 
-### Standings page (2025 season, cutoff week 16)
+### Standings page — "Modernist" redesign (2025 season, cutoff week 17)
 
-![Standings after week 16, 2025](/doc/img/screenshot-standings.png)
+![Standings page in the Modernist Ledger redesign, 2025 season, week 17 cutoff](/doc/img/screenshot-standings-new-design.png)
 
-*Standings page after week 16 of 2025. Note the clinching or elimination badges next to the teams already qualified for the playoffs or eliminated.*
+*Standings page in the new flat, red-on-white "Modernist Ledger" design. Each team row shows a status tag — DIVISION, #1 SEED, CLINCHED, or ELIMINATED — and, when a standings tie was resolved by a tiebreaker rule, a chip (e.g. "H2H 2-0") that explains why on hover.*
 
 ## Schedule Grid
 
@@ -146,7 +146,7 @@ pytest tests/ -v
 
 ## ToDo
 
-- **Massive UI overhaul**: The current interface is functional but needs a ground-up redesign for better usability, visual polish, and information hierarchy.
+- **Massive UI overhaul**: The current interface is functional but needs a ground-up redesign for better usability, visual polish, and information hierarchy. The Standings screen and the app-wide nav bar have been redesigned in the "Modernist" flat/red-on-white style (see `design_handoff_standings_redesign/`); Schedule, Statistics, and Results still use the old Bootstrap look.
 - **Vectorize standings computation with NumPy**: Rewrite the MC simulation hot path to process all trials simultaneously as batched array operations. Game outcome simulation (random draws + strength comparisons) and W/L/T record accumulation can be expressed as matrix operations over a `(trials, games)` array, eliminating per-trial Python loops. The tiebreaker logic would remain in Python but only be invoked for the subset of trials where teams are actually tied in win percentage. Expected 5-15x overall speedup for the simulation pipeline.
 
 ## Disclaimer

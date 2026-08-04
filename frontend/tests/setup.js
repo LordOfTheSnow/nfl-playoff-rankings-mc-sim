@@ -31,20 +31,16 @@ function loadScript(filename) {
 beforeAll(() => {
   // Set up minimal DOM structure matching index.html
   document.body.innerHTML = `
-    <nav class="navbar navbar-expand-lg navbar-dark sticky-top" style="background-color:#1b3a6b">
-      <div class="container-xl">
-        <a class="navbar-brand d-flex align-items-center gap-2" href="#standings">
-          <img src="img/logos/nfl.png" alt="NFL" width="32" height="32">
-          <span>NFL Monte Carlo Playoff Ranking Simulator</span>
-          <span id="app-version" class="text-muted small ms-2"></span>
-        </a>
-        <div class="collapse navbar-collapse" id="navbarNav">
-          <ul class="navbar-nav ms-auto">
-            <li class="nav-item"><a class="nav-link active" aria-current="page" href="#standings">Standings</a></li>
-            <li class="nav-item"><a class="nav-link" href="#statistics">Statistics</a></li>
-            <li class="nav-item"><a class="nav-link" href="#results">Results</a></li>
-          </ul>
-        </div>
+    <nav class="mdn-nav">
+      <a class="mdn-brand" href="#standings">
+        <img src="img/logos/nfl.png" alt="NFL" width="30" height="30">
+        <span>NFL MONTE CARLO PLAYOFF SIM</span>
+        <span id="app-version" class="mdn-brand-version"></span>
+      </a>
+      <div class="mdn-nav-links">
+        <a href="#standings" data-view="standings" class="active" aria-current="page">Standings</a>
+        <a href="#statistics" data-view="statistics">Statistics</a>
+        <a href="#results" data-view="results">Results</a>
       </div>
     </nav>
     <div id="notification" class="container-xl mt-2 d-none" role="alert" aria-live="polite"></div>

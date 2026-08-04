@@ -230,7 +230,7 @@ const App = (() => {
     contentEl = document.getElementById("content");
     notificationEl = document.getElementById("notification");
     loadingEl = document.getElementById("loading");
-    navLinks = document.querySelectorAll(".navbar-nav .nav-link");
+    navLinks = document.querySelectorAll(".mdn-nav-links a[data-view]");
 
     // Listen for hash changes
     window.addEventListener("hashchange", route);

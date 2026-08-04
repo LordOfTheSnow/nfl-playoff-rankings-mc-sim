@@ -9,9 +9,9 @@
  * rows SHALL NOT have these styles.
  *
  * In the implementation, the division leader distinction is applied via the
- * CSS class "division-leader" on the first <tr> in the tbody. We verify that:
- * - The first row has className "division-leader"
- * - All subsequent rows do NOT have className "division-leader"
+ * CSS class "mdn-leader" on the first <tr> in the tbody. We verify that:
+ * - The first row has className "mdn-leader"
+ * - All subsequent rows do NOT have className "mdn-leader"
  */
 
 import { describe, it, expect } from "vitest";
@@ -39,7 +39,7 @@ const teamArbitrary = fc.record({
 const teamsArbitrary = fc.array(teamArbitrary, { minLength: 1, maxLength: 6 });
 
 describe("Property 3: Division leader visual distinction", () => {
-  it("first row has 'division-leader' class and subsequent rows do not", () => {
+  it("first row has 'mdn-leader' class and subsequent rows do not", () => {
     fc.assert(
       fc.property(teamsArbitrary, (teams) => {
         // Build the division section using the global function
@@ -52,12 +52,12 @@ describe("Property 3: Division leader visual distinction", () => {
         const rows = tbody.querySelectorAll("tr");
         expect(rows.length).toBe(teams.length);
 
-        // First row must have division-leader class
-        expect(rows[0].className).toBe("division-leader");
+        // First row must have mdn-leader class
+        expect(rows[0].className).toBe("mdn-leader");
 
-        // All other rows must NOT have division-leader class
+        // All other rows must NOT have mdn-leader class
         for (let i = 1; i < rows.length; i++) {
-          expect(rows[i].className).not.toContain("division-leader");
+          expect(rows[i].className).not.toContain("mdn-leader");
         }
       }),
       { numRuns: 100 }

@@ -427,13 +427,19 @@ class Cache:
             return None
 
         data = json.loads(row["result_json"])
+        if "clinched_division" not in data or "clinched_homefield" not in data:
+            # Pre-0.7.4 cache row, written before these fields existed.
+            # Treat as a miss rather than silently defaulting to False —
+            # that previously made stale rows serve permanently wrong
+            # clinched_division/clinched_homefield status (never re-solved).
+            return None
         return CPSolverResult(
             team=data["team"],
             status=ClinchStatus(data["status"]),
             clinched=data["clinched"],
             eliminated=data["eliminated"],
-            clinched_division=data.get("clinched_division", False),
-            clinched_homefield=data.get("clinched_homefield", False),
+            clinched_division=data["clinched_division"],
+            clinched_homefield=data["clinched_homefield"],
             exhaustive=data["exhaustive"],
             solve_time_ms=data["solve_time_ms"],
             num_variables=data["num_variables"],

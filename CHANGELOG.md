@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Redesigned the Standings page and app-wide nav bar in the "Modernist" flat/red-on-white style (dense per-division ledger tables, Season/Simulation card, hover tooltips on tiebreaker and clinch/eliminate tags, zero corner radius, Archivo type) — see `design_handoff_standings_redesign/`. Schedule, Statistics, and Results are not yet redesigned.
+- Standings legend simplified to a two-column "Columns" reference table (`W/L/T`, `Pct`, `Div`, `Conf`, `GB`, `Str`, one per row); the status-tag key (previously repeating the same #1 Seed/Division/Clinched/Eliminated/Pending examples already visible in every division table) was removed as redundant
+- Season data card now shows all four stats from the old panel — Weeks loaded, Weeks completed, Games loaded, Games completed (with count and %) — instead of a trimmed three-stat row
+- README Standings screenshot replaced with the redesigned page (`doc/img/screenshot-standings-new-design.png`, season 2025, cutoff week 17); old `doc/img/screenshot-standings.png` removed
 - Restructured documentation: README trimmed to introduction, screenshots, setup, usage, and Docker; algorithm and technical details moved to dedicated files
 - New `doc/api.md` — full API reference with all 13 endpoints and example responses
 - New `doc/algorithms.md` — team strength ratings, clinching scenarios solver, CP solver with ASCII diagrams
@@ -16,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `_FILE_HEADER` in `src/experience_export.py` now includes navigation links so they survive export overwrites
 
 ### Fixed
+- CP solver cache served stale `clinched_division`/`clinched_homefield` status forever for any result cached before those fields existed in the stored JSON (e.g. showing plain "Clinched" instead of "Division" for a team that had actually clinched its division) — `Cache.get_cp_result()` now treats a cache row missing either field as a miss and re-solves instead of silently defaulting to `False`
 - Docker bind-mount example in README corrected from single-file mount (`./nfl_cache.db:/data/nfl_cache.db`) to directory mount (`./data:/data`)
 - Restored lost "Clinched Division and Clinched Homefield Advantage badges" ToDo item (dropped during a merge conflict)
 
