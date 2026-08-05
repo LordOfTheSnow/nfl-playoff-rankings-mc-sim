@@ -82,50 +82,12 @@ td.numeric {
     font-variant-numeric: tabular-nums;
 }
 
-/* --- Game Result Colors --- */
-.game-result--win {
-    color: var(--color-success);
-    font-weight: 600;
-}
-
-.game-result--loss {
-    color: var(--color-accent);
-    font-weight: 600;
-}
-
-.game-result--tie {
-    color: var(--color-warning);
-    font-weight: 600;
-}
-
 /* --- Progress Overlay Backdrop --- */
 .progress-overlay {
     position: fixed;
     inset: 0;
     background-color: rgba(0, 0, 0, 0.5);
     z-index: 1050;
-}
-
-/* --- Back Navigation Link --- */
-.back-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    color: var(--color-primary-light);
-    text-decoration: none;
-    font-size: 0.9rem;
-    font-weight: 500;
-    margin-bottom: 1rem;
-}
-
-.back-link:hover {
-    text-decoration: underline;
-}
-
-.back-link:focus-visible {
-    outline: 2px solid var(--color-primary-light);
-    outline-offset: 2px;
-    border-radius: 2px;
 }
 
 /* --- Schedule Grid --- */
@@ -156,9 +118,10 @@ td.numeric {
    Modernist Design System — Standings Redesign
    Flat, architectural, red-on-white, Archivo type, zero corner radius.
    Scoped under `mdn-` prefixed classes so it never collides with the
-   Bootstrap classes still used by the not-yet-redesigned views (Schedule,
-   Statistics, Results). The nav bar / disclaimer strip are app-wide; the
-   `.mdn-standings` wrapper scopes fonts/tokens to the Standings page only.
+   Bootstrap classes still used by the not-yet-redesigned views (Statistics,
+   Results). The nav bar / disclaimer strip are app-wide; the `.mdn-page`
+   wrapper scopes fonts/tokens to each Modernist-redesigned page (Standings,
+   Team Detail).
    See design_handoff_standings_redesign/README.md for the source spec.
    ========================================================================== */
 
@@ -180,6 +143,9 @@ td.numeric {
     --mdn-neutral-100: #f7f6f6;
     --mdn-neutral-200: #ebe9e8;
     --mdn-neutral-300: #dbd9d7;
+    --mdn-neutral-500: #8a8785;
+    --mdn-neutral-600: #6b6866;
+    --mdn-neutral-800: #332f2d;
 
     --mdn-divider: rgba(32, 30, 29, 0.14);
     --mdn-divider-strong: rgba(32, 30, 29, 0.22);
@@ -259,15 +225,15 @@ td.numeric {
     font-family: var(--mdn-font-body);
 }
 
-/* --- Page scope: Standings --- */
-.mdn-standings {
+/* --- Page scope: any Modernist-redesigned page (Standings, Team Detail) --- */
+.mdn-page {
     font-family: var(--mdn-font-body);
     color: var(--mdn-text);
 }
 
-.mdn-standings h1,
-.mdn-standings h2,
-.mdn-standings h3 {
+.mdn-page h1,
+.mdn-page h2,
+.mdn-page h3 {
     font-family: var(--mdn-font-heading);
 }
 
@@ -457,6 +423,20 @@ td.numeric {
     opacity: 0.55;
 }
 
+.mdn-tag-win-o {
+    background: transparent;
+    color: var(--mdn-accent-700);
+    border-color: var(--mdn-accent-500);
+}
+
+.mdn-tag-tie {
+    background: transparent;
+    color: var(--mdn-neutral-600);
+    border-color: var(--mdn-neutral-500);
+    border-style: dashed;
+    font-style: italic;
+}
+
 /* --- Tooltips (hover-only, dark popover) --- */
 .mdn-info-ic {
     display: inline-flex;
@@ -599,6 +579,58 @@ td.numeric {
     color: var(--mdn-accent-700);
 }
 
+.mdn-led-table td.mdn-bye {
+    font: 800 12px var(--mdn-font-heading);
+    font-style: italic;
+    opacity: 0.55;
+}
+
+/* --- Back link / back-to-top (Team Detail) --- */
+.mdn-back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font: 800 12px var(--mdn-font-heading);
+    color: var(--mdn-text);
+    text-decoration: none;
+    margin-bottom: 18px;
+}
+
+.mdn-back-link:hover {
+    color: var(--mdn-accent-700);
+}
+
+.mdn-back-to-top {
+    display: inline-block;
+    font: 800 12px var(--mdn-font-heading);
+    color: var(--mdn-text);
+    text-decoration: none;
+}
+
+.mdn-back-to-top:hover {
+    color: var(--mdn-accent-700);
+}
+
+/* --- Team hero header (Team Detail) --- */
+.mdn-team-hero {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 2px;
+}
+
+.mdn-team-hero h1 {
+    font: 800 34px var(--mdn-font-heading);
+    margin: 0;
+}
+
+.mdn-team-record {
+    font-size: 13px;
+    color: rgba(32, 30, 29, 0.6);
+    margin: 0 0 20px 54px;
+    font-variant-numeric: tabular-nums;
+}
+
 /* --- Legend --- */
 .mdn-legend {
     font-size: 12px;
@@ -627,7 +659,7 @@ td.numeric {
     }
 }
 
-/* --- Loading spinner (accent-colored, used inside .mdn-standings) --- */
+/* --- Loading spinner (accent-colored, used inside .mdn-page) --- */
 .mdn-spinner {
     display: inline-block;
     width: 14px;

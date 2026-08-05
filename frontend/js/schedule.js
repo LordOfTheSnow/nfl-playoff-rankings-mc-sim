@@ -1,8 +1,10 @@
 /**
- * Team Schedule View for the NFL Monte Carlo Playoff Simulator.
+ * Team Schedule ("Team Detail") view for the NFL Monte Carlo Playoff Simulator.
  *
- * Renders a selected team's full season schedule with completed,
- * in-progress, and scheduled games displayed chronologically.
+ * "Ledger" design (Modernist system): single-team schedule table reusing the
+ * same `.mdn-led-table` component as Standings, with a team hero header and
+ * a Win/Loss/Tie result tag per game — see design_handoff_standings_redesign/
+ * for the source spec this view implements (Option 2a).
  *
  * Requirements: 7.9, 11.10, 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7, 13.8
  */
@@ -42,66 +44,78 @@ function renderScheduleContent(contentEl, data) {
   const { team, record, games } = data;
 
   contentEl.innerHTML = "";
+  const root = document.createElement("div");
+  root.className = "mdn-page";
+  contentEl.appendChild(root);
 
   // Back navigation link
   const backLink = document.createElement("a");
   backLink.href = "#";
-  backLink.className = "back-link";
-  backLink.textContent = "\u2190 Back";
+  backLink.className = "mdn-back-link";
+  backLink.textContent = "← Back";
   backLink.addEventListener("click", function (e) {
     e.preventDefault();
     history.back();
   });
-  contentEl.appendChild(backLink);
+  root.appendChild(backLink);
 
-  // Team header with name and record
-  const header = document.createElement("div");
-  header.className = "team-header";
+  // Team hero header with logo, name, and record
+  const hero = document.createElement("div");
+  hero.className = "mdn-team-hero";
 
-  const teamTitle = document.createElement("h2");
   const logoId = typeof TEAM_LOGO_IDS !== "undefined" ? TEAM_LOGO_IDS[team] : null;
   if (logoId) {
     const logo = document.createElement("img");
     logo.src = "img/logos/" + logoId + ".png";
-    logo.alt = team + " logo";
-    logo.width = 28;
-    logo.height = 28;
-    logo.style.verticalAlign = "middle";
-    logo.style.marginRight = "0.5rem";
-    teamTitle.appendChild(logo);
+    logo.alt = "";
+    logo.width = 40;
+    logo.height = 40;
+    hero.appendChild(logo);
   }
-  teamTitle.appendChild(document.createTextNode(team));
-  header.appendChild(teamTitle);
 
-  const recordSpan = document.createElement("span");
-  recordSpan.className = "team-record";
-  recordSpan.textContent = formatRecord(record);
-  header.appendChild(recordSpan);
+  const teamTitle = document.createElement("h1");
+  teamTitle.textContent = team;
+  hero.appendChild(teamTitle);
 
-  contentEl.appendChild(header);
+  root.appendChild(hero);
+
+  const recordEl = document.createElement("p");
+  recordEl.className = "mdn-team-record";
+  recordEl.textContent = formatRecord(record);
+  root.appendChild(recordEl);
 
   // Handle empty schedule
   if (!games || games.length === 0) {
     const emptyState = document.createElement("div");
-    emptyState.className = "empty-state";
+    emptyState.className = "mdn-card";
     const emptyMsg = document.createElement("p");
+    emptyMsg.style.margin = "0";
     emptyMsg.textContent = "No schedule data available for this team.";
     emptyState.appendChild(emptyMsg);
-    contentEl.appendChild(emptyState);
+    root.appendChild(emptyState);
     return;
   }
 
   // Schedule table
   const table = document.createElement("table");
-  table.className = "table table-hover schedule-table";
+  table.className = "mdn-led-table";
 
   // Table header
   const thead = document.createElement("thead");
   const headerRow = document.createElement("tr");
-  const columns = ["Week", "Opponent", "Opp Str", "Home/Away", "Score", "Result/Status", "Team Str"];
+  const columns = [
+    { label: "Week" },
+    { label: "Opponent" },
+    { label: "Opp Str", num: true },
+    { label: "Home/Away" },
+    { label: "Score", num: true },
+    { label: "Result/Status" },
+    { label: "Team Str", num: true },
+  ];
   columns.forEach(function (col) {
     const th = document.createElement("th");
-    th.textContent = col;
+    th.textContent = col.label;
+    if (col.num) th.className = "mdn-num";
     headerRow.appendChild(th);
   });
   thead.appendChild(headerRow);
@@ -128,69 +142,149 @@ function renderScheduleContent(contentEl, data) {
   sortedGames.forEach(function (game) {
     // Insert bye week row before the first game after the bye
     if (byeWeek !== null && !byeInserted && game.week > byeWeek) {
-      const byeRow = document.createElement("tr");
-      byeRow.style.backgroundColor = "var(--color-border-light)";
-      const byeWeekCell = document.createElement("td");
-      byeWeekCell.textContent = byeWeek;
-      byeRow.appendChild(byeWeekCell);
-      const byeLabel = document.createElement("td");
-      byeLabel.colSpan = 6;
-      byeLabel.textContent = "BYE WEEK";
-      byeLabel.style.fontWeight = "600";
-      byeLabel.style.color = "var(--color-text-muted)";
-      byeLabel.style.fontStyle = "italic";
-      byeRow.appendChild(byeLabel);
-      tbody.appendChild(byeRow);
+      tbody.appendChild(_buildByeRow(byeWeek));
       byeInserted = true;
     }
 
-    const row = document.createElement("tr");
-
-    switch (game.status) {
-      case "completed":
-        renderCompletedGameRow(row, game);
-        break;
-      case "in-progress":
-        renderInProgressGameRow(row, game);
-        break;
-      case "scheduled":
-      default:
-        renderScheduledGameRow(row, game);
-        break;
-    }
-
-    tbody.appendChild(row);
+    tbody.appendChild(_buildGameRow(game));
   });
 
   // If bye week wasn't inserted (it's after all games), append it
   if (byeWeek !== null && !byeInserted) {
-    const byeRow = document.createElement("tr");
-    byeRow.style.backgroundColor = "var(--color-border-light)";
-    const byeWeekCell = document.createElement("td");
-    byeWeekCell.textContent = byeWeek;
-    byeRow.appendChild(byeWeekCell);
-    const byeLabel = document.createElement("td");
-    byeLabel.colSpan = 6;
-    byeLabel.textContent = "BYE WEEK";
-    byeLabel.style.fontWeight = "600";
-    byeLabel.style.color = "var(--color-text-muted)";
-    byeLabel.style.fontStyle = "italic";
-    byeRow.appendChild(byeLabel);
-    tbody.appendChild(byeRow);
+    tbody.appendChild(_buildByeRow(byeWeek));
   }
 
   table.appendChild(tbody);
-  contentEl.appendChild(table);
+  root.appendChild(table);
 
   // Legend
-  const legend = document.createElement("div");
-  legend.style.cssText = "margin-top:1rem;padding:0.75rem 1rem;background:var(--color-surface);border-radius:var(--radius-sm);box-shadow:var(--shadow-sm);font-size:0.8rem;color:var(--color-text-muted);line-height:1.8";
-  legend.innerHTML =
-    "<strong>Legend:</strong> " +
-    "<strong>Opp Str</strong> = Opponent strength rating at that week (1.000 = league average; higher = stronger opponent). " +
-    "<strong>Team Str</strong> = This team's strength rating at that week. " +
-    "Strength is recalculated weekly based on cumulative results and strength of schedule — values change as the season progresses.";
-  contentEl.appendChild(legend);
+  root.appendChild(_buildLegend());
+
+  // Back to top
+  const backTopWrap = document.createElement("div");
+  backTopWrap.style.cssText = "text-align:center;padding:20px 0";
+  const backTop = document.createElement("a");
+  backTop.href = "#";
+  backTop.className = "mdn-back-to-top";
+  backTop.textContent = "↑ Back to top";
+  backTop.addEventListener("click", function (e) {
+    e.preventDefault();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+  backTopWrap.appendChild(backTop);
+  root.appendChild(backTopWrap);
+}
+
+/**
+ * Build a bye-week row: week number, then a single italic label cell
+ * spanning the remaining columns.
+ *
+ * @param {number} byeWeek - The bye week number.
+ * @returns {HTMLTableRowElement}
+ */
+function _buildByeRow(byeWeek) {
+  const row = document.createElement("tr");
+  const weekCell = document.createElement("td");
+  weekCell.textContent = byeWeek;
+  row.appendChild(weekCell);
+  const byeLabel = document.createElement("td");
+  byeLabel.colSpan = 6;
+  byeLabel.className = "mdn-bye";
+  byeLabel.textContent = "BYE WEEK";
+  row.appendChild(byeLabel);
+  return row;
+}
+
+/**
+ * Build a single game row for the given status (completed, in-progress, or scheduled).
+ *
+ * @param {Object} game - The game data object.
+ * @returns {HTMLTableRowElement}
+ */
+function _buildGameRow(game) {
+  const row = document.createElement("tr");
+
+  const weekCell = document.createElement("td");
+  weekCell.textContent = game.week;
+  row.appendChild(weekCell);
+
+  const oppCell = document.createElement("td");
+  oppCell.style.fontWeight = "700";
+  oppCell.textContent = game.opponent;
+  row.appendChild(oppCell);
+
+  const strCell = document.createElement("td");
+  strCell.className = "mdn-num";
+  strCell.style.opacity = "0.6";
+  strCell.textContent = game.opponent_strength != null ? game.opponent_strength.toFixed(3) : "—";
+  row.appendChild(strCell);
+
+  const locCell = document.createElement("td");
+  locCell.textContent = game.home ? "Home" : "Away";
+  row.appendChild(locCell);
+
+  const scoreCell = document.createElement("td");
+  scoreCell.className = "mdn-num";
+  scoreCell.textContent = formatGameScore(game);
+  row.appendChild(scoreCell);
+
+  const statusCell = document.createElement("td");
+  switch (game.status) {
+    case "completed": {
+      const tag = _buildResultTag(game.result);
+      if (tag) {
+        statusCell.appendChild(tag);
+      } else {
+        statusCell.textContent = "—";
+      }
+      break;
+    }
+    case "in-progress": {
+      const quarterText = game.quarter != null ? "Q" + game.quarter : "";
+      const clockText = game.clock || "";
+      statusCell.className = "mdn-hint";
+      statusCell.textContent = quarterText + (clockText ? " " + clockText : "");
+      break;
+    }
+    case "scheduled":
+    default:
+      statusCell.className = "mdn-hint";
+      statusCell.textContent = game.date ? formatDate(game.date) : "TBD";
+      break;
+  }
+  row.appendChild(statusCell);
+
+  const teamStrCell = document.createElement("td");
+  teamStrCell.className = "mdn-num";
+  teamStrCell.textContent = game.team_strength != null ? game.team_strength.toFixed(3) : "—";
+  row.appendChild(teamStrCell);
+
+  return row;
+}
+
+/**
+ * Build the Win/Loss/Tie result tag for a completed game.
+ *
+ * @param {string} result - "win", "loss", or "tie".
+ * @returns {HTMLElement|null} The tag element, or null if the result is unrecognized.
+ */
+function _buildResultTag(result) {
+  const tag = document.createElement("span");
+  tag.className = "mdn-tag " + getResultClass(result);
+  switch (result) {
+    case "win":
+      tag.textContent = "Win";
+      break;
+    case "loss":
+      tag.textContent = "Loss";
+      break;
+    case "tie":
+      tag.textContent = "Tie";
+      break;
+    default:
+      return null;
+  }
+  return tag;
 }
 
 /**
@@ -219,154 +313,23 @@ function formatWinPct(pct) {
 }
 
 /**
- * Render a completed game row.
+ * Get the Modernist tag CSS class for a game result.
  *
- * @param {HTMLTableRowElement} row - The table row element.
- * @param {Object} game - The game data object.
+ * @param {string} result - "win", "loss", or "tie".
+ * @returns {string} CSS class name (without the "mdn-tag" base class).
  */
-function renderCompletedGameRow(row, game) {
-  // Week
-  const weekCell = document.createElement("td");
-  weekCell.textContent = game.week;
-  row.appendChild(weekCell);
-
-  // Opponent
-  const oppCell = document.createElement("td");
-  oppCell.textContent = game.opponent;
-  row.appendChild(oppCell);
-
-  // Opponent Strength
-  const strCell = document.createElement("td");
-  strCell.textContent = game.opponent_strength != null ? game.opponent_strength.toFixed(3) : "—";
-  strCell.style.fontSize = "0.85rem";
-  strCell.style.color = "var(--color-text-muted)";
-  row.appendChild(strCell);
-
-  // Home/Away
-  const locCell = document.createElement("td");
-  locCell.textContent = game.home ? "Home" : "Away";
-  row.appendChild(locCell);
-
-  // Score
-  const scoreCell = document.createElement("td");
-  scoreCell.textContent = formatGameScore(game);
-  row.appendChild(scoreCell);
-
-  // Result
-  const resultCell = document.createElement("td");
-  const resultText = formatResult(game.result);
-  resultCell.textContent = resultText;
-  resultCell.className = getResultClass(game.result);
-  row.appendChild(resultCell);
-
-  // Team Strength
-  const teamStrCell = document.createElement("td");
-  teamStrCell.textContent = game.team_strength != null ? game.team_strength.toFixed(3) : "—";
-  teamStrCell.style.fontSize = "0.85rem";
-  teamStrCell.style.color = "var(--color-text-muted)";
-  row.appendChild(teamStrCell);
-}
-
-/**
- * Render an in-progress game row.
- *
- * @param {HTMLTableRowElement} row - The table row element.
- * @param {Object} game - The game data object.
- */
-function renderInProgressGameRow(row, game) {
-  row.classList.add("game-status--in-progress");
-
-  // Week
-  const weekCell = document.createElement("td");
-  weekCell.textContent = game.week;
-  row.appendChild(weekCell);
-
-  // Opponent
-  const oppCell = document.createElement("td");
-  oppCell.textContent = game.opponent;
-  row.appendChild(oppCell);
-
-  // Opponent Strength
-  const strCell = document.createElement("td");
-  strCell.textContent = game.opponent_strength != null ? game.opponent_strength.toFixed(3) : "—";
-  strCell.style.fontSize = "0.85rem";
-  strCell.style.color = "var(--color-text-muted)";
-  row.appendChild(strCell);
-
-  // Home/Away
-  const locCell = document.createElement("td");
-  locCell.textContent = game.home ? "Home" : "Away";
-  row.appendChild(locCell);
-
-  // Current score
-  const scoreCell = document.createElement("td");
-  scoreCell.textContent = formatGameScore(game);
-  row.appendChild(scoreCell);
-
-  // Status: quarter and clock
-  const statusCell = document.createElement("td");
-  statusCell.className = "game-status--in-progress";
-  const quarterText = game.quarter != null ? "Q" + game.quarter : "";
-  const clockText = game.clock || "";
-  statusCell.textContent = quarterText + (clockText ? " " + clockText : "");
-  row.appendChild(statusCell);
-
-  // Team Strength
-  const teamStrCell = document.createElement("td");
-  teamStrCell.textContent = game.team_strength != null ? game.team_strength.toFixed(3) : "—";
-  teamStrCell.style.fontSize = "0.85rem";
-  teamStrCell.style.color = "var(--color-text-muted)";
-  row.appendChild(teamStrCell);
-}
-
-/**
- * Render a scheduled game row.
- *
- * @param {HTMLTableRowElement} row - The table row element.
- * @param {Object} game - The game data object.
- */
-function renderScheduledGameRow(row, game) {
-  row.classList.add("game-status--scheduled");
-
-  // Week
-  const weekCell = document.createElement("td");
-  weekCell.textContent = game.week;
-  row.appendChild(weekCell);
-
-  // Opponent
-  const oppCell = document.createElement("td");
-  oppCell.textContent = game.opponent;
-  row.appendChild(oppCell);
-
-  // Opponent Strength
-  const strCell = document.createElement("td");
-  strCell.textContent = game.opponent_strength != null ? game.opponent_strength.toFixed(3) : "—";
-  strCell.style.fontSize = "0.85rem";
-  strCell.style.color = "var(--color-text-muted)";
-  row.appendChild(strCell);
-
-  // Home/Away
-  const locCell = document.createElement("td");
-  locCell.textContent = game.home ? "Home" : "Away";
-  row.appendChild(locCell);
-
-  // Score (empty for scheduled)
-  const scoreCell = document.createElement("td");
-  scoreCell.textContent = "\u2014";
-  row.appendChild(scoreCell);
-
-  // Date
-  const dateCell = document.createElement("td");
-  dateCell.className = "game-status--scheduled";
-  dateCell.textContent = game.date ? formatDate(game.date) : "TBD";
-  row.appendChild(dateCell);
-
-  // Team Strength
-  const teamStrCell = document.createElement("td");
-  teamStrCell.textContent = game.team_strength != null ? game.team_strength.toFixed(3) : "—";
-  teamStrCell.style.fontSize = "0.85rem";
-  teamStrCell.style.color = "var(--color-text-muted)";
-  row.appendChild(teamStrCell);
+function getResultClass(result) {
+  switch (result) {
+    case "win":
+      return "mdn-tag-win-o";
+    case "loss":
+      // Shared with the Standings ELIMINATED badge for visual consistency.
+      return "mdn-tag-elim";
+    case "tie":
+      return "mdn-tag-tie";
+    default:
+      return "";
+  }
 }
 
 /**
@@ -380,7 +343,7 @@ function renderScheduledGameRow(row, game) {
  */
 function formatGameScore(game) {
   if (game.home_score == null && game.away_score == null) {
-    return "\u2014";
+    return "—";
   }
   if (game.home) {
     return game.home_score + " - " + game.away_score;
@@ -389,41 +352,40 @@ function formatGameScore(game) {
 }
 
 /**
- * Format a game result string.
+ * Build the bottom legend card explaining the Opp Str / Team Str columns —
+ * one line per column definition rather than a single run-on paragraph.
  *
- * @param {string} result - "win", "loss", or "tie".
- * @returns {string} Display text.
+ * @returns {HTMLElement}
  */
-function formatResult(result) {
-  switch (result) {
-    case "win":
-      return "W";
-    case "loss":
-      return "L";
-    case "tie":
-      return "T";
-    default:
-      return "\u2014";
-  }
-}
+function _buildLegend() {
+  const card = document.createElement("div");
+  card.className = "mdn-card";
+  card.style.cssText = "margin:20px 0 28px;font-size:11.5px;line-height:1.7";
 
-/**
- * Get the CSS class for a game result.
- *
- * @param {string} result - "win", "loss", or "tie".
- * @returns {string} CSS class name.
- */
-function getResultClass(result) {
-  switch (result) {
-    case "win":
-      return "game-result--win";
-    case "loss":
-      return "game-result--loss";
-    case "tie":
-      return "game-result--tie";
-    default:
-      return "";
+  const kicker = document.createElement("div");
+  kicker.className = "mdn-card-kicker";
+  kicker.textContent = "Legend";
+  card.appendChild(kicker);
+
+  const defs = [
+    ["Opp Str", "opponent strength rating at that week (1.000 = league average; higher = stronger opponent)."],
+    ["Team Str", "this team's strength rating at that week. Strength is recalculated weekly based on cumulative results and strength of schedule — values change as the season progresses."],
+  ];
+
+  const list = document.createElement("div");
+  list.style.cssText = "display:flex;flex-direction:column;gap:4px;margin-top:4px";
+  for (const [label, explanation] of defs) {
+    const line = document.createElement("div");
+    const strong = document.createElement("strong");
+    strong.style.whiteSpace = "nowrap";
+    strong.textContent = label;
+    line.appendChild(strong);
+    line.appendChild(document.createTextNode(" — " + explanation));
+    list.appendChild(line);
   }
+  card.appendChild(list);
+
+  return card;
 }
 
 /**

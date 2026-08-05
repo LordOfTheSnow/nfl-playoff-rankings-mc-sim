@@ -183,7 +183,7 @@ async function renderStandings(contentEl) {
  */
 function _buildStandingsRoot() {
   const root = document.createElement("div");
-  root.className = "mdn-standings";
+  root.className = "mdn-page";
   return root;
 }
 

@@ -83,7 +83,7 @@ describe("Property 2: Table Bootstrap class assignment", () => {
     );
   });
 
-  it("schedule tables have 'table table-hover' but NOT 'table-striped'", () => {
+  it("schedule tables have the 'mdn-led-table' Modernist ledger class", () => {
     fc.assert(
       fc.property(scheduleDataArbitrary, (data) => {
         const contentEl = document.createElement("div");
@@ -91,9 +91,7 @@ describe("Property 2: Table Bootstrap class assignment", () => {
         const table = contentEl.querySelector("table");
 
         expect(table).not.toBeNull();
-        expect(table.classList.contains("table")).toBe(true);
-        expect(table.classList.contains("table-hover")).toBe(true);
-        expect(table.classList.contains("table-striped")).toBe(false);
+        expect(table.classList.contains("mdn-led-table")).toBe(true);
       }),
       { numRuns: 100 }
     );

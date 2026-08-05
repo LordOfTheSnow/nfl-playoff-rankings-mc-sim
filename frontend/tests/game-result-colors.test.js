@@ -1,13 +1,12 @@
 /**
- * Property 11: Game result color indicators
+ * Property 11: Game result tag indicators
  *
- * For any game result cell rendered in the schedule view, the text color SHALL be
- * #16a34a for wins, #e63946 for losses, and #d97706 for ties.
- *
- * Since JSDOM doesn't compute CSS, we verify CSS class assignment:
- * - win → game-result--win (maps to color: #16a34a)
- * - loss → game-result--loss (maps to color: #e63946)
- * - tie → game-result--tie (maps to color: #d97706)
+ * For any completed game rendered in the Team Detail schedule ledger, the
+ * Result/Status cell SHALL contain a `.mdn-tag` element with the
+ * Modernist-system variant class for its result — win → `mdn-tag-win-o`,
+ * loss → `mdn-tag-elim` (shared with the Standings ELIMINATED badge), tie →
+ * `mdn-tag-tie` — and the tag's text SHALL be the full word ("Win" / "Loss" /
+ * "Tie"), not a single letter.
  *
  * **Validates: Requirements 8.5**
  */
@@ -15,11 +14,18 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import fc from "fast-check";
 
-/** Expected mapping from result to CSS class */
-const RESULT_CLASS_MAP = {
-  win: "game-result--win",
-  loss: "game-result--loss",
-  tie: "game-result--tie",
+/** Expected mapping from result to Modernist tag variant class */
+const RESULT_TAG_CLASS_MAP = {
+  win: "mdn-tag-win-o",
+  loss: "mdn-tag-elim",
+  tie: "mdn-tag-tie",
+};
+
+/** Expected mapping from result to full-word tag text */
+const RESULT_TAG_TEXT_MAP = {
+  win: "Win",
+  loss: "Loss",
+  tie: "Tie",
 };
 
 /** Arbitrary for NFL team names */
@@ -45,7 +51,7 @@ const arbCompletedGame = fc.record({
   opponent_strength: fc.double({ min: 0, max: 1, noNaN: true }),
 });
 
-/** Arbitrary for a list of completed games (1 to 17 games) */
+/** Arbitrary for a list of completed games (1 to 17 games), contiguous weeks starting at 1 */
 const arbCompletedGames = fc.array(arbCompletedGame, { minLength: 1, maxLength: 17 })
   .map((games) => games.map((g, i) => ({ ...g, week: i + 1 })));
 
@@ -61,7 +67,18 @@ const arbScheduleData = fc.record({
   games: arbCompletedGames,
 });
 
-describe("Property 11: Game result color indicators", () => {
+/**
+ * Extract the non-bye-week game rows from a rendered schedule tbody.
+ * Bye rows have exactly 2 cells whose second cell carries the "mdn-bye" class.
+ */
+function gameRowsOf(tbody) {
+  return Array.from(tbody.querySelectorAll("tr")).filter((row) => {
+    const cells = row.querySelectorAll("td");
+    return !(cells.length === 2 && cells[1].classList.contains("mdn-bye"));
+  });
+}
+
+describe("Property 11: Game result tag indicators", () => {
   let contentEl;
 
   beforeEach(() => {
@@ -69,42 +86,33 @@ describe("Property 11: Game result color indicators", () => {
     contentEl.innerHTML = "";
   });
 
-  it("each completed game result cell has the correct CSS class for its result type", () => {
+  it("each completed game's Result/Status cell has the correct tag class and text for its result", () => {
     fc.assert(
       fc.property(arbScheduleData, (data) => {
         contentEl.innerHTML = "";
         renderScheduleContent(contentEl, data);
 
-        // Get all table body rows (excluding header and bye week rows)
         const tbody = contentEl.querySelector("tbody");
         expect(tbody).not.toBeNull();
 
-        const rows = tbody.querySelectorAll("tr");
-        let gameRowIndex = 0;
+        const rows = gameRowsOf(tbody);
+        expect(rows.length).toBe(data.games.length);
 
-        for (const row of rows) {
-          const cells = row.querySelectorAll("td");
-          // Bye week rows have a cell with colSpan=5, skip them
-          if (cells.length === 2 && cells[1].colSpan === 5) {
-            continue;
-          }
+        rows.forEach((row, i) => {
+          const game = data.games[i];
+          const resultCell = row.querySelectorAll("td")[5];
+          const tag = resultCell.querySelector(".mdn-tag");
 
-          // This is a game row — the 6th cell (index 5) is the result cell
-          const resultCell = cells[5];
-          const game = data.games[gameRowIndex];
-
-          expect(resultCell.className).toBe(RESULT_CLASS_MAP[game.result]);
-          gameRowIndex++;
-        }
-
-        // Ensure we checked all games
-        expect(gameRowIndex).toBe(data.games.length);
+          expect(tag).not.toBeNull();
+          expect(tag.classList.contains(RESULT_TAG_CLASS_MAP[game.result])).toBe(true);
+          expect(tag.textContent).toBe(RESULT_TAG_TEXT_MAP[game.result]);
+        });
       }),
       { numRuns: 100 }
     );
   });
 
-  it("win result always maps to game-result--win class", () => {
+  it("win result always renders an 'mdn-tag-win-o' tag reading 'Win'", () => {
     fc.assert(
       fc.property(
         fc.record({
@@ -126,12 +134,10 @@ describe("Property 11: Game result color indicators", () => {
           renderScheduleContent(contentEl, scheduleData);
 
           const tbody = contentEl.querySelector("tbody");
-          const rows = tbody.querySelectorAll("tr");
-          // Find the game row (skip potential bye week rows)
-          for (const row of rows) {
-            const cells = row.querySelectorAll("td");
-            if (cells.length === 2 && cells[1].colSpan === 5) continue;
-            expect(cells[5].className).toBe("game-result--win");
+          for (const row of gameRowsOf(tbody)) {
+            const tag = row.querySelectorAll("td")[5].querySelector(".mdn-tag");
+            expect(tag.classList.contains("mdn-tag-win-o")).toBe(true);
+            expect(tag.textContent).toBe("Win");
           }
         }
       ),
@@ -139,7 +145,7 @@ describe("Property 11: Game result color indicators", () => {
     );
   });
 
-  it("loss result always maps to game-result--loss class", () => {
+  it("loss result always renders an 'mdn-tag-elim' tag reading 'Loss'", () => {
     fc.assert(
       fc.property(
         fc.record({
@@ -161,11 +167,10 @@ describe("Property 11: Game result color indicators", () => {
           renderScheduleContent(contentEl, scheduleData);
 
           const tbody = contentEl.querySelector("tbody");
-          const rows = tbody.querySelectorAll("tr");
-          for (const row of rows) {
-            const cells = row.querySelectorAll("td");
-            if (cells.length === 2 && cells[1].colSpan === 5) continue;
-            expect(cells[5].className).toBe("game-result--loss");
+          for (const row of gameRowsOf(tbody)) {
+            const tag = row.querySelectorAll("td")[5].querySelector(".mdn-tag");
+            expect(tag.classList.contains("mdn-tag-elim")).toBe(true);
+            expect(tag.textContent).toBe("Loss");
           }
         }
       ),
@@ -173,7 +178,7 @@ describe("Property 11: Game result color indicators", () => {
     );
   });
 
-  it("tie result always maps to game-result--tie class", () => {
+  it("tie result always renders an 'mdn-tag-tie' tag reading 'Tie'", () => {
     fc.assert(
       fc.property(
         fc.record({
@@ -195,11 +200,10 @@ describe("Property 11: Game result color indicators", () => {
           renderScheduleContent(contentEl, scheduleData);
 
           const tbody = contentEl.querySelector("tbody");
-          const rows = tbody.querySelectorAll("tr");
-          for (const row of rows) {
-            const cells = row.querySelectorAll("td");
-            if (cells.length === 2 && cells[1].colSpan === 5) continue;
-            expect(cells[5].className).toBe("game-result--tie");
+          for (const row of gameRowsOf(tbody)) {
+            const tag = row.querySelectorAll("td")[5].querySelector(".mdn-tag");
+            expect(tag.classList.contains("mdn-tag-tie")).toBe(true);
+            expect(tag.textContent).toBe("Tie");
           }
         }
       ),
