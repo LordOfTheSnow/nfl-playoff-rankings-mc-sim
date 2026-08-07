@@ -349,31 +349,35 @@ async function renderResults(contentEl) {
 
   const results = window._simulationResults;
 
-  // Build the results page
-  let html = "";
+  // Build the results page — Modernist "Ledger" redesign (see
+  // design_handoff_standings_redesign/, Simulation Results Option 3a).
+  let html = `<div class="mdn-page">`;
 
   // Metadata header
-  html += `<div class="card card-body mb-3">
-    <h2>Simulation Results</h2>
-    <p class="cutoff-label">
-      ${results.iterations_run.toLocaleString()} iterations | Cutoff week: ${results.cutoff_week_used}
-      | Fixed games: ${results.fixed_games || "?"} | Simulated games: ${results.simulated_games || "?"}
-      ${results.low_confidence ? ' | <strong style="color:var(--color-warning)">Low confidence</strong>' : ""}
-      ${results.convergence_achieved ? "" : ' | <strong style="color:var(--color-warning)">Convergence not achieved</strong>'}
-    </p>
+  const showWarning = results.low_confidence || !results.convergence_achieved;
+  html += `<div class="mdn-card">
+    <div class="mdn-card-kicker">Simulation results</div>
+    <div class="mdn-card-title">Simulation Results</div>
+    <div style="display:flex;gap:28px;margin-top:12px;flex-wrap:wrap">
+      <div><div class="mdn-stat-lbl">Iterations</div><div class="mdn-stat-val">${results.iterations_run.toLocaleString()}</div></div>
+      <div><div class="mdn-stat-lbl">Cutoff week</div><div class="mdn-stat-val">${_escapeHtml(String(results.cutoff_week_used))}</div></div>
+      <div><div class="mdn-stat-lbl">Fixed games</div><div class="mdn-stat-val">${results.fixed_games != null ? results.fixed_games : "?"}</div></div>
+      <div><div class="mdn-stat-lbl">Simulated games</div><div class="mdn-stat-val">${results.simulated_games != null ? results.simulated_games : "?"}</div></div>
+    </div>
+    ${showWarning ? `<p class="mdn-hint" style="color:var(--mdn-accent-700);margin-top:10px">${results.low_confidence ? "Low confidence." : ""}${results.convergence_achieved ? "" : " Convergence not achieved."}</p>` : ""}
   </div>`;
 
   // Playoff probability summary tables by conference
   html += _renderPlayoffProbabilityTables(results.team_results);
 
-  // Seeding probability matrix by conference
+  // Seeding probability matrix + Top scenarios
   html += _renderSeedingMatrix(results.team_results);
-
-  // Top 50 scenarios
   html += _renderTopScenarios(results.top_scenarios);
 
+  html += `</div>`;
+
   // Team detail panel (hidden initially, shown on team click)
-  html += `<div id="team-detail-panel" class="results-section" style="margin-top:2.5rem" hidden></div>`;
+  html += `<div id="team-detail-panel" class="mdn-page" style="margin-top:2.5rem" hidden></div>`;
 
   contentEl.innerHTML = html;
 
@@ -408,46 +412,83 @@ function _renderPlayoffProbabilityTables(teamResults) {
       return a.team.localeCompare(b.team);
     });
 
-    html += `<div class="results-section">
-      <h2><img src="img/logos/${conf.toLowerCase()}.png" alt="${conf}" width="24" height="24" style="vertical-align:middle;margin-right:0.5rem">${conf} Playoff Probabilities</h2>
-      <table class="table table-striped table-hover" aria-label="${conf} playoff probabilities">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th class="team-name">Team</th>
-            <th>Record</th>
-            <th>Division</th>
-            <th>Playoff %</th>
-            <th>Strength</th>
-          </tr>
-        </thead>
-        <tbody>`;
+    html += `<div class="mdn-conf-head">
+      <img src="img/logos/${conf.toLowerCase()}.png" alt="${conf}" width="26" height="26">
+      <h2>${conf} Playoff Probabilities</h2>
+    </div>
+    <table class="mdn-led-table" style="margin-bottom:32px" aria-label="${conf} playoff probabilities">
+      <thead>
+        <tr>
+          <th style="width:36px" class="mdn-num">#</th>
+          <th>Team</th>
+          <th class="mdn-num">Record</th>
+          <th>Division</th>
+          <th style="width:220px">Playoff %</th>
+          <th class="mdn-num">Strength</th>
+        </tr>
+      </thead>
+      <tbody>`;
 
     for (let idx = 0; idx < teams.length; idx++) {
       const team = teams[idx];
       const logoId = TEAM_LOGO_IDS[team.team] || "";
-      const logoHtml = logoId ? `<img src="img/logos/${logoId}.png" alt="" width="20" height="20" style="vertical-align:middle;margin-right:0.4rem">` : "";
-      const borderStyle = idx === 7 ? ' style="border-top:2px solid var(--color-primary)"' : '';
-      html += `<tr${borderStyle}>
-        <td class="numeric">${idx + 1}</td>
-        <td class="team-name">
-          ${logoHtml}<a href="#" data-team-click="${_escapeHtml(team.team)}" class="team-link">${_escapeHtml(team.team)}</a>
+      const logoHtml = logoId ? `<img src="img/logos/${logoId}.png" alt="" width="20" height="20">` : "";
+      const pctNum = team.playoff_probability;
+      const barColor = pctNum >= 99.95 ? "var(--mdn-accent-500)" : pctNum <= 0.05 ? "var(--mdn-neutral-400)" : "var(--mdn-accent-300)";
+      const labelOpacity = pctNum <= 0.05 ? "0.5" : "1";
+      // The 7th seed is the current projected playoff cutoff line.
+      const rowClass = idx === 6 ? ' class="mdn-leader"' : "";
+      html += `<tr${rowClass}>
+        <td class="mdn-num" style="opacity:0.6">${idx + 1}</td>
+        <td class="mdn-tm">
+          <div class="mdn-team-cell">
+            ${logoHtml}<a href="#" data-team-click="${_escapeHtml(team.team)}" class="mdn-team-link">${_escapeHtml(team.team)}</a>
+          </div>
         </td>
-        <td class="numeric">${_escapeHtml(team.record || "0-0-0")}</td>
+        <td class="mdn-num">${_escapeHtml(team.record || "0-0-0")}</td>
         <td>${_escapeHtml(team.division)}</td>
-        <td class="numeric">${team.playoff_probability.toFixed(1)}%</td>
-        <td class="numeric">${team.strength_rating.toFixed(3)}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="flex:1;height:6px;background:var(--mdn-neutral-200);position:relative">
+              <div style="position:absolute;inset:0 auto 0 0;width:${pctNum}%;background:${barColor}"></div>
+            </div>
+            <span style="font-size:12px;width:44px;text-align:right;flex:none;opacity:${labelOpacity}">${pctNum.toFixed(1)}%</span>
+          </div>
+        </td>
+        <td class="mdn-num">${team.strength_rating.toFixed(3)}</td>
       </tr>`;
     }
 
-    html += `</tbody></table></div>`;
+    html += `</tbody></table>`;
   }
 
   return html;
 }
 
 /**
+ * Compute the warm brown→red tint (and whether it's dark enough to need
+ * white text) for a seeding probability cell, per the Modernist design
+ * handoff: transparent at 0%, pale tan → amber → orange → red → deep maroon
+ * proportional to value, never gray, never tinted when the value is exactly
+ * 0.0%.
+ *
+ * @param {number} v - Probability as a percentage (0-100).
+ * @returns {{tint: string, hi: boolean}}
+ */
+function _seedTint(v) {
+  if (v <= 0) return { tint: "transparent", hi: false };
+  if (v < 15) return { tint: "oklch(91% 0.045 55)", hi: false };
+  if (v < 30) return { tint: "oklch(82% 0.09 48)", hi: false };
+  if (v < 45) return { tint: "oklch(71% 0.14 40)", hi: false };
+  if (v < 60) return { tint: "oklch(60% 0.18 32)", hi: true };
+  if (v < 80) return { tint: "oklch(48% 0.16 26)", hi: true };
+  return { tint: "oklch(34% 0.10 30)", hi: true };
+}
+
+/**
  * Render seeding probability matrix (teams × seeds 1-7) grouped by conference.
+ * Modernist "Ledger" redesign — see design_handoff_standings_redesign/
+ * (Simulation Results Option 3a).
  *
  * @param {Array} teamResults - Array of team result objects.
  * @returns {string} HTML string.
@@ -466,37 +507,38 @@ function _renderSeedingMatrix(teamResults) {
       return a.team.localeCompare(b.team);
     });
 
-    html += `<div class="results-section">
-      <h2><img src="img/logos/${conf.toLowerCase()}.png" alt="${conf}" width="24" height="24" style="vertical-align:middle;margin-right:0.5rem">${conf} Seeding Probabilities</h2>
-      <table class="table table-bordered table-hover" aria-label="${conf} seeding probability matrix">
-        <thead>
-          <tr>
-            <th class="team-name">Team</th>
-            ${Array.from({ length: 7 }, (_, i) => `<th>Seed ${i + 1}</th>`).join("")}
-          </tr>
-        </thead>
-        <tbody>`;
+    html += `<div class="mdn-conf-head">
+      <img src="img/logos/${conf.toLowerCase()}.png" alt="${conf}" width="26" height="26">
+      <h2>${conf} Seeding Probabilities</h2>
+    </div>
+    <table class="mdn-led-table" style="margin-bottom:32px" aria-label="${conf} seeding probability matrix">
+      <thead>
+        <tr>
+          <th>Team</th>
+          ${Array.from({ length: 7 }, (_, i) => `<th class="mdn-num">Seed ${i + 1}</th>`).join("")}
+        </tr>
+      </thead>
+      <tbody>`;
 
     for (const team of teams) {
       const seeds = team.seed_probabilities || {};
       const logoId = TEAM_LOGO_IDS[team.team] || "";
-      const logoHtml = logoId ? `<img src="img/logos/${logoId}.png" alt="" width="20" height="20" style="vertical-align:middle;margin-right:0.4rem">` : "";
+      const logoHtml = logoId ? `<img src="img/logos/${logoId}.png" alt="" width="20" height="20">` : "";
       html += `<tr>
-        <td class="team-name">
-          ${logoHtml}<a href="#" data-team-click="${_escapeHtml(team.team)}" class="team-link">${_escapeHtml(team.team)}</a>
+        <td class="mdn-tm">
+          <div class="mdn-team-cell">
+            ${logoHtml}<a href="#" data-team-click="${_escapeHtml(team.team)}" class="mdn-team-link">${_escapeHtml(team.team)}</a>
+          </div>
         </td>`;
       for (let s = 1; s <= 7; s++) {
         const prob = seeds[String(s)] || 0;
-        const intensity = Math.min(prob / 50, 1); // Scale for background color
-        const bgColor = prob > 0
-          ? `rgba(27, 58, 107, ${(intensity * 0.3).toFixed(2)})`
-          : "transparent";
-        html += `<td class="numeric" style="background-color:${bgColor}">${prob.toFixed(1)}%</td>`;
+        const { tint, hi } = _seedTint(prob);
+        html += `<td class="mdn-num${hi ? " mdn-seed-hi" : ""}" style="background:${tint};font-weight:700">${prob.toFixed(1)}%</td>`;
       }
       html += `</tr>`;
     }
 
-    html += `</tbody></table></div>`;
+    html += `</tbody></table>`;
   }
 
   return html;
@@ -504,41 +546,51 @@ function _renderSeedingMatrix(teamResults) {
 
 /**
  * Render the top 50 most likely distinct playoff bracket scenarios.
+ * Modernist "Ledger" redesign — collapsed-by-default disclosure card with a
+ * triangle marker, expanding into a ledger table — see
+ * design_handoff_standings_redesign/ (Simulation Results Option 3a).
  *
  * @param {Array} topScenarios - Array of scenario objects.
  * @returns {string} HTML string.
  */
 function _renderTopScenarios(topScenarios) {
   if (!topScenarios || topScenarios.length === 0) {
-    return `<div class="results-section">
-      <h2>Top Playoff Scenarios</h2>
-      <div class="empty-state"><p>No scenarios available.</p></div>
+    return `<div class="mdn-card" style="margin:8px 0 28px">
+      <div class="mdn-card-kicker">Top scenarios</div>
+      <div class="mdn-card-title" style="font-size:16px">Top Playoff Scenarios</div>
+      <p style="opacity:0.6;margin:8px 0 0">No scenarios available.</p>
     </div>`;
   }
 
   const scenarios = topScenarios;
 
-  let html = `<div class="results-section">
-    <details>
-    <summary><h2 style="display:inline">Top ${scenarios.length} Most Likely Playoff Scenarios</h2></summary>
-    <ol class="scenario-list">`;
+  let html = `<details class="mdn-card mdn-scenario-card" style="margin:8px 0 28px">
+    <summary>
+      <span class="mdn-scenario-triangle">&#9656;</span>
+      <span class="mdn-card-title" style="font-size:16px;margin:0">Top ${scenarios.length} Most Likely Playoff Scenarios</span>
+    </summary>
+    <table class="mdn-led-table" style="margin-top:16px">
+      <thead>
+        <tr>
+          <th style="width:48px" class="mdn-num">#</th>
+          <th>AFC Seeds (1&ndash;7)</th>
+          <th>NFC Seeds (1&ndash;7)</th>
+          <th class="mdn-num">Probability</th>
+        </tr>
+      </thead>
+      <tbody>`;
 
   for (let i = 0; i < scenarios.length; i++) {
     const scenario = scenarios[i];
-    html += `<li class="scenario-item">
-      <div class="scenario-details">
-        <strong>#${i + 1}</strong>
-        <span class="scenario-seeds">
-          <span><strong>AFC:</strong> ${scenario.afc_seeds.map(_escapeHtml).join(", ")}</span>
-          <br>
-          <span><strong>NFC:</strong> ${scenario.nfc_seeds.map(_escapeHtml).join(", ")}</span>
-        </span>
-      </div>
-      <span class="scenario-probability">${scenario.probability.toFixed(2)}%</span>
-    </li>`;
+    html += `<tr>
+      <td class="mdn-num" style="opacity:0.6">${i + 1}</td>
+      <td>${scenario.afc_seeds.map(_escapeHtml).join(", ")}</td>
+      <td>${scenario.nfc_seeds.map(_escapeHtml).join(", ")}</td>
+      <td class="mdn-num" style="font-weight:700">${scenario.probability.toFixed(2)}%</td>
+    </tr>`;
   }
 
-  html += `</ol></details></div>`;
+  html += `</tbody></table></details>`;
   return html;
 }
 
@@ -560,44 +612,45 @@ function _showTeamDetail(teamName, results) {
   }
 
   const logoId = TEAM_LOGO_IDS[teamName] || "";
-  const logoHtml = logoId ? `<img src="img/logos/${logoId}.png" alt="${_escapeHtml(teamName)} logo" width="28" height="28" style="vertical-align:middle;margin-right:0.5rem">` : "";
-  let html = `<h2>${logoHtml}${_escapeHtml(teamName)} — Details</h2>`;
+  let html = `<div class="mdn-conf-head" style="margin-top:8px">
+    ${logoId ? `<img src="img/logos/${logoId}.png" alt="" width="32" height="32">` : ""}
+    <h2>${_escapeHtml(teamName)} — Details</h2>
+  </div>`;
 
   // Team summary
-  html += `<div class="card card-body mb-3">
-    <p><strong>Conference:</strong> ${_escapeHtml(teamData.conference)} | 
-       <strong>Division:</strong> ${_escapeHtml(teamData.division)}</p>
-    <p><strong>Playoff Probability:</strong> ${teamData.playoff_probability.toFixed(1)}% | 
-       <strong>Strength Rating:</strong> ${teamData.strength_rating.toFixed(3)}</p>
+  html += `<div class="mdn-card">
+    <div style="display:flex;gap:28px;flex-wrap:wrap">
+      <div><div class="mdn-stat-lbl">Conference</div><div class="mdn-stat-val">${_escapeHtml(teamData.conference)}</div></div>
+      <div><div class="mdn-stat-lbl">Division</div><div class="mdn-stat-val">${_escapeHtml(teamData.division)}</div></div>
+      <div><div class="mdn-stat-lbl">Playoff probability</div><div class="mdn-stat-val">${teamData.playoff_probability.toFixed(1)}%</div></div>
+      <div><div class="mdn-stat-lbl">Strength rating</div><div class="mdn-stat-val">${teamData.strength_rating.toFixed(3)}</div></div>
+    </div>
   </div>`;
 
   // Seed distribution
-  html += `<div class="card card-body mb-3">
-    <h3>Seed Distribution</h3>
-    <table class="table table-bordered table-hover" aria-label="Seed distribution for ${_escapeHtml(teamName)}">
+  html += `<div style="margin-bottom:20px">
+    <div class="mdn-div-lbl">Seed Distribution</div>
+    <table class="mdn-led-table" aria-label="Seed distribution for ${_escapeHtml(teamName)}">
       <thead><tr>`;
   for (let s = 1; s <= 7; s++) {
-    html += `<th>Seed ${s}</th>`;
+    html += `<th class="mdn-num">Seed ${s}</th>`;
   }
   html += `</tr></thead><tbody><tr>`;
   const seeds = teamData.seed_probabilities || {};
   for (let s = 1; s <= 7; s++) {
     const prob = seeds[String(s)] || 0;
-    const intensity = Math.min(prob / 50, 1);
-    const bgColor = prob > 0
-      ? `rgba(27, 58, 107, ${(intensity * 0.3).toFixed(2)})`
-      : "transparent";
-    html += `<td class="numeric" style="background-color:${bgColor};text-align:center">${prob.toFixed(1)}%</td>`;
+    const { tint, hi } = _seedTint(prob);
+    html += `<td class="mdn-num${hi ? " mdn-seed-hi" : ""}" style="background:${tint};font-weight:700">${prob.toFixed(1)}%</td>`;
   }
   html += `</tr></tbody></table></div>`;
 
   // Impact games (if available in team data)
   if (teamData.impact_games && teamData.impact_games.length > 0) {
-    html += `<div class="card card-body mb-3">
-      <h3>Top 5 Impact Games</h3>
-      <table class="table table-striped table-hover" aria-label="Impact games for ${_escapeHtml(teamName)}">
+    html += `<div style="margin-bottom:20px">
+      <div class="mdn-div-lbl">Top 5 Impact Games</div>
+      <table class="mdn-led-table" aria-label="Impact games for ${_escapeHtml(teamName)}">
         <thead><tr>
-          <th>Week</th><th>Matchup</th><th>Impact</th>
+          <th>Week</th><th>Matchup</th><th class="mdn-num">Impact</th>
         </tr></thead><tbody>`;
 
     const impactGames = teamData.impact_games.slice(0, 5);
@@ -605,7 +658,7 @@ function _showTeamDetail(teamName, results) {
       html += `<tr>
         <td>${game.week || "—"}</td>
         <td>${_escapeHtml(game.home_team || "")} vs ${_escapeHtml(game.away_team || "")}</td>
-        <td class="numeric">${game.impact != null ? game.impact.toFixed(1) + "%" : "—"}</td>
+        <td class="mdn-num">${game.impact != null ? game.impact.toFixed(1) + "%" : "—"}</td>
       </tr>`;
     }
 
@@ -614,41 +667,42 @@ function _showTeamDetail(teamName, results) {
 
   // Clinching scenarios - on-demand button (only for teams between 0% and 100%)
   if (teamData.playoff_probability > 0 && teamData.playoff_probability < 100) {
-    html += `<div class="card card-body mb-3" id="clinch-section-${_escapeHtml(teamName)}">
-      <h3>Clinching Scenarios</h3>
-      <p style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:0.75rem">
+    html += `<div class="mdn-card" id="clinch-section-${_escapeHtml(teamName)}">
+      <div class="mdn-card-kicker">Clinching scenarios</div>
+      <div class="mdn-card-title" style="font-size:16px">Clinching Scenarios</div>
+      <p style="font-size:12.5px;opacity:0.65;margin:8px 0 4px">
         Find all game-outcome combinations that guarantee ${_escapeHtml(teamName)} a playoff spot.
       </p>
-      <p id="clinch-estimate-text" style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:0.75rem"></p>
-      <div class="d-flex gap-2 flex-wrap align-items-center">
-        <button id="btn-clinching" class="btn btn-secondary" type="button" data-team="${_escapeHtml(teamName)}">
+      <p id="clinch-estimate-text" style="font-size:12.5px;opacity:0.65;margin-bottom:10px"></p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <button id="btn-clinching" class="mdn-btn mdn-btn-primary" type="button" data-team="${_escapeHtml(teamName)}">
           Clinching Scenarios
         </button>
-        <button id="btn-timing-history" class="btn btn-sm btn-outline-info" type="button">
+        <button id="btn-timing-history" class="mdn-btn mdn-btn-secondary" type="button">
           Timing History
         </button>
-        <button id="btn-export-performance" class="btn btn-sm btn-outline-secondary" type="button" title="Export solver performance as markdown">
+        <button id="btn-export-performance" class="mdn-btn mdn-btn-secondary" type="button" title="Export solver performance as markdown">
           Export Performance Data
         </button>
       </div>
-      <div style="margin-top:0.5rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
-        <label for="clinch-enum-threshold" style="font-size:0.8rem;color:var(--color-text-muted);white-space:nowrap">Enumerate up to</label>
-        <input type="range" id="clinch-enum-threshold" min="5" max="14" value="9" style="width:100px">
-        <span id="clinch-enum-label" style="font-size:0.8rem;font-weight:600">9 games</span>
-        <label for="clinch-samples" style="font-size:0.8rem;color:var(--color-text-muted);white-space:nowrap;margin-left:1rem">Sampling iterations</label>
-        <input type="number" id="clinch-samples" class="form-control" min="100" max="100000" value="10000" style="width:100px;font-size:0.8rem">
-        <span id="clinch-enum-info" style="font-size:0.75rem;color:var(--color-text-muted)"></span>
+      <div style="margin-top:14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <label for="clinch-enum-threshold" style="font:800 10px var(--mdn-font-heading);letter-spacing:.04em;text-transform:uppercase;opacity:.65;white-space:nowrap">Enumerate up to</label>
+        <input class="mdn-input" type="range" id="clinch-enum-threshold" min="5" max="14" value="9" style="width:100px">
+        <span id="clinch-enum-label" style="font-size:12px;font-weight:700">9 games</span>
+        <label for="clinch-samples" style="font:800 10px var(--mdn-font-heading);letter-spacing:.04em;text-transform:uppercase;opacity:.65;white-space:nowrap;margin-left:10px">Sampling iterations</label>
+        <input class="mdn-input" type="number" id="clinch-samples" min="100" max="100000" value="10000" style="width:100px">
+        <span id="clinch-enum-info" style="font-size:11.5px;opacity:.65"></span>
       </div>
-      <p id="clinch-mode-explanation" style="font-size:0.75rem;color:var(--color-text-muted);margin-top:0.25rem;margin-bottom:0">
-        <strong>Enumeration</strong>: checks every possible outcome combination (exhaustive, proven results).</br>
-        <strong>Sampling</strong>: tests strength-weighted random outcomes (faster, but may miss rare scenarios).</br>
-        <strong>Export Performance Data</strong>: writes solver timing measurements to <code>doc/solver-performance.md</code> for cross-platform comparison. One row per method, using the median of the last 50 runs.</br>
+      <p id="clinch-mode-explanation" style="font-size:11px;opacity:.6;margin-top:8px;margin-bottom:0;line-height:1.6">
+        <strong>Enumeration</strong>: checks every possible outcome combination (exhaustive, proven results).<br>
+        <strong>Sampling</strong>: tests strength-weighted random outcomes (faster, but may miss rare scenarios).<br>
+        <strong>Export Performance Data</strong>: writes solver timing measurements to <code>doc/solver-performance.md</code> for cross-platform comparison. One row per method, using the median of the last 50 runs.<br>
         Time estimates are rough approximations (work in progress) — actual runtime depends on the number of qualifying scenarios found and the underlying hardware.
       </p>
-      <div id="clinch-progress" style="display:none;margin-top:0.75rem;align-items:center;gap:0.75rem">
-        <div class="spinner-border spinner-border-sm text-primary" role="status"><span class="visually-hidden">Computing…</span></div>
-        <span id="clinch-status-text" style="font-size:0.85rem;color:var(--color-text-muted)">Computing clinching scenarios…</span>
-        <button id="btn-clinch-cancel" class="btn btn-sm btn-outline-danger" type="button">Cancel</button>
+      <div id="clinch-progress" style="display:none;margin-top:14px;align-items:center;gap:10px">
+        <span class="mdn-spinner"></span>
+        <span id="clinch-status-text" style="font-size:12.5px;opacity:.65">Computing clinching scenarios…</span>
+        <button id="btn-clinch-cancel" class="mdn-btn mdn-btn-secondary" style="padding:4px 10px;font-size:10px" type="button">Cancel</button>
       </div>
       <div id="clinch-results"></div>
     </div>`;
@@ -819,9 +873,9 @@ function _showTeamDetail(teamName, results) {
         clearInterval(timerInterval);
         progress.style.display = "none";
         if (err.name === "AbortError") {
-          resultsDiv.innerHTML = '<p style="color:var(--color-text-muted);margin-top:0.5rem">Cancelled.</p>';
+          resultsDiv.innerHTML = '<p style="opacity:0.6;margin-top:10px">Cancelled.</p>';
         } else {
-          resultsDiv.innerHTML = `<p style="color:var(--color-accent);margin-top:0.5rem">${err.message || "Clinching analysis failed."}</p>`;
+          resultsDiv.innerHTML = `<p style="color:var(--mdn-accent-700);margin-top:10px">${err.message || "Clinching analysis failed."}</p>`;
         }
       } finally {
         clinchBtn.disabled = false;
@@ -835,19 +889,19 @@ function _showTeamDetail(teamName, results) {
  */
 function _renderClinchingResults(data) {
   if (!data.record_groups || data.record_groups.length === 0) {
-    return `<p style="margin-top:0.75rem;color:var(--color-text-muted)">No clinching scenarios found for this team.</p>`;
+    return `<p style="margin-top:14px;opacity:0.6">No clinching scenarios found for this team.</p>`;
   }
 
-  let html = `<div style="margin-top:0.75rem">`;
+  let html = `<div style="margin-top:14px">`;
 
   // Method label
   if (!data.exhaustive) {
-    html += `<p style="font-size:0.8rem;color:var(--color-warning);margin-bottom:0.75rem">
+    html += `<p style="font-size:12px;color:var(--mdn-accent-700);margin-bottom:10px">
       Results based on sampling — covers the most likely paths but may not be exhaustive.
     </p>`;
   }
 
-  html += `<p style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:1rem">
+  html += `<p style="font-size:12.5px;opacity:0.65;margin-bottom:14px">
     ${data.relevant_games_count} relevant games analyzed via ${data.method}.
     Scenarios sorted by fewest required conditions.
   </p>`;
@@ -856,46 +910,59 @@ function _renderClinchingResults(data) {
     const record = `${rg.wins}-${rg.losses}` + (rg.ties > 0 ? `-${rg.ties}` : "");
 
     if (rg.no_path) {
-      html += `<div class="card mb-2" style="border-left:3px solid var(--color-accent)">
-        <div class="card-body py-2 px-3">
-          <strong>Finish ${record}</strong>
-          <span style="color:var(--color-accent);margin-left:0.5rem">No path to playoffs</span>
-        </div>
+      html += `<div class="mdn-card" style="border-left:3px solid var(--mdn-accent-500);padding:12px 16px;margin-bottom:8px">
+        <strong style="font-size:13px">Finish ${record}</strong>
+        <span class="mdn-tag mdn-tag-elim" style="margin-left:10px">No path to playoffs</span>
       </div>`;
       continue;
     }
 
-    html += `<div class="card mb-3">
-      <div class="card-header py-2">
-        <strong>Finish ${record}</strong>
-        <span style="font-size:0.8rem;color:var(--color-text-muted);margin-left:0.75rem">
+    html += `<div class="mdn-card" style="padding:0;margin-bottom:14px;overflow:hidden">
+      <div style="padding:10px 16px;border-bottom:1px solid var(--mdn-divider)">
+        <strong style="font-size:13px">Finish ${record}</strong>
+        <span style="font-size:11.5px;opacity:0.6;margin-left:10px">
           ${rg.scenarios.length} scenario${rg.scenarios.length !== 1 ? "s" : ""}
         </span>
       </div>
-      <div class="card-body py-2 px-3">`;
+      <div style="padding:12px 16px">`;
 
     if (rg.scenarios.length === 0) {
-      html += `<p style="color:var(--color-success)">Team clinches regardless of other outcomes.</p>`;
+      html += `<span class="mdn-tag mdn-tag-accent">Clinches regardless of other outcomes</span>`;
     } else {
-      for (let i = 0; i < rg.scenarios.length; i++) {
-        const scenario = rg.scenarios[i];
-        if (scenario.num_conditions === 0) {
-          html += `<p style="color:var(--color-success);font-weight:600">Clinches regardless of other outcomes.</p>`;
-          continue;
+      const autoClinch = rg.scenarios.some((s) => s.num_conditions === 0);
+      const condScenarios = rg.scenarios.filter((s) => s.num_conditions > 0);
+
+      if (autoClinch) {
+        html += `<span class="mdn-tag mdn-tag-accent">Clinches regardless of other outcomes</span>`;
+      }
+
+      // A single table per record group — not one table per scenario — so the
+      // Week/Game/Needed columns line up across every scenario instead of each
+      // auto-sizing to its own row. The # column is rowspan'd to group each
+      // scenario's conditions.
+      if (condScenarios.length > 0) {
+        html += `<table class="mdn-led-table" style="${autoClinch ? "margin-top:10px" : ""}">
+          <thead><tr><th style="width:36px" class="mdn-num">#</th><th>Week</th><th>Game</th><th>Needed</th></tr></thead>
+          <tbody>`;
+        for (let i = 0; i < condScenarios.length; i++) {
+          const scenario = condScenarios[i];
+          for (let c_idx = 0; c_idx < scenario.conditions.length; c_idx++) {
+            const c = scenario.conditions[c_idx];
+            const neededTag = c.is_tie
+              ? `<span class="mdn-tag mdn-tag-tie">Tie</span>`
+              : `<span class="mdn-tag mdn-tag-win-o">${_escapeHtml(c.required_winner)} win</span>`;
+            const rowStyle = c_idx === 0 && i > 0 ? ' style="border-top:2px solid var(--mdn-divider-strong)"' : "";
+            html += `<tr${rowStyle}>`;
+            if (c_idx === 0) {
+              html += `<td class="mdn-num" rowspan="${scenario.conditions.length}" style="opacity:0.6;vertical-align:middle">${i + 1}</td>`;
+            }
+            html += `<td>${c.week}</td>
+              <td>${_escapeHtml(c.home_team)} vs ${_escapeHtml(c.away_team)}</td>
+              <td>${neededTag}</td>
+            </tr>`;
+          }
         }
-        html += `<div style="margin-bottom:0.75rem;padding:0.5rem;background:var(--color-surface);border-radius:var(--radius-sm)">
-          <span style="font-size:0.8rem;color:var(--color-text-muted)">Scenario ${i + 1} — ${scenario.num_conditions} condition${scenario.num_conditions !== 1 ? "s" : ""}:</span>
-          <table class="table table-sm table-striped mb-0" style="margin-top:0.25rem;width:auto;font-size:0.85rem">
-            <thead><tr><th>Week</th><th>Game</th><th>Needed</th></tr></thead><tbody>`;
-        for (const c of scenario.conditions) {
-          const needed = c.is_tie ? "Tie" : _escapeHtml(c.required_winner) + " wins";
-          html += `<tr>
-            <td>${c.week}</td>
-            <td>${_escapeHtml(c.home_team)} vs ${_escapeHtml(c.away_team)}</td>
-            <td><strong>${needed}</strong></td>
-          </tr>`;
-        }
-        html += `</tbody></table></div>`;
+        html += `</tbody></table>`;
       }
     }
 

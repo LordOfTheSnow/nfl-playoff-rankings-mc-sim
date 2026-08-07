@@ -77,6 +77,10 @@ Hash-based SPA routing implemented in `app.js`:
 
 `app.js` owns routing, global error/loading notifications, and nav state. Other files are per-view: `standings.js`, `schedule.js`, `schedule-grid.js`, `simulation.js`, `statistics.js`, `charts.js`. `api.js` is the fetch wrapper for all `/api/*` calls. Bootstrap 5.3.8 is loaded via CDN (no local copy/bundling).
 
+`standings.js` (Standings), `schedule.js` (Team Detail, `#team/<name>`), and `simulation.js` (Simulation Results, `#results`, including the team-detail/clinching panel shown from it) have been redesigned in the flat "Modernist" style — `.mdn-*` CSS classes in `styles.css` (Archivo type, red accent, zero corner radius, `.mdn-led-table` ledger tables), each view's root scoped under a `.mdn-page` wrapper div. See `design_handoff_standings_redesign/` for the source spec. `schedule-grid.js` and `statistics.js` still render plain Bootstrap 5.3.8 markup — don't assume `.mdn-*` classes exist there.
+
+`frontend/css/styles.css` is a single stylesheet holding two coexisting token systems, not two files: the original NFL brand tokens (`--color-*`, `--radius-*`, `--shadow-*` on bare `:root`, near the top) that the still-Bootstrap views (`schedule-grid.js`, `statistics.js`) use, and the Modernist system (`--mdn-*` tokens on a second `:root` block, further down, under the "Modernist Design System" comment header) that `standings.js`/`schedule.js`/`simulation.js` use — there's no separate vendored design-system CSS file despite the handoff doc suggesting one. The nav bar (`.mdn-nav`) and disclaimer strip (`.mdn-disclaimer`) are hard-coded into `index.html` itself (not emitted by any per-view JS), so they render in the Modernist style on *every* page, including the still-Bootstrap ones — only the content below the disclaimer differs by view.
+
 ### Season selection
 
 The active season is server-side state (`NFLSimulatorServer.season_year`), changed via `POST /api/set-season`, not a per-request parameter — the frontend season selector switches this globally without restarting the server.

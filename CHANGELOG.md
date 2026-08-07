@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Redesigned the Standings page and app-wide nav bar in the "Modernist" flat/red-on-white style (dense per-division ledger tables, Season/Simulation card, hover tooltips on tiebreaker and clinch/eliminate tags, zero corner radius, Archivo type) — see `design_handoff_standings_redesign/`. Schedule, Statistics, and Results are not yet redesigned.
+- Redesigned the Standings page and app-wide nav bar in the "Modernist" flat/red-on-white style (dense per-division ledger tables, Season/Simulation card, hover tooltips on tiebreaker and clinch/eliminate tags, zero corner radius, Archivo type) — see `design_handoff_standings_redesign/`. Schedule Grid and Statistics are not yet redesigned.
 - Redesigned the Team Detail page (`#team/<name>`) in the same "Modernist" Ledger style as Standings, reusing its `.mdn-led-table` component — team hero header (logo, name, record), Week/Opponent/Opp Str/Home-Away/Score/Result-Status/Team Str columns, an italic "BYE WEEK" row, bordered full-word Win/Loss/Tie result tags (Loss shares styling with the Standings ELIMINATED badge), and a Legend card — see `design_handoff_standings_redesign/` (Option 2a)
 - Generalized the Modernist page-scope CSS class from `.mdn-standings` to `.mdn-page` now that it scopes both the Standings and Team Detail views; removed the now-unused pre-redesign `.game-result--*` and `.back-link` CSS rules
 - README: added a Team Detail screenshot to the Screenshots gallery plus a new "Team Detail Page" section documenting its columns and Result/Status tag styling; Features list updated to credit Team Detail alongside Standings for the Modernist redesign
@@ -21,14 +21,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New `doc/technical.md` — parallel simulation architecture and solver performance export with data flow diagrams
 - Cross-navigation links added between all doc files (back-to-README, sibling links)
 - `_FILE_HEADER` in `src/experience_export.py` now includes navigation links so they survive export overwrites
+- Redesigned the Simulation Results page (`#results`) in the same "Modernist" Ledger style as Standings and Team Detail: header stat card, Playoff Probabilities tables (inline probability bar per team, 7th-seed playoff cutoff row highlighted like a division leader), a Seeding Probabilities matrix (cells tinted on a warm tan-to-maroon scale proportional to probability, switching to white text once the tint darkens, never tinted at exactly 0%), and a collapsible Top Scenarios ledger table with a disclosure triangle — see `design_handoff_standings_redesign/` (Option 3a)
+- Redesigned the Team Detail panel shown when clicking a team on the Results page (summary stats, Seed Distribution, Top 5 Impact Games, and the Clinching Scenarios solver UI) in the same Modernist style, extending the existing `.mdn-*` token system to a panel not covered by the original design handoff. The Timing History modal intentionally stays plain Bootstrap — no Modernist modal component exists yet.
+- Clinching scenario results: all scenarios within a "Finish X-Y" record group now share a single ledger table (with a rowspan'd `#` column grouping each scenario's conditions) instead of one independently-sized table per scenario — fixes Week/Game/Needed columns misaligning across scenarios with different game-name lengths
+- `.mdn-tag` font size increased 9px → 10px (padding 2px 6px → 3px 7px) for legibility — applies app-wide to Standings status/tiebreaker tags, Team Detail Win/Loss/Tie tags, and the new Clinching Scenarios tags
+- Clinching scenario "Needed" tags corrected from e.g. "Browns wins" to "Browns win" (team names are plural nouns, so the singular verb form was grammatically wrong)
+- README: Screenshots gallery updated with four new Simulation Results / Clinching Scenarios screenshots, replacing the outdated pre-redesign clinching-scenarios screenshot; Features list and the "Massive UI overhaul" ToDo item updated to credit Simulation Results alongside Standings and Team Detail
 
 ### Fixed
 - CP solver cache served stale `clinched_division`/`clinched_homefield` status forever for any result cached before those fields existed in the stored JSON (e.g. showing plain "Clinched" instead of "Division" for a team that had actually clinched its division) — `Cache.get_cp_result()` now treats a cache row missing either field as a miss and re-solves instead of silently defaulting to `False`
 - Docker bind-mount example in README corrected from single-file mount (`./nfl_cache.db:/data/nfl_cache.db`) to directory mount (`./data:/data`)
 - Restored lost "Clinched Division and Clinched Homefield Advantage badges" ToDo item (dropped during a merge conflict)
-
-### Added
-- `.kiro/steering/docs-sync.md` — steering file that triggers on any `src/**/*.py` change to prompt documentation sync checks
 
 ## [0.7.4] - 2026-07-27
 

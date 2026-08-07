@@ -97,7 +97,7 @@ describe("Property 2: Table Bootstrap class assignment", () => {
     );
   });
 
-  it("results probability tables have 'table table-striped table-hover' classes", () => {
+  it("playoff and seeding probability tables have the 'mdn-led-table' Modernist ledger class", () => {
     fc.assert(
       fc.property(
         fc.integer({ min: 1, max: 16 }),
@@ -129,13 +129,17 @@ describe("Property 2: Table Bootstrap class assignment", () => {
           const contentEl = document.createElement("div");
           renderResults(contentEl);
 
-          const tables = contentEl.querySelectorAll("table");
-          expect(tables.length).toBeGreaterThan(0);
+          const playoffTables = contentEl.querySelectorAll('table[aria-label$="playoff probabilities"]');
+          const seedingTables = contentEl.querySelectorAll('table[aria-label$="seeding probability matrix"]');
+          expect(playoffTables.length).toBeGreaterThan(0);
+          expect(seedingTables.length).toBeGreaterThan(0);
 
-          tables.forEach((table) => {
-            expect(table.classList.contains("table")).toBe(true);
-            expect(table.classList.contains("table-striped")).toBe(true);
-            expect(table.classList.contains("table-hover")).toBe(true);
+          playoffTables.forEach((table) => {
+            expect(table.classList.contains("mdn-led-table")).toBe(true);
+          });
+
+          seedingTables.forEach((table) => {
+            expect(table.classList.contains("mdn-led-table")).toBe(true);
           });
         }
       ),

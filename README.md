@@ -27,15 +27,9 @@ A web application that predicts NFL playoff probabilities using Monte Carlo simu
 - Solver performance export: one-click export of timing benchmarks to `doc/solver-performance.md`
 - Season selector in the navbar for switching seasons without restarting
 - Local SQLite caching with TTL policies
-- Standings and Team Detail pages, plus the app-wide nav, redesigned in a flat "Modernist" style (Archivo type, red accent, zero corner radius); Schedule Grid, Statistics, and Results still use the original Bootstrap 5.3.8 (CDN) styling
+- Standings, Team Detail, and Simulation Results pages, plus the app-wide nav, redesigned in a flat "Modernist" style (Archivo type, red accent, zero corner radius); Schedule Grid and Statistics still use the original Bootstrap 5.3.8 (CDN) styling
 
 ## Screenshots
-
-### Simulation results (2025 season)
-
-![Clinching Scenarios for the Detroit Lions](/doc/img/screenshot-clinching-scenarios.png)
-
-*Clinching scenarios for the Detroit Lions — season 2025, cutoff week 15, showing all paths to the playoffs grouped by remaining record.*
 
 ### Standings page — "Modernist" redesign (2025 season, cutoff week 17)
 
@@ -49,6 +43,27 @@ A web application that predicts NFL playoff probabilities using Monte Carlo simu
 ![Team Detail page in the Modernist Ledger redesign, showing the New England Patriots' full 2025 season schedule](/doc/img/screenshot-team-new-design.png)
 
 *Team Detail page in the same flat "Modernist Ledger" style as Standings, reusing the same ledger table component. Each completed game shows a bordered Win/Loss/Tie tag, and the bye week renders as a single italic row.*
+
+### Simulation Results page — "Modernist" redesign (2025 season, cutoff week 16)
+
+![Playoff Probabilities tables for AFC and NFC in the Modernist Ledger redesign](/doc/img/screenshot-playoff-probabilities-new-design.png)
+
+*Playoff Probabilities tables for both conferences. Each row shows an inline probability bar, and the 7th seed — the current projected playoff cutoff — is highlighted with the same leader-row treatment used for division leaders in Standings.*
+
+![Seeding Probabilities matrix for AFC and NFC in the Modernist Ledger redesign](/doc/img/screenshot-seeding-probabilities-new-design.png)
+
+*Seeding Probabilities matrix: each cell is tinted on a warm tan-to-maroon scale proportional to that team's probability of landing exactly that seed, switching to white text once the tint gets dark enough — never gray, and never tinted at exactly 0%. The collapsed Top Scenarios accordion sits below.*
+
+![Top Playoff Scenarios table expanded in the Modernist Ledger redesign](/doc/img/screenshot-top-10-mlploff-scens-new-design.png)
+
+*The Top Scenarios accordion expanded, ranking the most likely distinct AFC/NFC seeding combinations by probability.*
+
+<a id="clinching-scenarios-screenshot"></a>
+### Clinching Scenarios — "Modernist" redesign (Detroit Lions, 2025 season)
+
+![Clinching Scenarios for the Detroit Lions in the Modernist Ledger redesign](/doc/img/screenshot-playoff-probabilities-team-new-design.png)
+
+*Team Detail panel (opened by clicking a team on the Results page) showing every game-outcome combination that guarantees or eliminates a playoff spot, grouped by remaining record. Conditions for every scenario in a group share one aligned table, with a rowspan'd `#` column tying each scenario's rows together instead of giving every scenario its own separately-sized table.*
 
 ## Schedule Grid
 
@@ -169,7 +184,7 @@ pytest tests/ -v
 
 ## ToDo
 
-- **Massive UI overhaul**: The current interface is functional but needs a ground-up redesign for better usability, visual polish, and information hierarchy. The Standings screen and the app-wide nav bar have been redesigned in the "Modernist" flat/red-on-white style (see `design_handoff_standings_redesign/`); Schedule, Statistics, and Results still use the old Bootstrap look.
+- **Massive UI overhaul**: The current interface is functional but needs a ground-up redesign for better usability, visual polish, and information hierarchy. Standings, Team Detail, and Simulation Results have been redesigned in the "Modernist" flat/red-on-white style (see `design_handoff_standings_redesign/`); Schedule Grid and Statistics still use the old Bootstrap look.
 - **Vectorize standings computation with NumPy**: Rewrite the MC simulation hot path to process all trials simultaneously as batched array operations. Game outcome simulation (random draws + strength comparisons) and W/L/T record accumulation can be expressed as matrix operations over a `(trials, games)` array, eliminating per-trial Python loops. The tiebreaker logic would remain in Python but only be invoked for the subset of trials where teams are actually tied in win percentage. Expected 5-15x overall speedup for the simulation pipeline.
 
 ## Disclaimer

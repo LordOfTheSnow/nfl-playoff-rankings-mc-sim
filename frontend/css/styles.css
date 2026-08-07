@@ -143,6 +143,7 @@ td.numeric {
     --mdn-neutral-100: #f7f6f6;
     --mdn-neutral-200: #ebe9e8;
     --mdn-neutral-300: #dbd9d7;
+    --mdn-neutral-400: #b3b0ae;
     --mdn-neutral-500: #8a8785;
     --mdn-neutral-600: #6b6866;
     --mdn-neutral-800: #332f2d;
@@ -382,10 +383,10 @@ td.numeric {
 /* --- Tags / badges --- */
 .mdn-tag {
     display: inline-block;
-    font: 800 9px var(--mdn-font-heading);
+    font: 800 10px var(--mdn-font-heading);
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    padding: 2px 6px;
+    padding: 3px 7px;
     border-radius: 0;
     border: 1px solid transparent;
     line-height: 1.5;
@@ -583,6 +584,34 @@ td.numeric {
     font: 800 12px var(--mdn-font-heading);
     font-style: italic;
     opacity: 0.55;
+}
+
+/* --- Seeding probability tint (Results — Seeding Probabilities) --- */
+.mdn-seed-hi {
+    color: #fff;
+}
+
+/* --- Top Scenarios disclosure (Results — Top Scenarios) --- */
+.mdn-scenario-card summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    list-style: none;
+}
+
+.mdn-scenario-card summary::-webkit-details-marker {
+    display: none;
+}
+
+.mdn-scenario-triangle {
+    display: inline-block;
+    font-size: 11px;
+    transition: transform 0.12s;
+}
+
+.mdn-scenario-card[open] .mdn-scenario-triangle {
+    transform: rotate(90deg);
 }
 
 /* --- Back link / back-to-top (Team Detail) --- */
