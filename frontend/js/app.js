@@ -10,6 +10,7 @@
  *   #schedule-grid  — League-wide schedule grid
  *   #simulate       — Simulation controls
  *   #results        — Simulation results
+ *   #settings       — Settings / Info (database & runtime environment)
  *
  * Requirements: 11.3, 11.4, 11.6
  */
@@ -124,7 +125,7 @@ const App = (() => {
     }
 
     // Known routes
-    const knownRoutes = ["standings", "simulate", "results", "statistics", "schedule-grid"];
+    const knownRoutes = ["standings", "simulate", "results", "statistics", "schedule-grid", "settings"];
     if (knownRoutes.includes(hash)) {
       return { view: hash, param: null };
     }
@@ -198,6 +199,12 @@ const App = (() => {
         case "results":
           if (typeof renderResults === "function") {
             await renderResults(contentEl);
+          }
+          break;
+
+        case "settings":
+          if (typeof renderSettings === "function") {
+            await renderSettings(contentEl);
           }
           break;
 

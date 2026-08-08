@@ -413,6 +413,7 @@ class DataClient:
                     self._cache.store_games(games, year)
             except httpx.TimeoutException:
                 failed_weeks.append(week)
+                self._cache.log_fetch_failure(year, week)
                 warning_msg = (
                     f"Could not fetch week {week}: request timed out after "
                     f"{self._timeout}s (URL: {ESPN_SCOREBOARD_URL})"
@@ -429,6 +430,7 @@ class DataClient:
                     )
             except httpx.HTTPStatusError as e:
                 failed_weeks.append(week)
+                self._cache.log_fetch_failure(year, week)
                 warning_msg = (
                     f"Could not fetch week {week}: HTTP {e.response.status_code} "
                     f"(URL: {e.request.url})"
@@ -441,11 +443,13 @@ class DataClient:
                     result.games.extend(stale_games)
             except ESPNSchemaError as e:
                 failed_weeks.append(week)
+                self._cache.log_fetch_failure(year, week)
                 error_msg = f"Schema error fetching week {week}: {e}"
                 result.errors.append(error_msg)
                 logger.error(error_msg)
             except httpx.RequestError as e:
                 failed_weeks.append(week)
+                self._cache.log_fetch_failure(year, week)
                 warning_msg = (
                     f"Could not fetch week {week}: network error ({e}) "
                     f"(URL: {ESPN_SCOREBOARD_URL})"

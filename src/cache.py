@@ -48,6 +48,11 @@ class Cache:
         self._conn.row_factory = sqlite3.Row
         self._create_tables()
 
+    @property
+    def db_path(self) -> str:
+        """Path to the underlying SQLite database file."""
+        return self._db_path
+
     def _create_tables(self) -> None:
         """Create database tables and indexes if they don't exist."""
         self._conn.executescript("""
@@ -107,6 +112,11 @@ class Cache:
                 total_evals INTEGER NOT NULL,
                 num_workers INTEGER NOT NULL DEFAULT 0,
                 recorded_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS run_counters (
+                name TEXT PRIMARY KEY,
+                total INTEGER NOT NULL DEFAULT 0
             );
         """)
         self._conn.commit()
@@ -173,6 +183,47 @@ class Cache:
                     (year, week, now, len(week_games)),
                 )
             self._conn.commit()
+
+    def log_fetch_failure(self, year: int, week: int) -> None:
+        """Record a failed fetch attempt for a given year/week.
+
+        Args:
+            year: The NFL season year.
+            week: The week number that failed to fetch.
+        """
+        now = datetime.now(UTC).isoformat()
+        self._conn.execute(
+            """INSERT INTO fetch_log (year, week, fetched_at, games_count, success)
+               VALUES (?, ?, ?, 0, 0)""",
+            (year, week, now),
+        )
+        self._conn.commit()
+
+    def get_fetch_log(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Retrieve the most recent fetch attempts, successful or failed.
+
+        Args:
+            limit: Maximum number of records to return (default 20).
+
+        Returns:
+            List of dicts with keys: year, week, fetched_at, games_count,
+            success (bool). Ordered by insertion order, most recent first.
+        """
+        rows = self._conn.execute(
+            "SELECT year, week, fetched_at, games_count, success "
+            "FROM fetch_log ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [
+            {
+                "year": row["year"],
+                "week": row["week"],
+                "fetched_at": row["fetched_at"],
+                "games_count": row["games_count"],
+                "success": bool(row["success"]),
+            }
+            for row in rows
+        ]
 
     def get_games(self, year: int, week: int | None = None) -> list[Game]:
         """Retrieve cached games filtered by year and optional week.
@@ -351,6 +402,44 @@ class Cache:
             "games_cached": count_row["cnt"] if count_row else 0,
         }
 
+    def get_seasons_summary(self) -> list[dict[str, Any]]:
+        """Return per-season data completeness, most recent season first.
+
+        Returns:
+            List of dicts with keys: year, games_cached, completed_games,
+            weeks_with_data, last_fetch_time.
+        """
+        years = [
+            row["year"]
+            for row in self._conn.execute(
+                "SELECT DISTINCT year FROM games ORDER BY year DESC"
+            ).fetchall()
+        ]
+
+        summary = []
+        for year in years:
+            total_row = self._conn.execute(
+                "SELECT COUNT(*) as cnt FROM games WHERE year = ?", (year,)
+            ).fetchone()
+            completed_row = self._conn.execute(
+                "SELECT COUNT(*) as cnt FROM games WHERE year = ? AND status = 'completed'",
+                (year,),
+            ).fetchone()
+            weeks_row = self._conn.execute(
+                "SELECT COUNT(DISTINCT week) as cnt FROM games WHERE year = ?", (year,)
+            ).fetchone()
+            last_fetch_row = self._conn.execute(
+                "SELECT MAX(fetched_at) as last_fetch FROM games WHERE year = ?", (year,)
+            ).fetchone()
+            summary.append({
+                "year": year,
+                "games_cached": total_row["cnt"] if total_row else 0,
+                "completed_games": completed_row["cnt"] if completed_row else 0,
+                "weeks_with_data": weeks_row["cnt"] if weeks_row else 0,
+                "last_fetch_time": last_fetch_row["last_fetch"] if last_fetch_row else None,
+            })
+        return summary
+
     def get_last_fetch_time(self) -> datetime | None:
         """Return the timestamp of the most recent fetch, or None if no data cached."""
         row = self._conn.execute(
@@ -522,6 +611,25 @@ class Cache:
             }
             for row in rows
         ]
+
+    def increment_counter(self, name: str, amount: int = 1) -> None:
+        """Add `amount` to a named lifetime run counter, creating it if absent.
+
+        Args:
+            name: Counter identifier (e.g. "simulation_trials_total").
+            amount: Amount to add (default 1).
+        """
+        self._conn.execute(
+            "INSERT INTO run_counters (name, total) VALUES (?, ?) "
+            "ON CONFLICT(name) DO UPDATE SET total = total + excluded.total",
+            (name, amount),
+        )
+        self._conn.commit()
+
+    def get_counters(self) -> dict[str, int]:
+        """Return all lifetime run counters as a name -> total dict."""
+        rows = self._conn.execute("SELECT name, total FROM run_counters").fetchall()
+        return {row["name"]: row["total"] for row in rows}
 
     def close(self) -> None:
         """Close the database connection."""

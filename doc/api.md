@@ -515,6 +515,71 @@ Reads existing `doc/solver-performance.md`, inserts new timing entries from the 
 
 ---
 
+## System
+
+### `GET /api/system-info`
+
+Returns SQLite cache database metadata (which seasons are stored and how complete each one is, plus recent ESPN fetch attempts), the server's runtime environment (CPU, Python, platform), and lifetime run counters. Backs the "Settings / Info" page.
+
+`lifetime_counters` are persisted in the `run_counters` table and never reset: `games_simulated_total` sums the individual game outcomes rolled across every successful `POST /api/simulate` call against this database (`iterations_run × simulated_games_count` per call); `clinching_resolver_evals_total` sums `total_evals` (the number of game-outcome universes evaluated) of every successful `POST /api/clinching-scenarios` call.
+
+`database.recent_fetches` is the 20 most recent rows from the `fetch_log` table (one row per week per fetch attempt), most recent first. `success: false` rows are ESPN fetches that failed (timeout, HTTP error, network error, or a schema error) — `games_count` is 0 for those.
+
+`runtime.simulation_mp_method` and `runtime.clinching_resolver_mp_method` can differ: simulation always uses a fixed context (`fork` on Unix, `spawn` on Windows), while the clinching resolver uses Python's platform-default multiprocessing start method, which varies by Python version (e.g. `forkserver` became the Linux default starting in Python 3.14).
+
+**Response:**
+
+```json
+{
+  "version": "0.5.0",
+  "season_year": 2025,
+  "database": {
+    "path": "nfl_cache.db",
+    "size_bytes": 2457600,
+    "expected_games_per_season": 272,
+    "seasons": [
+      {
+        "year": 2025,
+        "games_cached": 272,
+        "completed_games": 240,
+        "weeks_with_data": 18,
+        "last_fetch_time": "2025-12-20T10:30:00+00:00"
+      }
+    ],
+    "recent_fetches": [
+      {
+        "year": 2025,
+        "week": 18,
+        "fetched_at": "2025-12-20T10:30:00+00:00",
+        "games_count": 0,
+        "success": false
+      },
+      {
+        "year": 2025,
+        "week": 17,
+        "fetched_at": "2025-12-20T10:29:58+00:00",
+        "games_count": 16,
+        "success": true
+      }
+    ]
+  },
+  "runtime": {
+    "cpu_model": "12th Gen Intel(R) Core(TM) i5-1245U",
+    "cpu_cores": 12,
+    "python_version": "3.11.9",
+    "platform": "Linux-6.8.0-x86_64-with-glibc2.39",
+    "simulation_mp_method": "fork",
+    "clinching_resolver_mp_method": "fork"
+  },
+  "lifetime_counters": {
+    "games_simulated_total": 55940000,
+    "clinching_resolver_evals_total": 812400
+  }
+}
+```
+
+---
+
 ## Error Responses
 
 All endpoints return errors in a consistent format:

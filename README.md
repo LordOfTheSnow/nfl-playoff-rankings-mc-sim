@@ -28,6 +28,7 @@ A web application that predicts NFL playoff probabilities using Monte Carlo simu
 - Season selector in the navbar for switching seasons without restarting
 - Local SQLite caching with TTL policies
 - Standings, Team Detail, and Simulation Results pages, plus the app-wide nav, redesigned in a flat "Modernist" style (Archivo type, red accent, zero corner radius); Schedule Grid and Statistics still use the original Bootstrap 5.3.8 (CDN) styling
+- Settings / Info page showing SQLite cache database metadata (seasons stored, per-season completeness, and the last 20 ESPN fetch attempts with failures flagged), the server's runtime environment (CPU model/cores, Python version, platform), and lifetime totals for games simulated and clinching resolver evaluations performed
 
 ## Screenshots
 
@@ -64,6 +65,12 @@ A web application that predicts NFL playoff probabilities using Monte Carlo simu
 ![Clinching Scenarios for the Detroit Lions in the Modernist Ledger redesign](/doc/img/screenshot-playoff-probabilities-team-new-design.png)
 
 *Team Detail panel (opened by clicking a team on the Results page) showing every game-outcome combination that guarantees or eliminates a playoff spot, grouped by remaining record. Conditions for every scenario in a group share one aligned table, with a rowspan'd `#` column tying each scenario's rows together instead of giving every scenario its own separately-sized table.*
+
+### Settings / Info page — "Modernist" style
+
+![Settings / Info page in the Modernist style, showing runtime environment, lifetime totals, SQLite cache database metadata, and recent fetch attempts](/doc/img/screenshot-settings-info-new-design.png)
+
+*Settings / Info page: server runtime environment (CPU model/cores, Python version, platform, and the distinct worker start methods used by simulation vs. the clinching resolver), lifetime totals for games simulated and clinching resolver evaluations, per-season SQLite cache completeness, and the 20 most recent ESPN fetch attempts with failures flagged.*
 
 ## Schedule Grid
 

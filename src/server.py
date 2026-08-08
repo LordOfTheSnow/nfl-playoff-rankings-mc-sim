@@ -33,6 +33,10 @@ from src.standings import compute_standings, determine_playoff_bracket
 
 logger = logging.getLogger(__name__)
 
+# Names of lifetime run counters persisted via Cache.increment_counter().
+COUNTER_GAMES_SIMULATED = "games_simulated_total"
+COUNTER_CLINCHING_RESOLVER_EVALS = "clinching_resolver_evals_total"
+
 
 def _json_error(code: int, message: str, details: str = "") -> tuple[int, dict[str, Any]]:
     """Create a consistent JSON error response.
@@ -302,6 +306,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             self._handle_get_solver_timings()
         elif path == "/api/export-solver-performance":
             self._handle_get_export_solver_performance()
+        elif path == "/api/system-info":
+            self._handle_get_system_info()
         elif path.startswith("/api/team/"):
             team_name = path[len("/api/team/"):]
             self._handle_get_team(team_name)
@@ -820,6 +826,55 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             logger.exception("Error exporting solver performance")
             self._send_error_response(500, "Export error", str(e))
 
+    def _handle_get_system_info(self) -> None:
+        """Handle GET /api/system-info — return DB metadata and runtime environment info."""
+        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
+        try:
+            import multiprocessing
+            import platform as platform_module
+
+            from src.experience_export import get_cpu_info
+            from src.simulator import _mp_context as simulator_mp_context
+
+            cpu_cores, cpu_model = get_cpu_info()
+
+            db_path = server.cache.db_path
+            db_size_bytes = (
+                os.path.getsize(db_path)
+                if db_path != ":memory:" and os.path.exists(db_path)
+                else None
+            )
+
+            counters = server.cache.get_counters()
+
+            response = {
+                "version": server.version,
+                "season_year": server.season_year,
+                "database": {
+                    "path": db_path,
+                    "size_bytes": db_size_bytes,
+                    "expected_games_per_season": 272,
+                    "seasons": server.cache.get_seasons_summary(),
+                    "recent_fetches": server.cache.get_fetch_log(limit=20),
+                },
+                "runtime": {
+                    "cpu_model": cpu_model,
+                    "cpu_cores": cpu_cores,
+                    "python_version": platform_module.python_version(),
+                    "platform": platform_module.platform(),
+                    "simulation_mp_method": simulator_mp_context.get_start_method(),
+                    "clinching_resolver_mp_method": multiprocessing.get_context().get_start_method(),
+                },
+                "lifetime_counters": {
+                    "games_simulated_total": counters.get(COUNTER_GAMES_SIMULATED, 0),
+                    "clinching_resolver_evals_total": counters.get(COUNTER_CLINCHING_RESOLVER_EVALS, 0),
+                },
+            }
+            self._send_json_response(200, response)
+        except Exception as e:
+            logger.exception("Error getting system info")
+            self._send_error_response(500, "Internal server error", str(e))
+
     def _handle_post_clinching_scenarios(self) -> None:
         """Handle POST /api/clinching-scenarios — compute clinching scenarios for a team."""
         server: NFLSimulatorServer = self.server  # type: ignore[assignment]
@@ -912,6 +967,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                     total_evals=result.total_evals,
                     num_workers=num_workers or os.cpu_count() or 1,
                 )
+                server.cache.increment_counter(COUNTER_CLINCHING_RESOLVER_EVALS, result.total_evals)
 
         except Exception as e:
             logger.exception("Error computing clinching scenarios")
@@ -1078,7 +1134,16 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             )
 
             response = _serialize_simulation_result(result, games=games)
-            self._send_json_response(200, response)
+            try:
+                self._send_json_response(200, response)
+            except BrokenPipeError:
+                # User cancelled — do NOT count this run
+                return
+
+            server.cache.increment_counter(
+                COUNTER_GAMES_SIMULATED,
+                result.iterations_run * result.simulated_games_count,
+            )
         except ValueError as e:
             self._send_error_response(400, "Invalid simulation parameters", str(e))
         except Exception as e:

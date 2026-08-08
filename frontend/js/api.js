@@ -220,6 +220,16 @@ const API = (() => {
     return request("/api/solver-timings");
   }
 
+  /**
+   * Get database metadata and runtime environment info.
+   * GET /api/system-info
+   *
+   * @returns {Promise<Object>} Database (path, size, per-season completeness) and runtime (CPU, Python, platform) info.
+   */
+  function getSystemInfo() {
+    return request("/api/system-info");
+  }
+
   return {
     fetchStatus,
     fetchData,
@@ -233,5 +243,6 @@ const API = (() => {
     setSeason,
     fetchCPClinchAll,
     solverTimings,
+    getSystemInfo,
   };
 })();

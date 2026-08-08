@@ -873,7 +873,7 @@ function _createClinchBadge(result) {
     tag.textContent = "DIVISION";
     statusText = "Clinched division title";
   } else if (status === "clinched") {
-    tag.className = "mdn-tag mdn-tag-outline";
+    tag.className = "mdn-tag mdn-tag-win-o";
     tag.style.cursor = "default";
     tag.textContent = "CLINCHED";
     statusText = "Clinched a playoff spot";
