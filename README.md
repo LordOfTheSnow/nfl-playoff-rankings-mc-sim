@@ -27,7 +27,7 @@ A web application that predicts NFL playoff probabilities using Monte Carlo simu
 - Solver performance export: one-click export of timing benchmarks to `doc/solver-performance.md`
 - Season selector in the navbar for switching seasons without restarting
 - Local SQLite caching with TTL policies
-- Standings, Team Detail, and Simulation Results pages, plus the app-wide nav, redesigned in a flat "Modernist" style (Archivo type, red accent, zero corner radius); Schedule Grid and Statistics still use the original Bootstrap 5.3.8 (CDN) styling
+- Standings, Team Detail, and Simulation Results pages, the Solver Timing History dialog, plus the app-wide nav, redesigned in a flat "Modernist" style (Archivo type, red accent, zero corner radius); Schedule Grid and Statistics still use the original Bootstrap 5.3.8 (CDN) styling
 - Settings / Info page showing SQLite cache database metadata (seasons stored, per-season completeness, and the last 20 ESPN fetch attempts with failures flagged), the server's runtime environment (CPU model/cores, Python version, platform), and lifetime totals for games simulated and clinching resolver evaluations performed
 
 ## Screenshots
@@ -65,6 +65,12 @@ A web application that predicts NFL playoff probabilities using Monte Carlo simu
 ![Clinching Scenarios for the Detroit Lions in the Modernist Ledger redesign](/doc/img/screenshot-playoff-probabilities-team-new-design.png)
 
 *Team Detail panel (opened by clicking a team on the Results page) showing every game-outcome combination that guarantees or eliminates a playoff spot, grouped by remaining record. Conditions for every scenario in a group share one aligned table, with a rowspan'd `#` column tying each scenario's rows together instead of giving every scenario its own separately-sized table.*
+
+### Solver Timing History — "Modernist" redesign
+
+![Solver Timing History dialog in the Modernist style, showing the ms/eval trend sparkline and a ledger table of past solver runs](/doc/img/screenshot-solver-timing-history-new-design.png)
+
+*Solver Timing History dialog (opened via the "Timing History" button on the Clinching Scenarios panel), restyled as a square-cornered Modernist dialog: a measurement-count/average stat row with an ms/eval trend sparkline, and a scrollable ledger table where the `sampling` and `enumeration` methods are distinguished by a red-outline vs. dark-outline tag.*
 
 ### Settings / Info page — "Modernist" style
 
@@ -191,7 +197,7 @@ pytest tests/ -v
 
 ## ToDo
 
-- **Massive UI overhaul**: The current interface is functional but needs a ground-up redesign for better usability, visual polish, and information hierarchy. Standings, Team Detail, and Simulation Results have been redesigned in the "Modernist" flat/red-on-white style (see `design_handoff_standings_redesign/`); Schedule Grid and Statistics still use the old Bootstrap look.
+- **Massive UI overhaul**: The current interface is functional but needs a ground-up redesign for better usability, visual polish, and information hierarchy. Standings, Team Detail, Simulation Results, and the Solver Timing History dialog have been redesigned in the "Modernist" flat/red-on-white style (see `design_handoff_standings_redesign/`); Schedule Grid and Statistics still use the old Bootstrap look.
 - **Vectorize standings computation with NumPy**: Rewrite the MC simulation hot path to process all trials simultaneously as batched array operations. Game outcome simulation (random draws + strength comparisons) and W/L/T record accumulation can be expressed as matrix operations over a `(trials, games)` array, eliminating per-trial Python loops. The tiebreaker logic would remain in Python but only be invoked for the subset of trials where teams are actually tied in win percentage. Expected 5-15x overall speedup for the simulation pipeline.
 
 ## Disclaimer

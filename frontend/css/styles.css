@@ -152,6 +152,7 @@ td.numeric {
     --mdn-divider-strong: rgba(32, 30, 29, 0.22);
 
     --mdn-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
+    --mdn-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.28);
 }
 
 /* --- Nav bar (app-wide) --- */
@@ -415,6 +416,12 @@ td.numeric {
     color: var(--mdn-text);
     border-color: var(--mdn-divider-strong);
     border-style: dashed;
+}
+
+.mdn-tag-outline-accent {
+    background: transparent;
+    color: var(--mdn-accent-700);
+    border-color: var(--mdn-accent-500);
 }
 
 .mdn-tag-elim {
@@ -703,4 +710,90 @@ td.numeric {
     to {
         transform: rotate(360deg);
     }
+}
+
+/* --- Dialog (Solver Timing History) --- */
+.mdn-dialog-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(51, 47, 45, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 20px;
+}
+
+.mdn-dialog {
+    background: #fff;
+    width: 760px;
+    max-width: 92%;
+    max-height: 88vh;
+    box-shadow: var(--mdn-shadow-lg);
+    font-family: var(--mdn-font-body);
+    color: var(--mdn-text);
+    overflow-y: auto;
+}
+
+.mdn-dialog-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 26px 28px 0;
+}
+
+.mdn-dialog-title {
+    font: 800 20px var(--mdn-font-heading);
+}
+
+.mdn-dialog-body {
+    padding: 12px 28px 0;
+}
+
+.mdn-dialog-body p {
+    margin: 0 0 18px;
+    font-size: 14px;
+    opacity: 0.85;
+}
+
+.mdn-dialog-stat-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+    padding-bottom: 14px;
+    border-bottom: 2px solid var(--mdn-divider-strong);
+}
+
+.mdn-dialog-scroll {
+    padding: 0 28px;
+    max-height: 340px;
+    overflow-y: auto;
+}
+
+.mdn-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding: 18px 28px 26px;
+}
+
+.mdn-btn-icon {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+}
+
+.mdn-btn-ghost {
+    background: transparent;
+    color: var(--mdn-text);
+    border-color: transparent;
+}
+
+.mdn-btn-ghost:hover:not(:disabled) {
+    background: var(--mdn-neutral-100);
 }

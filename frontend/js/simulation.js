@@ -261,73 +261,139 @@ async function _handleExportPerformance() {
 }
 
 /**
+ * Build the ms/eval trend sparkline SVG (140x28, min/max-normalized,
+ * oldest -> newest, latest point marked with a filled dot). Modernist
+ * "Solver Timing History" redesign — see design_handoff_standings_redesign/
+ * (Option 4a).
+ *
+ * @param {Array} timings - Array of timing rows as returned by the API
+ *   (newest first); reversed internally to plot oldest -> newest.
+ * @returns {string} SVG markup, or an empty-state span if fewer than 2 points.
+ */
+function _buildTimingSparkline(timings) {
+  const values = timings.map((t) => t.ms_per_eval).reverse();
+  if (values.length < 2) {
+    return '<span style="font-size:11px;opacity:0.5">Not enough data</span>';
+  }
+  const width = 140;
+  const height = 28;
+  const pad = 3;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const step = (width - pad * 2) / (values.length - 1);
+
+  const points = values.map((v, i) => {
+    const x = pad + i * step;
+    const y = height - pad - ((v - min) / range) * (height - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const [lastX, lastY] = points[points.length - 1].split(",");
+
+  return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+    <polyline points="${points.join(" ")}" fill="none" stroke="var(--mdn-accent-700)" stroke-width="1.5"></polyline>
+    <circle cx="${lastX}" cy="${lastY}" r="2.5" fill="var(--mdn-accent-500)"></circle>
+  </svg>`;
+}
+
+/**
  * Handle the "Timing History" button click.
- * Opens a modal showing solver timing history from the API.
+ * Opens a Modernist dialog showing solver timing history from the API.
  */
 async function _handleTimingHistory() {
-  // Create the modal element if it doesn't exist yet
-  let modalEl = document.getElementById("timingHistoryModal");
-  if (!modalEl) {
-    modalEl = document.createElement("div");
-    modalEl.className = "modal fade";
-    modalEl.id = "timingHistoryModal";
-    modalEl.tabIndex = -1;
-    modalEl.setAttribute("aria-labelledby", "timingHistoryModalLabel");
-    modalEl.setAttribute("aria-hidden", "true");
-    modalEl.innerHTML = `
-      <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title" id="timingHistoryModalLabel">Solver Timing History</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-          </div>
-          <div class="modal-body" id="timingHistoryBody">
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-          </div>
+  // Create the dialog element if it doesn't exist yet
+  let backdropEl = document.getElementById("timingHistoryModal");
+  if (!backdropEl) {
+    backdropEl = document.createElement("div");
+    backdropEl.className = "mdn-dialog-backdrop";
+    backdropEl.id = "timingHistoryModal";
+    backdropEl.style.display = "none";
+    backdropEl.innerHTML = `
+      <div class="mdn-dialog" role="dialog" aria-modal="true" aria-labelledby="timingHistoryModalLabel">
+        <div class="mdn-dialog-header">
+          <div class="mdn-dialog-title" id="timingHistoryModalLabel">Solver Timing History</div>
+          <button type="button" class="mdn-btn mdn-btn-icon mdn-btn-ghost" id="timingHistoryCloseX" aria-label="Close">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
+        <div id="timingHistoryBody"></div>
+        <div class="mdn-dialog-actions">
+          <button type="button" class="mdn-btn mdn-btn-primary" id="timingHistoryCloseFooter">Close</button>
         </div>
       </div>
     `;
-    document.body.appendChild(modalEl);
+    document.body.appendChild(backdropEl);
+
+    const closeDialog = () => {
+      backdropEl.style.display = "none";
+    };
+    document.getElementById("timingHistoryCloseX").addEventListener("click", closeDialog);
+    document.getElementById("timingHistoryCloseFooter").addEventListener("click", closeDialog);
+    backdropEl.addEventListener("click", (e) => {
+      if (e.target === backdropEl) closeDialog();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && backdropEl.style.display !== "none") closeDialog();
+    });
   }
 
   const bodyEl = document.getElementById("timingHistoryBody");
-  bodyEl.innerHTML = '<div class="text-center"><div class="spinner-border spinner-border-sm" role="status"><span class="visually-hidden">Loading…</span></div></div>';
+  bodyEl.innerHTML = '<div class="mdn-dialog-body"><p><span class="mdn-spinner"></span> Loading…</p></div>';
 
-  // Show modal immediately with loading state
-  const modal = new bootstrap.Modal(modalEl);
-  modal.show();
+  // Show dialog immediately with loading state
+  backdropEl.style.display = "flex";
 
   try {
     const data = await API.solverTimings();
     if (!data.timings || data.timings.length === 0) {
-      bodyEl.innerHTML = '<div class="alert alert-info">No timing data collected yet. Run the clinching solver to start building calibration data.</div>';
-    } else {
-      let rows = "";
-      for (const t of data.timings) {
-        const recordedAt = t.recorded_at ? new Date(t.recorded_at).toLocaleString() : "—";
-        rows += `<tr>
-          <td style="text-align:right">${t.ms_per_eval.toFixed(2)}</td>
-          <td>${_escapeHtml(t.method)}</td>
-          <td style="text-align:right">${t.relevant_games_count}</td>
-          <td style="text-align:right">${t.total_evals.toLocaleString()}</td>
-          <td>${recordedAt}</td>
-        </tr>`;
-      }
-      bodyEl.innerHTML = `
-        <p class="text-muted">These measurements are collected after each solver run and used to calibrate time estimates. The system keeps the last 50 measurements.</p>
-        <p><strong>${data.count} measurements</strong>, avg ${data.avg_ms_per_eval.toFixed(2)} ms/eval</p>
-        <div style="max-height: 300px; overflow-y: auto;">
-          <table class="table table-sm table-striped">
-            <thead><tr><th>ms/eval</th><th>Method</th><th>Games</th><th>Evaluations</th><th>Recorded At</th></tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-      `;
+      bodyEl.innerHTML = '<div class="mdn-dialog-body"><p>No timing data collected yet. Run the clinching solver to start building calibration data.</p></div>';
+      return;
     }
+
+    let rows = "";
+    for (const t of data.timings) {
+      const recordedAt = t.recorded_at ? new Date(t.recorded_at).toLocaleString() : "—";
+      const methodCls = t.method === "sampling" ? "mdn-tag-outline-accent" : "mdn-tag-elim";
+      rows += `<tr>
+        <td class="mdn-num" style="font-weight:700">${t.ms_per_eval.toFixed(2)}</td>
+        <td><span class="mdn-tag ${methodCls}" style="font-size:9px">${_escapeHtml(t.method)}</span></td>
+        <td class="mdn-num">${t.relevant_games_count}</td>
+        <td class="mdn-num">${t.total_evals.toLocaleString()}</td>
+        <td style="opacity:0.6;font-size:12px">${_escapeHtml(recordedAt)}</td>
+      </tr>`;
+    }
+
+    bodyEl.innerHTML = `
+      <div class="mdn-dialog-body">
+        <p>These measurements are collected after each solver run and used to calibrate time estimates. The system keeps the last 50 measurements.</p>
+        <div class="mdn-dialog-stat-row">
+          <div style="display:flex;align-items:baseline;gap:8px">
+            <span class="mdn-stat-val" style="font-size:17px">${data.count} measurement${data.count === 1 ? "" : "s"}</span>
+            <span style="font-size:12.5px;opacity:0.6">avg ${data.avg_ms_per_eval.toFixed(2)} ms/eval</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex:none">
+            <span class="mdn-stat-lbl" style="font-size:9px">ms/eval trend</span>
+            ${_buildTimingSparkline(data.timings)}
+          </div>
+        </div>
+      </div>
+      <div class="mdn-dialog-scroll">
+        <table class="mdn-led-table">
+          <thead>
+            <tr>
+              <th class="mdn-num" style="width:80px">ms/eval</th>
+              <th>Method</th>
+              <th class="mdn-num">Games</th>
+              <th class="mdn-num">Evaluations</th>
+              <th>Recorded At</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
   } catch (err) {
-    bodyEl.innerHTML = `<div class="alert alert-danger">Failed to load timing data: ${_escapeHtml(err.message || "Unknown error")}</div>`;
+    bodyEl.innerHTML = `<div class="mdn-dialog-body"><p style="color:var(--mdn-accent-700)">Failed to load timing data: ${_escapeHtml(err.message || "Unknown error")}</p></div>`;
   }
 }
 
