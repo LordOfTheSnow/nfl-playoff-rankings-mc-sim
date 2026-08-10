@@ -177,7 +177,7 @@ async function renderStandings(contentEl) {
 /**
  * Create the scoping root element for the Modernist standings page.
  * Everything rendered by this module lives inside it so its typography/token
- * overrides don't leak into the still-Bootstrap-styled views.
+ * overrides stay scoped to this page's content rather than leaking globally.
  *
  * @returns {HTMLElement}
  */
@@ -615,6 +615,11 @@ function buildStatusPanel(status) {
     const runBtn = document.getElementById("btn-run-sim-standings");
     const fetchBtn = document.getElementById("btn-fetch-data-standings");
     const totalEl = document.getElementById("sim-total-st");
+
+    // A rapid re-render (e.g. cutoff-week change immediately triggers
+    // renderStandings again) can replace this panel before this deferred
+    // callback fires — bail out rather than dereference stale/missing nodes.
+    if (!iterInput || !cutoffSel || !totalEl) return;
 
     function updateTotal() {
       const iters = parseInt(iterInput.value, 10) || 10000;

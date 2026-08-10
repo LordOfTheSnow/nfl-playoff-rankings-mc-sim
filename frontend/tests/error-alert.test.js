@@ -4,8 +4,9 @@
  * **Validates: Requirements 7.4, 7.6**
  *
  * Property 8: For any error message displayed by the application, it SHALL be
- * rendered in a Bootstrap `alert alert-danger` component, and if not manually
- * dismissed, it SHALL be automatically hidden after 8 seconds (±500ms tolerance).
+ * rendered in a Modernist `mdn-alert mdn-alert-danger` component with a
+ * working dismiss button, and if not manually dismissed, it SHALL be
+ * automatically hidden after 8 seconds (±500ms tolerance).
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
@@ -43,7 +44,7 @@ describe("Property 8: Error alert display and auto-dismiss", () => {
     App.hideNotification();
   });
 
-  it("error message renders in a Bootstrap alert-danger component with correct structure (100+ iterations)", () => {
+  it("error message renders in a Modernist alert-danger component with a working dismiss button (100+ iterations)", () => {
     fc.assert(
       fc.property(
         errorMessageArb,
@@ -51,29 +52,26 @@ describe("Property 8: Error alert display and auto-dismiss", () => {
           // Act: show error
           App.showError(message);
 
-          // Assert: notification container is visible (no d-none)
+          // Assert: notification container is visible (no mdn-hidden)
           const notificationEl = document.getElementById("notification");
-          expect(notificationEl.classList.contains("d-none")).toBe(false);
+          expect(notificationEl.classList.contains("mdn-hidden")).toBe(false);
 
-          // Assert: contains an alert-danger div with correct Bootstrap classes
-          const alertDiv = notificationEl.querySelector(".alert");
+          // Assert: contains an mdn-alert-danger div
+          const alertDiv = notificationEl.querySelector(".mdn-alert");
           expect(alertDiv).not.toBeNull();
-          expect(alertDiv.classList.contains("alert-danger")).toBe(true);
-          expect(alertDiv.classList.contains("alert-dismissible")).toBe(true);
-          expect(alertDiv.classList.contains("fade")).toBe(true);
-          expect(alertDiv.classList.contains("show")).toBe(true);
+          expect(alertDiv.classList.contains("mdn-alert-danger")).toBe(true);
 
           // Assert: message text is present in the alert
           expect(alertDiv.textContent).toContain(message);
 
-          // Assert: btn-close button exists inside the alert
-          const closeBtn = alertDiv.querySelector(".btn-close");
+          // Assert: dismiss button exists and actually dismisses on click
+          const closeBtn = alertDiv.querySelector(".mdn-alert-close");
           expect(closeBtn).not.toBeNull();
-          expect(closeBtn.getAttribute("data-bs-dismiss")).toBe("alert");
           expect(closeBtn.getAttribute("aria-label")).toBe("Close");
 
-          // Clean up for next iteration
-          App.hideNotification();
+          closeBtn.click();
+          expect(notificationEl.classList.contains("mdn-hidden")).toBe(true);
+          expect(notificationEl.innerHTML).toBe("");
         }
       ),
       { numRuns: 100 }
@@ -91,16 +89,16 @@ describe("Property 8: Error alert display and auto-dismiss", () => {
           const notificationEl = document.getElementById("notification");
 
           // Assert: visible immediately
-          expect(notificationEl.classList.contains("d-none")).toBe(false);
+          expect(notificationEl.classList.contains("mdn-hidden")).toBe(false);
 
           // Advance to just before auto-dismiss (7999ms)
           vi.advanceTimersByTime(7999);
-          expect(notificationEl.classList.contains("d-none")).toBe(false);
+          expect(notificationEl.classList.contains("mdn-hidden")).toBe(false);
           expect(notificationEl.innerHTML).not.toBe("");
 
           // Advance to 8000ms — auto-dismiss should trigger
           vi.advanceTimersByTime(1);
-          expect(notificationEl.classList.contains("d-none")).toBe(true);
+          expect(notificationEl.classList.contains("mdn-hidden")).toBe(true);
           expect(notificationEl.innerHTML).toBe("");
         }
       ),
@@ -118,24 +116,24 @@ describe("Property 8: Error alert display and auto-dismiss", () => {
 
           // Show first error
           App.showError(message1);
-          expect(notificationEl.classList.contains("d-none")).toBe(false);
+          expect(notificationEl.classList.contains("mdn-hidden")).toBe(false);
 
           // Advance 5 seconds (less than 8s timeout)
           vi.advanceTimersByTime(5000);
-          expect(notificationEl.classList.contains("d-none")).toBe(false);
+          expect(notificationEl.classList.contains("mdn-hidden")).toBe(false);
 
           // Show second error — should reset the timeout
           App.showError(message2);
-          expect(notificationEl.classList.contains("d-none")).toBe(false);
+          expect(notificationEl.classList.contains("mdn-hidden")).toBe(false);
 
           // Advance another 7999ms from the second showError call
           vi.advanceTimersByTime(7999);
-          expect(notificationEl.classList.contains("d-none")).toBe(false);
+          expect(notificationEl.classList.contains("mdn-hidden")).toBe(false);
           expect(notificationEl.textContent).toContain(message2);
 
           // Advance 1 more ms — now 8000ms since second showError, should dismiss
           vi.advanceTimersByTime(1);
-          expect(notificationEl.classList.contains("d-none")).toBe(true);
+          expect(notificationEl.classList.contains("mdn-hidden")).toBe(true);
           expect(notificationEl.innerHTML).toBe("");
         }
       ),

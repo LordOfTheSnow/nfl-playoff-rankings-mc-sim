@@ -1,127 +1,21 @@
 /* ==========================================================================
-   NFL Monte Carlo Playoff Simulator — Custom Overrides
-   Bootstrap 5.3.x loaded first; this file adds NFL-specific brand styling.
+   NFL Monte Carlo Playoff Simulator
+   Every view uses the Modernist design system below (--mdn-* tokens,
+   `.mdn-*` classes) — there is no Bootstrap dependency and no separate
+   legacy brand palette.
    ========================================================================== */
 
-/* --- NFL Brand Design Tokens --- */
-:root {
-    --color-bg: #f5f7fa;
-    --color-surface: #ffffff;
-    --color-text: #1a1a2e;
-    --color-text-muted: #5a5a7a;
-    --color-primary: #1b3a6b;
-    --color-primary-light: #2d5aa0;
-    --color-accent: #e63946;
-    --color-border: #dde2e8;
-    --color-border-light: #eef1f5;
-    --color-row-stripe: #f8fafc;
-    --color-row-hover: #edf2f7;
-    --color-success: #16a34a;
-    --color-warning: #d97706;
-    --font-mono: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
-    --radius-sm: 4px;
-    --radius-md: 8px;
-    --radius-lg: 12px;
-    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
-    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-/* --- Body overrides (only what Bootstrap Reboot doesn't set) --- */
 body {
     min-width: 1024px;
-    background-color: var(--color-bg);
-}
-
-/* --- Container max-width override --- */
-.container-xl {
-    max-width: 1400px;
-}
-
-/* --- Control field vertical stacking --- */
-.control-field {
-    display: flex;
-    flex-direction: column;
-}
-
-/* --- Team Link Hover/Focus --- */
-.team-link {
-    color: var(--color-primary-light);
-    text-decoration: none;
-    cursor: pointer;
-}
-
-.team-link:hover {
-    text-decoration: underline;
-    color: var(--color-primary);
-}
-
-.team-link:focus-visible {
-    outline: 2px solid var(--color-primary-light);
-    outline-offset: 2px;
-    border-radius: 2px;
-}
-
-/* --- Numeric Cell Styling --- */
-.numeric,
-td.numeric {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-    font-family: var(--font-mono);
-    font-size: 0.85rem;
-}
-
-.numeric-left {
-    text-align: left;
-    font-variant-numeric: tabular-nums;
-    font-family: var(--font-mono);
-    font-size: 0.85rem;
-}
-
-.numeric-inline {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-}
-
-/* --- Progress Overlay Backdrop --- */
-.progress-overlay {
-    position: fixed;
-    inset: 0;
-    background-color: rgba(0, 0, 0, 0.5);
-    z-index: 1050;
-}
-
-/* --- Schedule Grid --- */
-.schedule-grid-wrapper {
-    overflow-x: auto;
-}
-
-.schedule-grid {
-    font-size: 0.75rem;
-    white-space: nowrap;
-}
-
-.schedule-grid td,
-.schedule-grid th {
-    padding: 0.25rem;
-    vertical-align: middle;
-    text-align: center;
-}
-
-/* --- Responsive: wider container at large viewports --- */
-@media (min-width: 1600px) {
-    .container-xl {
-        max-width: 1600px;
-    }
+    background-color: var(--mdn-bg);
 }
 
 /* ==========================================================================
-   Modernist Design System — Standings Redesign
+   Modernist Design System
    Flat, architectural, red-on-white, Archivo type, zero corner radius.
-   Scoped under `mdn-` prefixed classes so it never collides with the
-   Bootstrap classes still used by the not-yet-redesigned views (Statistics,
-   Results). The nav bar / disclaimer strip are app-wide; the `.mdn-page`
-   wrapper scopes fonts/tokens to each Modernist-redesigned page (Standings,
-   Team Detail).
+   Scoped under `mdn-` prefixed classes. The nav bar / disclaimer strip are
+   app-wide; the `.mdn-page` wrapper scopes fonts/tokens to each page's
+   content (Standings, Team Detail, Results, Statistics, Schedule Grid).
    See design_handoff_standings_redesign/README.md for the source spec.
    ========================================================================== */
 
@@ -153,6 +47,8 @@ td.numeric {
 
     --mdn-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
     --mdn-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.28);
+
+    --mdn-bar-warm: oklch(70% 0.13 38);
 }
 
 /* --- Nav bar (app-wide) --- */
@@ -445,6 +341,16 @@ td.numeric {
     font-style: italic;
 }
 
+/* Voided game (postponed/cancelled, no result) — struck-through text reads
+   as "doesn't count", distinct from Loss's solid mdn-tag-elim treatment. */
+.mdn-tag-void {
+    background: transparent;
+    color: var(--mdn-neutral-500);
+    border-color: var(--mdn-neutral-400);
+    border-style: dashed;
+    text-decoration: line-through;
+}
+
 /* --- Tooltips (hover-only, dark popover) --- */
 .mdn-info-ic {
     display: inline-flex;
@@ -587,15 +493,75 @@ td.numeric {
     color: var(--mdn-accent-700);
 }
 
-.mdn-led-table td.mdn-bye {
+.mdn-bye {
     font: 800 12px var(--mdn-font-heading);
     font-style: italic;
     opacity: 0.55;
 }
 
+/* --- Schedule Grid (league-wide, denser variant of the ledger table) --- */
+.mdn-grid-wrapper {
+    overflow-x: auto;
+}
+
+.mdn-grid-table {
+    font-size: 11.5px;
+}
+
+.mdn-grid-table th,
+.mdn-grid-table td {
+    padding: 5px 6px;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.mdn-grid-table th:first-child,
+.mdn-grid-table td:first-child {
+    text-align: left;
+}
+
+.mdn-grid-team-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font: 700 12px var(--mdn-font-heading);
+    color: var(--mdn-text);
+    text-decoration: none;
+}
+
+.mdn-grid-team-link:hover {
+    color: var(--mdn-accent-700);
+    text-decoration: underline;
+}
+
+.mdn-grid-score-link {
+    display: block;
+    color: inherit;
+    text-decoration: none;
+}
+
+.mdn-grid-score-link:hover {
+    color: var(--mdn-accent-700);
+}
+
 /* --- Seeding probability tint (Results — Seeding Probabilities) --- */
 .mdn-seed-hi {
     color: #fff;
+}
+
+/* --- Inline stat bar (Statistics — Game Outcomes / Score Margin Distribution) --- */
+.mdn-bar-track {
+    height: 10px;
+    background: var(--mdn-neutral-200);
+    border: 1px solid var(--mdn-neutral-400);
+    position: relative;
+    box-sizing: border-box;
+}
+
+.mdn-bar-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--mdn-bar-warm);
 }
 
 /* --- Top Scenarios disclosure (Results — Top Scenarios) --- */
@@ -706,9 +672,109 @@ td.numeric {
     animation: mdn-spin 0.7s linear infinite;
 }
 
+/* Larger variant for the full-page loading overlay */
+.mdn-spinner-lg {
+    width: 32px;
+    height: 32px;
+    border-width: 3px;
+}
+
 @keyframes mdn-spin {
     to {
         transform: rotate(360deg);
+    }
+}
+
+/* --- Full-page loading overlay (App.showLoading) --- */
+.mdn-loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(51, 47, 45, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1055;
+}
+
+/* --- Global notification alerts (App.showError / App.showInfo) --- */
+.mdn-alert {
+    position: relative;
+    padding: 12px 44px 12px 16px;
+    margin: 0;
+    font: 400 13px var(--mdn-font-body);
+    line-height: 1.5;
+    border-left: 3px solid;
+    background: #fff;
+    box-shadow: var(--mdn-shadow-sm);
+}
+
+.mdn-alert-danger {
+    border-left-color: var(--mdn-accent-500);
+    background: var(--mdn-accent-100);
+    color: var(--mdn-accent-900);
+}
+
+.mdn-alert-info {
+    border-left-color: var(--mdn-neutral-500);
+    background: var(--mdn-neutral-100);
+    color: var(--mdn-text);
+}
+
+.mdn-alert-close {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 26px;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    cursor: pointer;
+    color: currentColor;
+    opacity: 0.6;
+}
+
+.mdn-alert-close:hover {
+    opacity: 1;
+}
+
+/* --- Utilities --- */
+.mdn-hidden {
+    display: none;
+}
+
+.mdn-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* --- Page container (replaces Bootstrap's .container-xl + .py-4) --- */
+.mdn-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding-left: 32px;
+    padding-right: 32px;
+    box-sizing: border-box;
+}
+
+.mdn-main {
+    padding-top: 24px;
+    padding-bottom: 24px;
+}
+
+@media (min-width: 1600px) {
+    .mdn-container {
+        max-width: 1600px;
     }
 }
 

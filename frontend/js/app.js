@@ -8,7 +8,7 @@
  *   #standings      — Standings view (default)
  *   #team/<name>    — Team schedule view
  *   #schedule-grid  — League-wide schedule grid
- *   #simulate       — Simulation controls
+ *   #simulate       — Redirects to #standings (controls live there now)
  *   #results        — Simulation results
  *   #settings       — Settings / Info (database & runtime environment)
  *
@@ -23,55 +23,60 @@ const App = (() => {
   let notificationEl = null;
   let loadingEl = null;
   let navLinks = null;
+  let footerEl = null;
+
+  // Views whose render function already renders its own Modernist-styled
+  // "Back to top" link — the app-wide footer link would otherwise duplicate it.
+  const VIEWS_WITH_OWN_BACK_TO_TOP = new Set(["team", "statistics", "schedule-grid"]);
 
   // --- Notification timeout handle ---
   let notificationTimeout = null;
 
   /**
+   * Render a dismissible Modernist alert into the notification area.
+   *
+   * @param {string} variant - "danger" or "info".
+   * @param {string} message - The message to display.
+   * @param {number} autoHideMs - Milliseconds before auto-dismissing.
+   */
+  function _renderAlert(variant, message, autoHideMs) {
+    if (!notificationEl) return;
+    notificationEl.innerHTML =
+      '<div class="mdn-alert mdn-alert-' + variant + '" role="alert">' +
+      message +
+      '<button type="button" class="mdn-alert-close" aria-label="Close">' +
+      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>' +
+      '</button>' +
+      '</div>';
+    notificationEl.classList.remove("mdn-hidden");
+
+    const closeBtn = notificationEl.querySelector(".mdn-alert-close");
+    if (closeBtn) closeBtn.addEventListener("click", hideNotification);
+
+    if (notificationTimeout) {
+      clearTimeout(notificationTimeout);
+    }
+    notificationTimeout = setTimeout(() => {
+      hideNotification();
+    }, autoHideMs);
+  }
+
+  /**
    * Display an error message in the notification area.
-   * Renders a Bootstrap alert-danger dismissible alert.
    *
    * @param {string} message - The error message to display.
    */
   function showError(message) {
-    if (!notificationEl) return;
-    notificationEl.innerHTML =
-      '<div class="alert alert-danger alert-dismissible fade show" role="alert">' +
-      message +
-      '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>' +
-      '</div>';
-    notificationEl.classList.remove("d-none");
-
-    // Auto-hide after 8 seconds
-    if (notificationTimeout) {
-      clearTimeout(notificationTimeout);
-    }
-    notificationTimeout = setTimeout(() => {
-      hideNotification();
-    }, 8000);
+    _renderAlert("danger", message, 8000);
   }
 
   /**
    * Display an informational message in the notification area.
-   * Renders a Bootstrap alert-info dismissible alert.
    *
    * @param {string} message - The info message to display.
    */
   function showInfo(message) {
-    if (!notificationEl) return;
-    notificationEl.innerHTML =
-      '<div class="alert alert-info alert-dismissible fade show" role="alert">' +
-      message +
-      '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>' +
-      '</div>';
-    notificationEl.classList.remove("d-none");
-
-    if (notificationTimeout) {
-      clearTimeout(notificationTimeout);
-    }
-    notificationTimeout = setTimeout(() => {
-      hideNotification();
-    }, 5000);
+    _renderAlert("info", message, 5000);
   }
 
   /**
@@ -79,7 +84,7 @@ const App = (() => {
    */
   function hideNotification() {
     if (!notificationEl) return;
-    notificationEl.classList.add("d-none");
+    notificationEl.classList.add("mdn-hidden");
     notificationEl.innerHTML = "";
     if (notificationTimeout) {
       clearTimeout(notificationTimeout);
@@ -89,17 +94,15 @@ const App = (() => {
 
   /**
    * Show the loading/progress indicator.
-   * Renders a Bootstrap spinner-border inside a fixed overlay.
    */
   function showLoading() {
     if (!loadingEl) return;
     loadingEl.innerHTML =
-      '<div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background:rgba(0,0,0,0.5);z-index:1055">' +
-      '<div class="spinner-border text-primary" role="status">' +
-      '<span class="visually-hidden">Loading…</span>' +
-      '</div>' +
+      '<div class="mdn-loading-overlay">' +
+      '<span class="mdn-spinner mdn-spinner-lg" role="status"></span>' +
+      '<span class="mdn-visually-hidden">Loading…</span>' +
       '</div>';
-    loadingEl.classList.remove("d-none");
+    loadingEl.classList.remove("mdn-hidden");
   }
 
   /**
@@ -107,7 +110,7 @@ const App = (() => {
    */
   function hideLoading() {
     if (!loadingEl) return;
-    loadingEl.classList.add("d-none");
+    loadingEl.classList.add("mdn-hidden");
     loadingEl.innerHTML = "";
   }
 
@@ -136,7 +139,7 @@ const App = (() => {
 
   /**
    * Update the active state of navigation links based on the current route.
-   * Sets Bootstrap `active` class and `aria-current="page"` on the matching link.
+   * Sets the `active` class and `aria-current="page"` on the matching link.
    *
    * @param {string} activeView - The current view name.
    */
@@ -164,6 +167,9 @@ const App = (() => {
     const { view, param } = parseHash();
     updateNavActive(view);
     hideNotification();
+    if (footerEl) {
+      footerEl.hidden = VIEWS_WITH_OWN_BACK_TO_TOP.has(view);
+    }
 
     try {
       switch (view) {
@@ -238,6 +244,7 @@ const App = (() => {
     notificationEl = document.getElementById("notification");
     loadingEl = document.getElementById("loading");
     navLinks = document.querySelectorAll(".mdn-nav-links a[data-view]");
+    footerEl = document.getElementById("app-footer");
 
     // Listen for hash changes
     window.addEventListener("hashchange", route);

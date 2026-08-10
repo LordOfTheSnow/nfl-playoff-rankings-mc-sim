@@ -150,22 +150,29 @@ def _build_schedule_grid(games: list[Game], all_teams: list[str]) -> list[dict[s
         List of 32 team entries, each containing:
         - team: full team name (e.g., "Bills")
         - abbreviation: short ID (e.g., "BUF")
-        - weeks: list of 18 entries (index 0 = week 1), each null for bye or:
+        - weeks: list of 18 entries (index 0 = week 1), each null for a true
+          bye (no game scheduled that week) or:
           - opponent: abbreviation of opponent
           - home: boolean (true = home game)
-          - status: "scheduled" | "in-progress" | "completed"
-          - team_score: int | null
-          - opponent_score: int | null
+          - status: "scheduled" | "in-progress" | "completed" | "postponed" | "cancelled"
+          - team_score: int | null (null unless status is "completed" or "in-progress")
+          - opponent_score: int | null (same)
     """
-    # Status mapping from GameStatus enum values to grid API values
+    # Status mapping from GameStatus enum values to grid API values. Postponed
+    # and cancelled games are included (not skipped) so the grid can show
+    # them distinctly rather than as a phantom bye week — see e.g. the 2022
+    # Week 17 Bills @ Bengals game, which ESPN marks STATUS_CANCELED and
+    # never resumed.
     _STATUS_MAP: dict[str, str] = {
         GameStatus.SCHEDULED.value: "scheduled",
         GameStatus.IN_PROGRESS.value: "in-progress",
         GameStatus.COMPLETED.value: "completed",
+        GameStatus.POSTPONED.value: "postponed",
+        GameStatus.CANCELLED.value: "cancelled",
     }
 
-    # Statuses to skip (leave as null/bye)
-    _SKIP_STATUSES = {GameStatus.POSTPONED, GameStatus.CANCELLED}
+    # Statuses that carry a meaningful score
+    _SCORED_STATUSES = {GameStatus.COMPLETED, GameStatus.IN_PROGRESS}
 
     # Initialize 32 team entries with 18-element weeks arrays (all null)
     grid: dict[str, dict[str, Any]] = {}
@@ -179,10 +186,6 @@ def _build_schedule_grid(games: list[Game], all_teams: list[str]) -> list[dict[s
 
     # Populate grid from games
     for game in games:
-        # Skip postponed/cancelled games
-        if game.status in _SKIP_STATUSES:
-            continue
-
         # Validate week is in range 1-18
         if game.week < 1 or game.week > 18:
             continue
@@ -191,6 +194,10 @@ def _build_schedule_grid(games: list[Game], all_teams: list[str]) -> list[dict[s
         status = _STATUS_MAP.get(game.status.value)
         if status is None:
             continue
+
+        is_scored = game.status in _SCORED_STATUSES
+        home_score = game.home_score if is_scored else None
+        away_score = game.away_score if is_scored else None
 
         home_abbr = get_team_abbreviation(game.home_team)
         away_abbr = get_team_abbreviation(game.away_team)
@@ -201,8 +208,8 @@ def _build_schedule_grid(games: list[Game], all_teams: list[str]) -> list[dict[s
                 "opponent": away_abbr,
                 "home": True,
                 "status": status,
-                "team_score": game.home_score,
-                "opponent_score": game.away_score,
+                "team_score": home_score,
+                "opponent_score": away_score,
             }
 
         # Populate from away team's perspective
@@ -211,8 +218,8 @@ def _build_schedule_grid(games: list[Game], all_teams: list[str]) -> list[dict[s
                 "opponent": home_abbr,
                 "home": False,
                 "status": status,
-                "team_score": game.away_score,
-                "opponent_score": game.home_score,
+                "team_score": away_score,
+                "opponent_score": home_score,
             }
 
     # Sort team entries alphabetically by abbreviation
@@ -1517,6 +1524,28 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             # Count one-score games (point differential <= 8)
             one_score_games = sum(1 for g in completed if abs(g.home_score - g.away_score) <= 8)
 
+            # Score margin distribution, bucketed by point differential
+            margin_buckets = [
+                ("Tie", 0, 0),
+                ("1–3", 1, 3),
+                ("4–8", 4, 8),
+                ("9–13", 9, 13),
+                ("14–20", 14, 20),
+                ("21–27", 21, 27),
+                ("28+", 28, None),
+            ]
+            margin_distribution = []
+            for label, lo, hi in margin_buckets:
+                if hi is None:
+                    count = sum(1 for g in completed if abs(g.home_score - g.away_score) >= lo)
+                else:
+                    count = sum(1 for g in completed if lo <= abs(g.home_score - g.away_score) <= hi)
+                margin_distribution.append({
+                    "label": label,
+                    "count": count,
+                    "pct": round(count / total_games * 100, 1) if total_games > 0 else 0,
+                })
+
             # Compute streaks per team
             from src.nfl_teams import ALL_TEAMS
 
@@ -1592,6 +1621,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 "one_score_pct": round(one_score_games / total_games * 100, 1) if total_games > 0 else 0,
                 "longest_win_streak": longest_win_streak,
                 "longest_lose_streak": longest_lose_streak,
+                "margin_distribution": margin_distribution,
             }
             self._send_json_response(200, response)
         except Exception as e:

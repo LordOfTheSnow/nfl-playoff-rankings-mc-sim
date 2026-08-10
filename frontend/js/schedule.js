@@ -246,6 +246,25 @@ function _buildGameRow(game) {
       statusCell.textContent = quarterText + (clockText ? " " + clockText : "");
       break;
     }
+    case "cancelled": {
+      // e.g. the 2022 Week 17 Bills @ Bengals game, suspended after Damar
+      // Hamlin's on-field collapse and never resumed — no score, no result.
+      // mdn-tag-void (dashed + strikethrough) reads as "voided", distinct
+      // from mdn-tag-elim's Loss styling — this isn't a loss, it's a game
+      // that never happened as far as the record is concerned.
+      const tag = document.createElement("span");
+      tag.className = "mdn-tag mdn-tag-void";
+      tag.textContent = "Canceled";
+      statusCell.appendChild(tag);
+      break;
+    }
+    case "postponed": {
+      const tag = document.createElement("span");
+      tag.className = "mdn-tag mdn-tag-outline-dashed";
+      tag.textContent = "Postponed";
+      statusCell.appendChild(tag);
+      break;
+    }
     case "scheduled":
     default:
       statusCell.className = "mdn-hint";

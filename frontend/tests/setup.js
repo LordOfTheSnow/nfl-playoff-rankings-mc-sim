@@ -4,8 +4,8 @@
  * Loads the app's JS files into the JSDOM environment so that
  * global functions (App, renderStandings, etc.) are available in tests.
  *
- * Bootstrap CSS is not loaded (no CDN in tests), but we verify class assignments
- * and DOM structure rather than computed styles.
+ * styles.css is not loaded (no stylesheet in tests), but we verify class
+ * assignments and DOM structure rather than computed styles.
  */
 
 import { readFileSync } from "fs";
@@ -43,9 +43,9 @@ beforeAll(() => {
         <a href="#results" data-view="results">Results</a>
       </div>
     </nav>
-    <div id="notification" class="container-xl mt-2 d-none" role="alert" aria-live="polite"></div>
-    <div id="loading" class="d-none" aria-label="Loading"></div>
-    <main id="content" class="container-xl py-4"></main>
+    <div id="notification" class="mdn-container mdn-hidden" role="alert" aria-live="polite"></div>
+    <div id="loading" class="mdn-hidden" aria-label="Loading"></div>
+    <main id="content" class="mdn-container mdn-main"></main>
   `;
 
   // Stub API module to prevent real network calls — assign BEFORE loading scripts
@@ -76,14 +76,14 @@ afterEach(() => {
   // Reset notification
   const notification = document.getElementById("notification");
   if (notification) {
-    notification.classList.add("d-none");
+    notification.classList.add("mdn-hidden");
     notification.innerHTML = "";
   }
 
   // Reset loading
   const loading = document.getElementById("loading");
   if (loading) {
-    loading.classList.add("d-none");
+    loading.classList.add("mdn-hidden");
     loading.innerHTML = "";
   }
 });

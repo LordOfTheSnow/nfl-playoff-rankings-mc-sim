@@ -1,12 +1,11 @@
 /**
- * Property Test: Table Bootstrap class assignment
+ * Property Test: Table Modernist class assignment
  *
  * **Validates: Requirements 4.1, 4.3, 4.4**
  *
  * Property 2: For any table rendered by the application (standings, results
- * probability, schedule), the table element SHALL contain the Bootstrap `table`
- * class plus the context-appropriate modifier classes (`table-striped table-hover`
- * for standings and probability tables, `table-hover` for schedule tables).
+ * probability, schedule), the table element SHALL contain the Modernist
+ * `mdn-led-table` ledger class.
  */
 
 import { describe, it, expect } from "vitest";
@@ -69,7 +68,7 @@ const scheduleDataArbitrary = fc.record({
 
 // --- Property Tests ---
 
-describe("Property 2: Table Bootstrap class assignment", () => {
+describe("Property 2: Table Modernist class assignment", () => {
   it("standings tables have the 'mdn-led-table' Modernist ledger class", () => {
     fc.assert(
       fc.property(divisionNameArbitrary, teamsArrayArbitrary, (divName, teams) => {

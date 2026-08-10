@@ -40,7 +40,7 @@ class TestBuildScheduleGridStructuralGuarantees:
     def test_non_null_slots_have_correct_field_types(self, games: list[Game]) -> None:
         """Non-null slots have opponent (string), home (boolean), and valid status."""
         result = _build_schedule_grid(games, ALL_TEAMS)
-        valid_statuses = {"scheduled", "in-progress", "completed"}
+        valid_statuses = {"scheduled", "in-progress", "completed", "postponed", "cancelled"}
 
         for entry in result:
             for week_idx, slot in enumerate(entry["weeks"]):
@@ -114,15 +114,18 @@ class TestBuildScheduleGridStructuralGuarantees:
     @given(games=schedule_game_list)
     @settings(max_examples=100)
     def test_weeks_with_no_game_are_null(self, games: list[Game]) -> None:
-        """Weeks where a team has no game are represented as null (None)."""
+        """Weeks where a team has no game at all (a true bye) are null.
+
+        Postponed/cancelled games still get a non-null slot (with status
+        "postponed"/"cancelled" and no scores) — they are represented, not
+        collapsed into a phantom bye week alongside the team's real bye.
+        """
         result = _build_schedule_grid(games, ALL_TEAMS)
 
-        # Build set of (team, week) pairs that should have a game entry
-        # (non-postponed, non-cancelled games with valid weeks)
+        # Build set of (team, week) pairs that have ANY game, regardless of
+        # status — postponed/cancelled games still occupy their week slot.
         active_slots: set[tuple[str, int]] = set()
         for game in games:
-            if game.status in (GameStatus.POSTPONED, GameStatus.CANCELLED):
-                continue
             if game.week < 1 or game.week > 18:
                 continue
             active_slots.add((game.home_team, game.week))
@@ -137,3 +140,22 @@ class TestBuildScheduleGridStructuralGuarantees:
                         f"Team {team_name} week {week_num}: "
                         f"expected null for bye week, got {slot}"
                     )
+                else:
+                    assert slot is not None, (
+                        f"Team {team_name} week {week_num}: "
+                        f"expected a game slot (even if postponed/cancelled), got None"
+                    )
+
+    @given(games=schedule_game_list)
+    @settings(max_examples=100)
+    def test_postponed_cancelled_slots_have_no_scores(self, games: list[Game]) -> None:
+        """Postponed/cancelled slots always carry null team_score/opponent_score,
+        even if the source game happened to carry a raw score (e.g. ESPN
+        reports 0-0 for a cancelled game) — there is no meaningful result."""
+        result = _build_schedule_grid(games, ALL_TEAMS)
+
+        for entry in result:
+            for slot in entry["weeks"]:
+                if slot is not None and slot["status"] in ("postponed", "cancelled"):
+                    assert slot["team_score"] is None
+                    assert slot["opponent_score"] is None

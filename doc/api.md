@@ -160,7 +160,7 @@ Returns the league-wide schedule grid: all 32 teams with their 18-week matchup a
 }
 ```
 
-Week entries are `null` for bye weeks. Status values: `"scheduled"`, `"in-progress"`, `"completed"`.
+Week entries are `null` only for a true bye (no game scheduled that week). Status values: `"scheduled"`, `"in-progress"`, `"completed"`, `"postponed"`, `"cancelled"` — a postponed/cancelled game still gets its own week entry (not collapsed into `null`) so it isn't mistaken for a second bye; `team_score`/`opponent_score` are always `null` for those two statuses. Example: the 2022 season's Week 17 Bills @ Bengals game, suspended after Damar Hamlin's on-field collapse and never resumed, is reported by ESPN as `STATUS_CANCELED` and appears here with `"status": "cancelled"`.
 
 ---
 
@@ -229,9 +229,20 @@ Returns season-wide statistics computed from completed games.
     "streak": 8,
     "from_week": 2,
     "to_week": 9
-  }
+  },
+  "margin_distribution": [
+    { "label": "Tie", "count": 5, "pct": 2.1 },
+    { "label": "1–3", "count": 38, "pct": 15.8 },
+    { "label": "4–8", "count": 52, "pct": 21.7 },
+    { "label": "9–13", "count": 47, "pct": 19.6 },
+    { "label": "14–20", "count": 51, "pct": 21.3 },
+    { "label": "21–27", "count": 30, "pct": 12.5 },
+    { "label": "28+", "count": 17, "pct": 7.1 }
+  ]
 }
 ```
+
+`margin_distribution` buckets every completed game by point differential (`Tie` = 0, then 1–3, 4–8, 9–13, 14–20, 21–27, 28+), each entry's `pct` relative to `total_games`.
 
 ---
 

@@ -211,3 +211,85 @@ describe("Property 11: Game result tag indicators", () => {
     );
   });
 });
+
+/**
+ * Postponed/cancelled games (e.g. the 2022 Week 17 Bills @ Bengals game,
+ * suspended after Damar Hamlin's on-field collapse and never resumed —
+ * ESPN reports it as STATUS_CANCELED) must render a distinct status tag,
+ * not be mistaken for a "Scheduled/TBD" game via the default case.
+ */
+describe("Cancelled/postponed game status rendering", () => {
+  let contentEl;
+
+  beforeEach(() => {
+    contentEl = document.getElementById("content");
+    contentEl.innerHTML = "";
+  });
+
+  it("cancelled game renders an 'mdn-tag-void' tag reading 'Canceled', no score", () => {
+    const scheduleData = {
+      team: "BUF",
+      record: { wins: 0, losses: 0, ties: 0, win_percentage: 0.0 },
+      games: [{
+        week: 17,
+        opponent: "CIN",
+        home: false,
+        status: "cancelled",
+        opponent_strength: 0.5,
+      }],
+    };
+
+    renderScheduleContent(contentEl, scheduleData);
+
+    const tbody = contentEl.querySelector("tbody");
+    const row = gameRowsOf(tbody)[0];
+    const cells = row.querySelectorAll("td");
+
+    const tag = cells[5].querySelector(".mdn-tag");
+    expect(tag).not.toBeNull();
+    expect(tag.classList.contains("mdn-tag-void")).toBe(true);
+    expect(tag.textContent).toBe("Canceled");
+
+    // Must be visually distinct from Loss — a canceled/no-contest game
+    // isn't a loss, so it must not share Loss's "mdn-tag-elim" styling.
+    expect(tag.classList.contains("mdn-tag-elim")).toBe(false);
+
+    // Must NOT use a `cursor: help` tag variant (e.g. "mdn-tag-outline") with
+    // no accompanying tooltip — that renders a "?" cursor promising an
+    // explanation that never appears.
+    expect(tag.classList.contains("mdn-tag-outline")).toBe(false);
+
+    // No score to show
+    expect(cells[4].textContent.trim()).toBe("—");
+  });
+
+  it("postponed game renders an 'mdn-tag-outline-dashed' tag reading 'Postponed', no score", () => {
+    const scheduleData = {
+      team: "BUF",
+      record: { wins: 0, losses: 0, ties: 0, win_percentage: 0.0 },
+      games: [{
+        week: 5,
+        opponent: "MIA",
+        home: true,
+        status: "postponed",
+        opponent_strength: 0.5,
+      }],
+    };
+
+    renderScheduleContent(contentEl, scheduleData);
+
+    const tbody = contentEl.querySelector("tbody");
+    const row = gameRowsOf(tbody)[0];
+    const cells = row.querySelectorAll("td");
+
+    const tag = cells[5].querySelector(".mdn-tag");
+    expect(tag).not.toBeNull();
+    expect(tag.classList.contains("mdn-tag-outline-dashed")).toBe(true);
+    expect(tag.textContent).toBe("Postponed");
+
+    // Must NOT use a `cursor: help` tag variant with no accompanying tooltip
+    expect(tag.classList.contains("mdn-tag-outline")).toBe(false);
+
+    expect(cells[4].textContent.trim()).toBe("—");
+  });
+});

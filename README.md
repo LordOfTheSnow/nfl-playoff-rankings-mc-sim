@@ -27,7 +27,7 @@ A web application that predicts NFL playoff probabilities using Monte Carlo simu
 - Solver performance export: one-click export of timing benchmarks to `doc/solver-performance.md`
 - Season selector in the navbar for switching seasons without restarting
 - Local SQLite caching with TTL policies
-- Standings, Team Detail, and Simulation Results pages, the Solver Timing History dialog, plus the app-wide nav, redesigned in a flat "Modernist" style (Archivo type, red accent, zero corner radius); Schedule Grid and Statistics still use the original Bootstrap 5.3.8 (CDN) styling
+- Entire UI — every page, the app-wide nav, and the Solver Timing History dialog — redesigned in a flat "Modernist" style (Archivo type, red accent, zero corner radius); no Bootstrap dependency remains
 - Settings / Info page showing SQLite cache database metadata (seasons stored, per-season completeness, and the last 20 ESPN fetch attempts with failures flagged), the server's runtime environment (CPU model/cores, Python version, platform), and lifetime totals for games simulated and clinching resolver evaluations performed
 
 ## Screenshots
@@ -197,7 +197,7 @@ pytest tests/ -v
 
 ## ToDo
 
-- **Massive UI overhaul**: The current interface is functional but needs a ground-up redesign for better usability, visual polish, and information hierarchy. Standings, Team Detail, Simulation Results, and the Solver Timing History dialog have been redesigned in the "Modernist" flat/red-on-white style (see `design_handoff_standings_redesign/`); Schedule Grid and Statistics still use the old Bootstrap look.
+- **Massive UI overhaul**: The current interface is functional but needs a ground-up redesign for better usability, visual polish, and information hierarchy. Standings, Team Detail, Simulation Results, the Solver Timing History dialog, Statistics, and Schedule Grid have all been redesigned in the "Modernist" flat/red-on-white style (see `design_handoff_standings_redesign/`). Clinching Scenarios remains unaddressed.
 - **Vectorize standings computation with NumPy**: Rewrite the MC simulation hot path to process all trials simultaneously as batched array operations. Game outcome simulation (random draws + strength comparisons) and W/L/T record accumulation can be expressed as matrix operations over a `(trials, games)` array, eliminating per-trial Python loops. The tiebreaker logic would remain in Python but only be invoked for the subset of trials where teams are actually tied in win percentage. Expected 5-15x overall speedup for the simulation pipeline.
 
 ## Disclaimer
