@@ -8,8 +8,9 @@
  *   #standings      — Standings view (default)
  *   #team/<name>    — Team schedule view
  *   #schedule-grid  — League-wide schedule grid
- *   #simulate       — Redirects to #standings (controls live there now)
- *   #results        — Simulation results
+ *   #simulate       — Redirects to #simulations (legacy alias)
+ *   #results        — Redirects to #simulations (legacy alias)
+ *   #simulations    — Simulation setup + results (owns the sim controls)
  *   #settings       — Settings / Info (database & runtime environment)
  *
  * Requirements: 11.3, 11.4, 11.6
@@ -128,7 +129,7 @@ const App = (() => {
     }
 
     // Known routes
-    const knownRoutes = ["standings", "simulate", "results", "statistics", "schedule-grid", "settings"];
+    const knownRoutes = ["standings", "simulate", "results", "simulations", "statistics", "schedule-grid", "settings"];
     if (knownRoutes.includes(hash)) {
       return { view: hash, param: null };
     }
@@ -186,8 +187,13 @@ const App = (() => {
           break;
 
         case "simulate":
-          // Redirect to standings (controls are now there)
-          App.navigate("standings");
+          // Legacy alias — controls live on the Simulations page now.
+          App.navigate("simulations");
+          break;
+
+        case "results":
+          // Legacy alias — the "Results" page was renamed to "Simulations".
+          App.navigate("simulations");
           break;
 
         case "schedule-grid":
@@ -202,9 +208,9 @@ const App = (() => {
           }
           break;
 
-        case "results":
-          if (typeof renderResults === "function") {
-            await renderResults(contentEl);
+        case "simulations":
+          if (typeof renderSimulations === "function") {
+            await renderSimulations(contentEl);
           }
           break;
 
@@ -232,6 +238,29 @@ const App = (() => {
    */
   function navigate(hash) {
     window.location.hash = hash;
+  }
+
+  /**
+   * Read the app-level cutoff-week value, shared and persisted across the
+   * Standings and Simulations pages.
+   *
+   * @returns {string|null} The saved cutoff week ("" = Auto), or null if unset.
+   */
+  function getCutoffWeek() {
+    return localStorage.getItem("sim-cutoff");
+  }
+
+  /**
+   * Persist the app-level cutoff-week value. Changing the cutoff invalidates
+   * any existing simulation results (they were computed for the old cutoff),
+   * so this also clears the in-memory results cache. Callers are responsible
+   * for re-rendering their own page afterward.
+   *
+   * @param {string} value - The new cutoff week ("" for Auto).
+   */
+  function setCutoffWeek(value) {
+    localStorage.setItem("sim-cutoff", value);
+    window._simulationResults = null;
   }
 
   /**
@@ -316,5 +345,7 @@ const App = (() => {
     hideLoading,
     navigate,
     route,
+    getCutoffWeek,
+    setCutoffWeek,
   };
 })();

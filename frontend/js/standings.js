@@ -100,8 +100,8 @@ async function renderStandings(contentEl) {
     // Ignore status errors
   }
 
-  // Read cutoff week from localStorage (set by simulation controls)
-  const savedCutoff = localStorage.getItem('sim-cutoff');
+  // Read the shared, app-level cutoff week (also editable on the Simulations page)
+  const savedCutoff = App.getCutoffWeek();
   const cutoffWeek = savedCutoff ? parseInt(savedCutoff, 10) : null;
 
   let data;
@@ -505,7 +505,40 @@ function buildLegend() {
 }
 
 /**
- * Build a status panel showing data fetch summary and simulation controls.
+ * Build the shared "Season data" header-card left cell — identical markup on
+ * both the Standings and Simulations pages (design_handoff_simulation_flow_v2/).
+ *
+ * @param {Object} status - Status object from /api/status.
+ * @param {string|null} savedCutoffLS - Saved cutoff-week string ("" = Auto, null = unset).
+ * @returns {string} HTML string for the cell's contents (no wrapping element).
+ */
+function buildSeasonDataCell(status, savedCutoffLS) {
+  const pctCompleted = status.expected_total > 0 ? Math.round(((status.completed || 0) / status.expected_total) * 100) : 0;
+  const cutoffTitle = savedCutoffLS
+    ? "Week " + savedCutoffLS + " cutoff"
+    : "Auto cutoff — week " + (status.weeks_completed || status.weeks_fetched || 0);
+
+  let html = '<div class="mdn-card-kicker">Season data</div>';
+  html += '<div class="mdn-card-title">' + status.season_year + ' · ' + cutoffTitle + '</div>';
+  html += '<div style="display:flex;gap:28px;margin-top:12px;flex-wrap:wrap">';
+  html += '<div><div class="mdn-stat-lbl">Weeks loaded</div><div class="mdn-stat-val">' + status.weeks_fetched + ' / 18</div></div>';
+  html += '<div><div class="mdn-stat-lbl">Weeks completed</div><div class="mdn-stat-val">' + (status.weeks_completed || 0) + ' / 18</div></div>';
+  html += '<div><div class="mdn-stat-lbl">Games loaded</div><div class="mdn-stat-val">' + status.total_games + ' / ' + status.expected_total + '</div></div>';
+  html += '<div><div class="mdn-stat-lbl">Games completed</div><div class="mdn-stat-val">' + (status.completed || 0) + ' / ' + status.expected_total + ' (' + pctCompleted + '%)</div></div>';
+  html += '</div>';
+  if (status.last_fetch_time) {
+    const fetchDate = new Date(status.last_fetch_time);
+    html += '<p class="mdn-hint">Last fetched ' + fetchDate.toLocaleString() +
+      (status.in_progress > 0 ? ' · ' + status.in_progress + ' game(s) in progress' : '') + '</p>';
+  }
+  return html;
+}
+
+/**
+ * Build a status panel showing data fetch summary and the cutoff-week
+ * control. Simulation controls (Iterations/Noise/Workers/Simulate) live on
+ * the Simulations page now — this panel only sets the shared cutoff and
+ * hands off via "Go to Simulations →".
  *
  * @param {Object} status - Status object from /api/status.
  * @returns {HTMLElement} The status panel element.
@@ -527,54 +560,21 @@ function buildStatusPanel(status) {
     return panel;
   }
 
-  panel.style.cssText += ";display:grid;grid-template-columns:1.1fr 1.6fr;gap:32px";
+  panel.style.cssText += ";display:grid;grid-template-columns:1fr 1fr;gap:32px";
 
-  const gamesPerWeek = status.games_per_week || {};
-  const pctCompleted = status.expected_total > 0 ? Math.round(((status.completed || 0) / status.expected_total) * 100) : 0;
+  const savedCutoffLS = App.getCutoffWeek();
 
-  const savedCutoffLS = localStorage.getItem('sim-cutoff');
-  const cutoffTitle = savedCutoffLS
-    ? "Week " + savedCutoffLS + " cutoff"
-    : "Auto cutoff — week " + (status.weeks_completed || status.weeks_fetched || 0);
+  // --- Left column: season data (shared with the Simulations page) ---
+  let html = '<div>' + buildSeasonDataCell(status, savedCutoffLS) + '</div>';
 
-  // --- Left column: season data ---
-  let html = '<div>';
-  html += '<div class="mdn-card-kicker">Season data</div>';
-  html += '<div class="mdn-card-title">' + status.season_year + ' · ' + cutoffTitle + '</div>';
-  html += '<div style="display:flex;gap:28px;margin-top:12px;flex-wrap:wrap">';
-  html += '<div><div class="mdn-stat-lbl">Weeks loaded</div><div class="mdn-stat-val">' + status.weeks_fetched + ' / 18</div></div>';
-  html += '<div><div class="mdn-stat-lbl">Weeks completed</div><div class="mdn-stat-val">' + (status.weeks_completed || 0) + ' / 18</div></div>';
-  html += '<div><div class="mdn-stat-lbl">Games loaded</div><div class="mdn-stat-val">' + status.total_games + ' / ' + status.expected_total + '</div></div>';
-  html += '<div><div class="mdn-stat-lbl">Games completed</div><div class="mdn-stat-val">' + (status.completed || 0) + ' / ' + status.expected_total + ' (' + pctCompleted + '%)</div></div>';
-  html += '</div>';
-  if (status.last_fetch_time) {
-    const fetchDate = new Date(status.last_fetch_time);
-    html += '<p class="mdn-hint">Last fetched ' + fetchDate.toLocaleString() +
-      (status.in_progress > 0 ? ' · ' + status.in_progress + ' game(s) in progress' : '') + '</p>';
-  }
-  html += '</div>';
-
-  // --- Right column: simulation controls ---
-  const cpuCount = (status && status.cpu_count) ? status.cpu_count : 4;
-  const savedWorkers = parseInt(localStorage.getItem('sim-workers'), 10) || cpuCount;
-  const savedNoise = localStorage.getItem('sim-noise') || '20';
-  const noiseVal = (parseInt(savedNoise, 10) / 100).toFixed(2);
-  const noiseLabel = _noiseLabel(parseFloat(noiseVal));
-
+  // --- Right column: cutoff week + hand-off to Simulations ---
   html += '<div>';
-  html += '<div class="mdn-card-kicker">Simulation</div>';
+  html += '<div class="mdn-card-kicker">Cutoff</div>';
   html += '<div style="display:flex;gap:22px;align-items:flex-start;flex-wrap:wrap;margin-top:6px">';
 
   html += '<div class="mdn-field" style="width:110px">' +
-    '<label for="sim-iterations-st">Iterations' +
-    _infoIcon("Number of Monte Carlo trials to run. More iterations = more accurate probabilities but longer runtime.") +
-    '</label>' +
-    '<input class="mdn-input" type="number" id="sim-iterations-st" min="100" max="1000000" value="' +
-    (parseInt(localStorage.getItem('sim-iterations'), 10) || 10000) + '"></div>';
-
-  html += '<div class="mdn-field" style="width:110px">' +
     '<label for="sim-cutoff-st">Cutoff' +
-    _infoIcon("Games up to and including this week use real results. Games after this week are simulated. Auto = latest completed week.") +
+    _infoIcon("Games up to and including this week use real results. Games after this week are simulated. Synced with the Simulations page.") +
     '</label>' +
     '<select class="mdn-input" id="sim-cutoff-st"><option value="">Auto</option>';
   for (let w = 1; w <= 18; w++) {
@@ -582,115 +582,29 @@ function buildStatusPanel(status) {
   }
   html += '</select></div>';
 
-  html += '<div class="mdn-field" style="width:140px">' +
-    '<label for="sim-noise-st">Noise' +
-    _infoIcon("Per-game strength noise: adds random variance to each simulated game outcome, modeling the unpredictability of real NFL games (\"Any given Sunday\").") +
-    '</label>' +
-    '<input type="range" class="mdn-input" id="sim-noise-st" min="0" max="100" value="' + savedNoise + '">' +
-    '<div class="mdn-hint" id="sim-noise-label-st">' + noiseVal + ' — ' + noiseLabel + '</div></div>';
-
-  html += '<div class="mdn-field" style="width:130px">' +
-    '<label for="sim-workers-st">Workers' +
-    _infoIcon("Parallel CPU cores: each Monte Carlo trial is independent, so batches run simultaneously across cores. More workers = faster simulation.") +
-    '</label>' +
-    '<input type="range" class="mdn-input" id="sim-workers-st" min="1" max="' + cpuCount + '" value="' + savedWorkers + '">' +
-    '<div class="mdn-hint" id="sim-workers-label-st">' + savedWorkers + (savedWorkers === 1 ? ' core' : ' cores') + '</div></div>';
-
-  html += '<button id="btn-run-sim-standings" class="mdn-btn mdn-btn-primary" type="button" style="margin-top:23px">Simulate</button>';
   html += '<button id="btn-fetch-data-standings" class="mdn-btn mdn-btn-secondary" type="button" style="margin-top:23px">Fetch data</button>';
+  html += '<a href="#simulations" class="mdn-btn mdn-btn-primary" style="margin-top:23px;text-decoration:none">Go to Simulations →</a>';
   html += '</div>';
-  html += '<p class="mdn-hint" id="sim-total-st" style="margin-top:10px"></p>';
-  html += '<div id="sim-progress-st" style="margin-top:0.75rem;display:none;align-items:center;gap:0.6rem">' +
-    '<span class="mdn-spinner"></span><span class="mdn-hint">Running simulation…</span></div>';
+  html += '<p class="mdn-hint" style="margin-top:10px">Set the cutoff here, then run and explore simulations on the Simulations page.</p>';
   html += '</div>';
 
   panel.innerHTML = html;
 
   // Wire up event listeners after DOM insert
   setTimeout(() => {
-    const iterInput = document.getElementById("sim-iterations-st");
     const cutoffSel = document.getElementById("sim-cutoff-st");
-    const noiseSl = document.getElementById("sim-noise-st");
-    const workersSl = document.getElementById("sim-workers-st");
-    const runBtn = document.getElementById("btn-run-sim-standings");
     const fetchBtn = document.getElementById("btn-fetch-data-standings");
-    const totalEl = document.getElementById("sim-total-st");
 
     // A rapid re-render (e.g. cutoff-week change immediately triggers
     // renderStandings again) can replace this panel before this deferred
     // callback fires — bail out rather than dereference stale/missing nodes.
-    if (!iterInput || !cutoffSel || !totalEl) return;
+    if (!cutoffSel) return;
 
-    function updateTotal() {
-      const iters = parseInt(iterInput.value, 10) || 10000;
-      const cutoff = cutoffSel.value ? parseInt(cutoffSel.value, 10) : 18;
-      let gamesToSim = 0;
-      for (const [wk, cnt] of Object.entries(gamesPerWeek)) {
-        if (parseInt(wk, 10) > cutoff) gamesToSim += cnt;
-      }
-      if (gamesToSim > 0) {
-        totalEl.textContent = gamesToSim + ' games × ' + iters.toLocaleString() + ' iterations = ' + (gamesToSim * iters).toLocaleString() + ' game simulations';
-      } else {
-        totalEl.textContent = 'No games to simulate at this cutoff';
-      }
-    }
-
-    if (iterInput) iterInput.addEventListener("input", updateTotal);
-    if (cutoffSel) cutoffSel.addEventListener("change", updateTotal);
-    updateTotal();
-
-    // Persist values on change
-    if (iterInput) iterInput.addEventListener("change", () => localStorage.setItem('sim-iterations', iterInput.value));
-    if (cutoffSel) cutoffSel.addEventListener("change", () => {
-      localStorage.setItem('sim-cutoff', cutoffSel.value);
+    cutoffSel.addEventListener("change", () => {
+      App.setCutoffWeek(cutoffSel.value);
       // Re-render standings with the new cutoff week
       const contentEl = document.getElementById("content");
       if (contentEl) renderStandings(contentEl);
-    });
-
-    // Noise label update
-    if (noiseSl) noiseSl.addEventListener("input", () => {
-      const val = (parseInt(noiseSl.value, 10) / 100).toFixed(2);
-      const label = _noiseLabel(parseFloat(val));
-      const labelEl = document.getElementById("sim-noise-label-st");
-      if (labelEl) labelEl.textContent = val + " — " + label;
-      localStorage.setItem('sim-noise', noiseSl.value);
-    });
-
-    // Workers label update
-    if (workersSl) workersSl.addEventListener("input", () => {
-      const val = parseInt(workersSl.value, 10);
-      const labelEl = document.getElementById("sim-workers-label-st");
-      if (labelEl) labelEl.textContent = val === 1 ? "1 core" : val + " cores";
-      localStorage.setItem('sim-workers', val);
-    });
-
-    if (runBtn) runBtn.addEventListener("click", async () => {
-      const iterations = parseInt(iterInput.value, 10) || 10000;
-      const cutoffWeek = cutoffSel.value ? parseInt(cutoffSel.value, 10) : null;
-      const noise = parseInt(noiseSl.value, 10) / 100;
-      const numWorkers = workersSl ? parseInt(workersSl.value, 10) : null;
-
-      if (iterations < 100 || iterations > 1000000) {
-        App.showError("Iterations must be between 100 and 1,000,000.");
-        return;
-      }
-
-      const progressEl = document.getElementById("sim-progress-st");
-      progressEl.style.display = "flex";
-      runBtn.disabled = true;
-
-      try {
-        const results = await API.runSimulation(iterations, cutoffWeek, noise, numWorkers);
-        window._simulationResults = results;
-        App.showInfo("Simulation complete.");
-        App.navigate("results");
-      } catch (err) {
-        App.showError(err.message || "Simulation failed.");
-      } finally {
-        progressEl.style.display = "none";
-        runBtn.disabled = false;
-      }
     });
 
     if (fetchBtn) fetchBtn.addEventListener("click", _handleFetchFromStandings);

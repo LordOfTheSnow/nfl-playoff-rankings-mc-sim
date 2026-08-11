@@ -40,7 +40,7 @@ beforeAll(() => {
       <div class="mdn-nav-links">
         <a href="#standings" data-view="standings" class="active" aria-current="page">Standings</a>
         <a href="#statistics" data-view="statistics">Statistics</a>
-        <a href="#results" data-view="results">Results</a>
+        <a href="#simulations" data-view="simulations">Simulations</a>
       </div>
     </nav>
     <div id="notification" class="mdn-container mdn-hidden" role="alert" aria-live="polite"></div>

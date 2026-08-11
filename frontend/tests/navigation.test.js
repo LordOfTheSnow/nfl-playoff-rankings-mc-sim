@@ -17,7 +17,7 @@ describe("Property 1: Navigation active state synchronization", () => {
   let navLinks;
 
   /** Valid views that correspond to nav link hrefs */
-  const navLinkViews = ["standings", "statistics", "results"];
+  const navLinkViews = ["standings", "statistics", "simulations"];
 
   beforeAll(() => {
     // Trigger DOMContentLoaded to ensure App.init() resolves DOM references
@@ -88,8 +88,8 @@ describe("Property 1: Navigation active state synchronization", () => {
   });
 
   it("routes not matching any nav link result in no active nav-link (100+ iterations)", () => {
-    // Views that exist in the router but have no nav-link (e.g., "simulate", "team/xxx")
-    const nonNavRoutes = ["simulate", "team/Buffalo Bills", "team/Kansas City Chiefs"];
+    // Views that exist in the router but have no nav-link (e.g., legacy aliases, "team/xxx")
+    const nonNavRoutes = ["simulate", "results", "team/Buffalo Bills", "team/Kansas City Chiefs"];
 
     fc.assert(
       fc.property(

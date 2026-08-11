@@ -258,7 +258,7 @@ Runs a Monte Carlo simulation with the given parameters.
 {
   "iterations": 10000,
   "cutoff_week": 16,
-  "noise": 0.2,
+  "noise": 0.34,
   "num_workers": 4
 }
 ```
@@ -267,7 +267,7 @@ Runs a Monte Carlo simulation with the given parameters.
 |---|---|---|---|
 | `iterations` | int | 10000 | 100 - 1,000,000 |
 | `cutoff_week` | int | auto | 1 - 18 |
-| `noise` | float | 0.2 | 0.0 - 1.0 |
+| `noise` | float | 0.34 | 0.0 - 1.0 |
 | `num_workers` | int | CPU count | >= 1 |
 
 **Prerequisite:** Data must be fetched first (`POST /api/fetch-data`), otherwise returns `409`.
@@ -423,7 +423,8 @@ Computes all minimal game-outcome sets that guarantee a team a playoff spot.
   "num_workers": 4,
   "enumeration_threshold": 13,
   "num_samples": 10000,
-  "playoff_probability": 0.85
+  "playoff_probability": 0.85,
+  "noise": 0.34
 }
 ```
 
@@ -435,6 +436,7 @@ Computes all minimal game-outcome sets that guarantee a team a playoff spot.
 | `enumeration_threshold` | int | 13 | 1 - 18; games above this use sampling |
 | `num_samples` | int | 10000 | 100 - 100,000 |
 | `playoff_probability` | float | 0.0 | MC probability for context |
+| `noise` | float | 0.34 | 0.0 - 1.0; per-game strength noise sigma for the sampling method (ignored by enumeration). Frontend passes the same value as the main `/api/simulate` Noise control so clinching scenarios are found at a consistent rate. |
 
 **Response:**
 

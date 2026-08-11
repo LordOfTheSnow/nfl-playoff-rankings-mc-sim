@@ -96,11 +96,11 @@ describe("Property 2: Table Modernist class assignment", () => {
     );
   });
 
-  it("playoff and seeding probability tables have the 'mdn-led-table' Modernist ledger class", () => {
-    fc.assert(
-      fc.property(
+  it("playoff and seeding probability tables have the 'mdn-led-table' Modernist ledger class", async () => {
+    await fc.assert(
+      fc.asyncProperty(
         fc.integer({ min: 1, max: 16 }),
-        (teamCount) => {
+        async (teamCount) => {
           // Build mock simulation results with random teams
           const teamResults = [];
           for (let i = 0; i < teamCount; i++) {
@@ -126,7 +126,7 @@ describe("Property 2: Table Modernist class assignment", () => {
           };
 
           const contentEl = document.createElement("div");
-          renderResults(contentEl);
+          await renderSimulations(contentEl);
 
           const playoffTables = contentEl.querySelectorAll('table[aria-label$="playoff probabilities"]');
           const seedingTables = contentEl.querySelectorAll('table[aria-label$="seeding probability matrix"]');

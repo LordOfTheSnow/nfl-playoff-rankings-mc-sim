@@ -45,7 +45,7 @@ A web application that predicts NFL playoff probabilities using Monte Carlo simu
 
 *Team Detail page in the same flat "Modernist Ledger" style as Standings, reusing the same ledger table component. Each completed game shows a bordered Win/Loss/Tie tag, and the bye week renders as a single italic row.*
 
-### Simulation Results page — "Modernist" redesign (2025 season, cutoff week 16)
+### Simulations page — "Modernist" redesign (2025 season, cutoff week 16)
 
 ![Playoff Probabilities tables for AFC and NFC in the Modernist Ledger redesign](/doc/img/screenshot-playoff-probabilities-new-design.png)
 
@@ -64,7 +64,7 @@ A web application that predicts NFL playoff probabilities using Monte Carlo simu
 
 ![Clinching Scenarios for the Detroit Lions in the Modernist Ledger redesign](/doc/img/screenshot-playoff-probabilities-team-new-design.png)
 
-*Team Detail panel (opened by clicking a team on the Results page) showing every game-outcome combination that guarantees or eliminates a playoff spot, grouped by remaining record. Conditions for every scenario in a group share one aligned table, with a rowspan'd `#` column tying each scenario's rows together instead of giving every scenario its own separately-sized table.*
+*Inline candidate-details panel (opened by clicking a team on the Simulations page) showing every game-outcome combination that guarantees or eliminates a playoff spot, grouped by remaining record. Conditions for every scenario in a group share one aligned table, with a rowspan'd `#` column tying each scenario's rows together instead of giving every scenario its own separately-sized table.*
 
 ### Solver Timing History — "Modernist" redesign
 
@@ -144,9 +144,9 @@ python -m src --season 2025 --port 8080
 Then open http://localhost:8080 in your browser.
 
 1. Click **Fetch Data** on the Standings page to pull game data from ESPN
-2. View current standings grouped by conference and division
-3. Configure simulation parameters (iterations, cutoff week, noise) and click **Simulate**
-4. View results on the **Results** page — click any team for details
+2. View current standings grouped by conference and division, and set the cutoff week if needed
+3. Click **Go to Simulations →**, configure simulation parameters (iterations, cutoff week, noise) and click **Simulate**
+4. View results on the same **Simulations** page — click any team for candidate details
 
 ## Docker (optional)
 
@@ -194,11 +194,12 @@ pytest tests/ -v
 - [Algorithms](doc/algorithms.md) — Team strength ratings, clinching scenarios solver, CP solver
 - [Technical](doc/technical.md) — Parallel simulation, solver performance export
 - [Solver Performance](doc/solver-performance.md) — Cross-platform benchmark results
+- [Clinching Solver Consolidation](doc/clinching-solver-consolidation.md) — Investigation notes on duplicated game-simulation logic between the main simulator and the clinching solver
 
 ## ToDo
 
-- **Massive UI overhaul**: The current interface is functional but needs a ground-up redesign for better usability, visual polish, and information hierarchy. Standings, Team Detail, Simulation Results, the Solver Timing History dialog, Statistics, and Schedule Grid have all been redesigned in the "Modernist" flat/red-on-white style (see `design_handoff_standings_redesign/`). Clinching Scenarios remains unaddressed.
 - **Vectorize standings computation with NumPy**: Rewrite the MC simulation hot path to process all trials simultaneously as batched array operations. Game outcome simulation (random draws + strength comparisons) and W/L/T record accumulation can be expressed as matrix operations over a `(trials, games)` array, eliminating per-trial Python loops. The tiebreaker logic would remain in Python but only be invoked for the subset of trials where teams are actually tied in win percentage. Expected 5-15x overall speedup for the simulation pipeline.
+- **Consolidate the clinching solver's duplicated game-simulation logic**: `src/clinching.py` reimplements `src/simulator.py`'s per-game outcome algorithm as a separate function, with its own independently-hardcoded tie-probability constant (`TIE_PROBABILITY = 0.005` vs. `SimulationConfig.tie_probability = 0.005` — same value today, but two unrelated sources of truth that can silently drift). Neither is exposed as a user setting. Fix: have the clinching solver call `simulator.py`'s function directly instead of maintaining a second copy. Full investigation, including a (ruled out) multiprocessing RNG-correlation hypothesis, is written up in [doc/clinching-solver-consolidation.md](doc/clinching-solver-consolidation.md).
 
 ## Disclaimer
 

@@ -150,13 +150,18 @@ const API = (() => {
    *
    * @param {string} team - Team name.
    * @param {number|null} cutoffWeek - Cutoff week or null for auto-detect.
+   * @param {number|null} [enumerationThreshold] - Max other games for brute-force enumeration.
+   * @param {number|null} [numSamples] - Number of MC samples when using sampling method.
+   * @param {number|null} [noise] - Per-game strength noise sigma (0.0-1.0); should match
+   *   the main simulation's Noise setting for consistent results.
    * @returns {Promise<Object>} Clinching scenarios grouped by team record.
    */
-  function clinchingScenarios(team, cutoffWeek, enumerationThreshold, numSamples) {
+  function clinchingScenarios(team, cutoffWeek, enumerationThreshold, numSamples, noise) {
     const body = { team };
     if (cutoffWeek != null) body.cutoff_week = cutoffWeek;
     if (enumerationThreshold != null) body.enumeration_threshold = enumerationThreshold;
     if (numSamples != null) body.num_samples = numSamples;
+    if (noise != null) body.noise = noise;
     return request("/api/clinching-scenarios", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

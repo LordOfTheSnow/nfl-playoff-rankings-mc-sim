@@ -1,14 +1,15 @@
 /**
  * Property 5: Label-input association
  *
- * For any label element rendered in the Standings page's "Simulation" card
+ * For any label element rendered in the Simulations page's "Simulation" card
  * that has a `for` attribute, there SHALL exist an input/select element
  * whose `id` attribute matches the label's `for` value.
  *
  * The simulation controls used to live on a standalone Bootstrap-styled
- * `#simulate` view (`renderSimulation` in simulation.js); that view was
- * removed as dead code once Standings absorbed the controls in Modernist
- * style, so this test now targets `renderStandings` instead.
+ * `#simulate` view (`renderSimulation` in simulation.js), then moved onto
+ * Standings during the Modernist redesign; the Simulation Flow Restructure
+ * (design_handoff_simulation_flow_v2/) moved them again, onto the renamed
+ * Simulations page (`renderSimulations`), so this test now targets that.
  *
  * **Validates: Requirements 5.6**
  */
@@ -39,7 +40,7 @@ describe("Property 5: Label-input association", () => {
       fc.asyncProperty(fc.integer({ min: 1, max: 200 }), async (_iteration) => {
         const contentEl = document.getElementById("content");
         contentEl.innerHTML = "";
-        await renderStandings(contentEl);
+        await renderSimulations(contentEl);
 
         const labels = contentEl.querySelectorAll("label[for]");
 
@@ -72,7 +73,7 @@ describe("Property 5: Label-input association", () => {
       fc.asyncProperty(fc.integer({ min: 1, max: 200 }), async (_iteration) => {
         const contentEl = document.getElementById("content");
         contentEl.innerHTML = "";
-        await renderStandings(contentEl);
+        await renderSimulations(contentEl);
 
         const labels = contentEl.querySelectorAll("label[for]");
         const forValues = Array.from(labels).map((l) => l.getAttribute("for"));
@@ -94,7 +95,7 @@ describe("Property 5: Label-input association", () => {
       fc.asyncProperty(fc.integer({ min: 1, max: 200 }), async (_iteration) => {
         const contentEl = document.getElementById("content");
         contentEl.innerHTML = "";
-        await renderStandings(contentEl);
+        await renderSimulations(contentEl);
 
         // Get all form controls with ids (excluding buttons)
         const controls = contentEl.querySelectorAll(

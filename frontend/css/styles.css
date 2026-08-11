@@ -161,7 +161,10 @@ body {
     font: 800 9px var(--mdn-font-heading);
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    opacity: 0.5;
+    /* color-alpha, not `opacity` — this label can carry a .mdn-tt-wrap
+       tooltip; `opacity` on an ancestor caps the whole subtree's alpha,
+       which would make the popup translucent too. */
+    color: rgba(32, 30, 29, 0.5);
 }
 
 .mdn-stat-val {
@@ -180,7 +183,8 @@ body {
     font: 800 10px var(--mdn-font-heading);
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    opacity: 0.65;
+    /* color-alpha, not `opacity` — see .mdn-stat-lbl above. */
+    color: rgba(32, 30, 29, 0.65);
     display: flex;
     align-items: center;
     gap: 5px;
@@ -387,7 +391,6 @@ body {
     max-width: 240px;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.12s;
     z-index: 30;
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
     font-family: var(--mdn-font-body);
@@ -434,7 +437,8 @@ body {
     font: 800 11px var(--mdn-font-heading);
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    opacity: 0.6;
+    /* color-alpha, not `opacity` — see .mdn-stat-lbl above. */
+    color: rgba(32, 30, 29, 0.6);
     margin-bottom: 8px;
 }
 
@@ -451,7 +455,8 @@ body {
     font: 800 10px var(--mdn-font-heading);
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    opacity: 0.55;
+    /* color-alpha, not `opacity` — see .mdn-stat-lbl above. */
+    color: rgba(32, 30, 29, 0.55);
     padding: 6px 10px;
     border-bottom: 2px solid var(--mdn-divider-strong);
 }

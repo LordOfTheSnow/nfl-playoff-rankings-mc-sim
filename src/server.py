@@ -943,11 +943,17 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 num_workers = int(num_workers)
                 if num_workers < 1 or num_workers > (os.cpu_count() or 16):
                     num_workers = None
+            noise = body.get("noise")
+            if noise is not None:
+                if not isinstance(noise, (int, float)) or noise < 0.0 or noise > 1.0:
+                    noise = None
+                else:
+                    noise = float(noise)
             start_time = time.perf_counter()
             playoff_probability = body.get("playoff_probability", 0.0)
             if not isinstance(playoff_probability, (int, float)):
                 playoff_probability = 0.0
-            result = compute_clinching_scenarios(team, games, cutoff_week, num_workers=num_workers, enumeration_threshold=enum_threshold, num_samples=num_samples, playoff_probability=float(playoff_probability))
+            result = compute_clinching_scenarios(team, games, cutoff_week, num_workers=num_workers, enumeration_threshold=enum_threshold, num_samples=num_samples, playoff_probability=float(playoff_probability), noise=noise)
 
             if result.error:
                 self._send_error_response(400, result.error, "")
@@ -1067,7 +1073,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
         # Extract and validate parameters
         iterations = body.get("iterations", 10000)
         cutoff_week = body.get("cutoff_week", None)
-        noise = body.get("noise", 0.2)
+        noise = body.get("noise", 0.34)
         num_workers = body.get("num_workers", None)
 
         # Validate iterations

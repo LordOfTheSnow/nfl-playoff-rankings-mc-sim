@@ -1,16 +1,17 @@
 /**
  * Property 4: Form element Modernist class assignment
  *
- * For any form element rendered within the Standings page's "Simulation"
+ * For any form element rendered within the Simulations page's "Simulation"
  * card (buttons, number inputs, range sliders, select dropdowns), the
  * element SHALL have the correct Modernist design-system class for its
  * type: `mdn-btn` + `mdn-btn-primary`/`mdn-btn-secondary` for buttons,
  * `mdn-input` for text/number inputs, range inputs, and select elements.
  *
  * The simulation controls used to live on a standalone Bootstrap-styled
- * `#simulate` view (`renderSimulation` in simulation.js); that view was
- * removed as dead code once Standings absorbed the controls in Modernist
- * style, so this test now targets `renderStandings` instead.
+ * `#simulate` view (`renderSimulation` in simulation.js), then moved onto
+ * Standings during the Modernist redesign; the Simulation Flow Restructure
+ * (design_handoff_simulation_flow_v2/) moved them again, onto the renamed
+ * Simulations page (`renderSimulations`), so this test now targets that.
  *
  * **Validates: Requirements 5.1, 5.2, 5.3**
  */
@@ -18,7 +19,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import fc from "fast-check";
 
-/** A status response with enough data fetched to render the Simulation card (see buildStatusPanel in standings.js — it renders a "Fetch data" empty state instead when total_games is 0). */
+/** A status response with enough data fetched to render the Simulation card (see _buildSimulationHeaderCard in simulation.js — it renders a "Fetch data" empty state instead when total_games is 0). */
 const baseStatus = {
   version: "1.0.0",
   season_year: 2025,
@@ -41,7 +42,7 @@ describe("Property 4: Form element Modernist class assignment", () => {
     contentEl.innerHTML = "";
     originalFetchStatus = API.fetchStatus;
     API.fetchStatus = () => Promise.resolve(baseStatus);
-    await renderStandings(contentEl);
+    await renderSimulations(contentEl);
   });
 
   it("all number inputs have mdn-input class", () => {
@@ -121,7 +122,7 @@ describe("Property 4: Form element Modernist class assignment", () => {
           API.fetchStatus = () => Promise.resolve(status);
 
           contentEl.innerHTML = "";
-          await renderStandings(contentEl);
+          await renderSimulations(contentEl);
 
           const numberInputs = contentEl.querySelectorAll('input[type="number"]');
           for (const input of numberInputs) {

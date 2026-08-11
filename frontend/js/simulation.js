@@ -1,12 +1,15 @@
 /**
- * Simulation results rendering for the NFL Monte Carlo Playoff Simulator.
+ * Simulations view for the NFL Monte Carlo Playoff Simulator.
  *
  * Provides one global function:
- *   - renderResults(contentEl) — renders the simulation results view (#results)
+ *   - renderSimulations(contentEl) — renders the Simulations view (#simulations)
  *
- * The simulation controls themselves live on the Standings page (see
- * standings.js's "Season/Simulation" card) — #simulate just redirects there
- * (see app.js).
+ * This page owns the whole simulation: it fetches season status, renders the
+ * shared "Season data" card plus its own Iterations/Cutoff/Noise/Workers/
+ * Simulate/Fetch-data controls, then the results output (probability tables,
+ * seeding matrix, top-scenarios accordion) and the inline per-team
+ * candidate-details panel revealed by clicking a team name. #simulate and
+ * #results are legacy aliases that redirect here (see app.js).
  *
  * Requirements: 5.5, 6.2, 6.3, 6.4, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 9.10,
  *               11.1, 11.2, 11.7, 11.11, 11.12, 11.13, 11.14
@@ -188,47 +191,244 @@ async function _handleTimingHistory() {
 }
 
 /**
- * Render the simulation results view.
+ * Build the Simulations page's header card: the shared "Season data" left
+ * cell plus its own Iterations/Cutoff/Noise/Workers/Simulate/Fetch-data
+ * right cell (design_handoff_simulation_flow_v2/, Option 3a).
  *
- * @param {HTMLElement} contentEl - The main content container element.
+ * @param {Object|null} status - Status object from /api/status, or null.
+ * @returns {string} HTML string.
  */
-async function renderResults(contentEl) {
-  if (!window._simulationResults) {
-    contentEl.innerHTML = `
-      <div class="empty-state">
-        <p>No simulation results available.</p>
-        <p>Go to <a href="#simulate">Simulate</a> to run a simulation first.</p>
+function _buildSimulationHeaderCard(status) {
+  if (!status || status.total_games === 0) {
+    return `<div class="mdn-card">
+      <p style="color:rgba(32,30,29,.6)">No data fetched yet. Click <strong>Fetch data</strong> to load game data from ESPN.</p>
+      <div style="margin-top:0.75rem">
+        <button id="btn-fetch-data-sim" class="mdn-btn mdn-btn-primary" type="button">Fetch data</button>
       </div>
-    `;
+    </div>`;
+  }
+
+  const savedCutoffLS = App.getCutoffWeek();
+  const cpuCount = status.cpu_count || 4;
+  const savedWorkers = parseInt(localStorage.getItem("sim-workers"), 10) || cpuCount;
+  const savedNoise = localStorage.getItem("sim-noise") || "34";
+  const noiseVal = (parseInt(savedNoise, 10) / 100).toFixed(2);
+  const noiseLabel = _noiseLabel(parseFloat(noiseVal));
+  const savedIterations = parseInt(localStorage.getItem("sim-iterations"), 10) || 10000;
+
+  let html = `<div class="mdn-card" style="display:grid;grid-template-columns:1fr 1.7fr;gap:32px">`;
+  html += `<div>${buildSeasonDataCell(status, savedCutoffLS)}</div>`;
+
+  html += '<div>';
+  html += '<div class="mdn-card-kicker">Simulation</div>';
+  html += '<div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;margin-top:6px">';
+
+  html += '<div class="mdn-field" style="width:95px">' +
+    '<label for="sim-iterations-sim">Iterations' +
+    _infoIcon("Number of Monte Carlo trials to run. More iterations = more accurate probabilities but longer runtime.") +
+    '</label>' +
+    '<input class="mdn-input" type="number" id="sim-iterations-sim" min="100" max="1000000" value="' + savedIterations + '"></div>';
+
+  html += '<div class="mdn-field" style="width:110px">' +
+    '<label for="sim-cutoff-sim">Cutoff' +
+    _infoIcon("Games up to and including this week use real results. Games after this week are simulated. Synced with the Standings page.") +
+    '</label>' +
+    '<select class="mdn-input" id="sim-cutoff-sim"><option value="">Auto</option>';
+  for (let w = 1; w <= 18; w++) {
+    html += '<option value="' + w + '"' + (savedCutoffLS == w ? ' selected' : '') + '>Week ' + w + '</option>';
+  }
+  html += '</select></div>';
+
+  html += '<div class="mdn-field" style="width:120px">' +
+    '<label for="sim-noise-sim">Noise' +
+    _infoIcon("Per-game strength noise: adds random variance to each simulated game outcome, modeling the unpredictability of real NFL games.") +
+    '</label>' +
+    '<input type="range" class="mdn-input" id="sim-noise-sim" min="0" max="100" value="' + savedNoise + '">' +
+    '<div class="mdn-hint" id="sim-noise-label-sim">' + noiseVal + ' — ' + noiseLabel + '</div></div>';
+
+  html += '<div class="mdn-field" style="width:110px">' +
+    '<label for="sim-workers-sim">Workers' +
+    _infoIcon("Number of parallel CPU cores used to run the simulation. The clinching-scenarios solver uses the same worker count.") +
+    '</label>' +
+    '<input type="range" class="mdn-input" id="sim-workers-sim" min="1" max="' + cpuCount + '" value="' + savedWorkers + '">' +
+    '<div class="mdn-hint" id="sim-workers-label-sim">' + savedWorkers + (savedWorkers === 1 ? ' core' : ' cores') + ' of ' + cpuCount + '</div></div>';
+
+  html += '<button id="btn-run-sim" class="mdn-btn mdn-btn-primary" type="button" style="margin-top:23px">Simulate</button>';
+  html += '<button id="btn-fetch-data-sim" class="mdn-btn mdn-btn-secondary" type="button" style="margin-top:23px">Fetch data</button>';
+  html += '</div>';
+  html += '<p class="mdn-hint" id="sim-total-sim" style="margin-top:10px"></p>';
+  html += '<div id="sim-progress-sim" style="margin-top:0.75rem;display:none;align-items:center;gap:0.6rem">' +
+    '<span class="mdn-spinner"></span><span class="mdn-hint">Running simulation…</span></div>';
+  html += '</div>';
+
+  html += `</div>`;
+  return html;
+}
+
+/**
+ * Wire up the Simulations header card's controls after it's inserted into
+ * the DOM (mirrors the pattern used for Standings' cutoff-only panel).
+ *
+ * @param {Object|null} status - Status object from /api/status, or null.
+ */
+function _wireSimulationHeaderCard(status) {
+  const iterInput = document.getElementById("sim-iterations-sim");
+  const cutoffSel = document.getElementById("sim-cutoff-sim");
+  const noiseSl = document.getElementById("sim-noise-sim");
+  const workersSl = document.getElementById("sim-workers-sim");
+  const runBtn = document.getElementById("btn-run-sim");
+  const fetchBtn = document.getElementById("btn-fetch-data-sim");
+  const totalEl = document.getElementById("sim-total-sim");
+
+  if (!iterInput || !cutoffSel || !totalEl) {
+    // "No data fetched yet" state — only the Fetch data button exists.
+    if (fetchBtn) fetchBtn.addEventListener("click", _handleFetchFromSimulations);
     return;
   }
 
+  const gamesPerWeek = (status && status.games_per_week) || {};
+
+  function updateTotal() {
+    const iters = parseInt(iterInput.value, 10) || 10000;
+    const cutoff = cutoffSel.value ? parseInt(cutoffSel.value, 10) : 18;
+    let gamesToSim = 0;
+    for (const [wk, cnt] of Object.entries(gamesPerWeek)) {
+      if (parseInt(wk, 10) > cutoff) gamesToSim += cnt;
+    }
+    if (gamesToSim > 0) {
+      totalEl.textContent = gamesToSim + ' games × ' + iters.toLocaleString() + ' iterations = ' + (gamesToSim * iters).toLocaleString() + ' game simulations';
+    } else {
+      totalEl.textContent = 'No games to simulate at this cutoff';
+    }
+  }
+
+  iterInput.addEventListener("input", updateTotal);
+  cutoffSel.addEventListener("change", updateTotal);
+  updateTotal();
+
+  iterInput.addEventListener("change", () => localStorage.setItem('sim-iterations', iterInput.value));
+  cutoffSel.addEventListener("change", () => {
+    App.setCutoffWeek(cutoffSel.value);
+    const contentEl = document.getElementById("content");
+    if (contentEl) renderSimulations(contentEl);
+  });
+
+  if (noiseSl) noiseSl.addEventListener("input", () => {
+    const val = (parseInt(noiseSl.value, 10) / 100).toFixed(2);
+    const label = _noiseLabel(parseFloat(val));
+    const labelEl = document.getElementById("sim-noise-label-sim");
+    if (labelEl) labelEl.textContent = val + " — " + label;
+    localStorage.setItem('sim-noise', noiseSl.value);
+  });
+
+  if (workersSl) {
+    const cpuCount = (status && status.cpu_count) ? status.cpu_count : 4;
+    workersSl.addEventListener("input", () => {
+      const val = parseInt(workersSl.value, 10);
+      const labelEl = document.getElementById("sim-workers-label-sim");
+      if (labelEl) labelEl.textContent = (val === 1 ? "1 core" : val + " cores") + " of " + cpuCount;
+      localStorage.setItem('sim-workers', val);
+    });
+  }
+
+  if (runBtn) runBtn.addEventListener("click", async () => {
+    const iterations = parseInt(iterInput.value, 10) || 10000;
+    const cutoffWeek = cutoffSel.value ? parseInt(cutoffSel.value, 10) : null;
+    const noise = noiseSl ? parseInt(noiseSl.value, 10) / 100 : 0.34;
+    const numWorkers = workersSl ? parseInt(workersSl.value, 10) : null;
+
+    if (iterations < 100 || iterations > 1000000) {
+      App.showError("Iterations must be between 100 and 1,000,000.");
+      return;
+    }
+
+    const controls = [iterInput, cutoffSel, noiseSl, workersSl, runBtn, fetchBtn].filter(Boolean);
+    controls.forEach((el) => { el.disabled = true; });
+    const progressEl = document.getElementById("sim-progress-sim");
+    if (progressEl) progressEl.style.display = "flex";
+
+    try {
+      const results = await API.runSimulation(iterations, cutoffWeek, noise, numWorkers);
+      results._ranAt = new Date();
+      window._simulationResults = results;
+      App.showInfo("Simulation complete.");
+      const contentEl = document.getElementById("content");
+      if (contentEl) await renderSimulations(contentEl);
+    } catch (err) {
+      App.showError(err.message || "Simulation failed.");
+      controls.forEach((el) => { el.disabled = false; });
+      if (progressEl) progressEl.style.display = "none";
+    }
+  });
+
+  if (fetchBtn) fetchBtn.addEventListener("click", _handleFetchFromSimulations);
+}
+
+/**
+ * Handle "Fetch data" from the Simulations page.
+ */
+async function _handleFetchFromSimulations() {
+  const btn = document.getElementById("btn-fetch-data-sim");
+  if (btn) btn.disabled = true;
+  App.showLoading();
+  try {
+    const result = await API.fetchData();
+    App.showInfo("Data fetched: " + result.games_fetched + " games loaded.");
+    const contentEl = document.getElementById("content");
+    if (contentEl) await renderSimulations(contentEl);
+  } catch (err) {
+    App.showError(err.message || "Failed to fetch data.");
+  } finally {
+    App.hideLoading();
+    if (btn) btn.disabled = false;
+  }
+}
+
+/**
+ * Render the Simulations view.
+ *
+ * @param {HTMLElement} contentEl - The main content container element.
+ */
+async function renderSimulations(contentEl) {
+  App.showLoading();
+
+  let status = null;
+  try {
+    status = await API.fetchStatus();
+  } catch (_) {
+    // Ignore status errors — the header card handles a missing/empty status.
+  }
+
+  App.hideLoading();
+
   const results = window._simulationResults;
 
-  // Build the results page — Modernist "Ledger" redesign (see
-  // design_handoff_standings_redesign/, Simulation Results Option 3a).
+  // Build the Simulations page — Modernist "Ledger" redesign (see
+  // design_handoff_simulation_flow_v2/, Option 3a).
   let html = `<div class="mdn-page">`;
+  html += _buildSimulationHeaderCard(status);
 
-  // Metadata header
-  const showWarning = results.low_confidence || !results.convergence_achieved;
-  html += `<div class="mdn-card">
-    <div class="mdn-card-kicker">Simulation results</div>
-    <div class="mdn-card-title">Simulation Results</div>
-    <div style="display:flex;gap:28px;margin-top:12px;flex-wrap:wrap">
-      <div><div class="mdn-stat-lbl">Iterations</div><div class="mdn-stat-val">${results.iterations_run.toLocaleString()}</div></div>
-      <div><div class="mdn-stat-lbl">Cutoff week</div><div class="mdn-stat-val">${_escapeHtml(String(results.cutoff_week_used))}</div></div>
-      <div><div class="mdn-stat-lbl">Fixed games</div><div class="mdn-stat-val">${results.fixed_games != null ? results.fixed_games : "?"}</div></div>
-      <div><div class="mdn-stat-lbl">Simulated games</div><div class="mdn-stat-val">${results.simulated_games != null ? results.simulated_games : "?"}</div></div>
-    </div>
-    ${showWarning ? `<p class="mdn-hint" style="color:var(--mdn-accent-700);margin-top:10px">${results.low_confidence ? "Low confidence." : ""}${results.convergence_achieved ? "" : " Convergence not achieved."}</p>` : ""}
-  </div>`;
+  // Results divider
+  const rightNote = results
+    ? `Select a team below for candidate details · Last run ${results._ranAt ? _escapeHtml(results._ranAt.toLocaleString()) : ""}`
+    : `Run a simulation above to see results`;
+  html += `<div style="display:flex;align-items:baseline;justify-content:space-between;margin:28px 0 2px">
+    <span class="mdn-card-kicker" style="font-size:11px">Results</span>
+    <span class="mdn-hint" style="font-size:11.5px">${rightNote}</span>
+  </div>
+  <div style="border-top:2px solid var(--mdn-divider);margin-bottom:18px"></div>`;
 
-  // Playoff probability summary tables by conference
-  html += _renderPlayoffProbabilityTables(results.team_results);
-
-  // Seeding probability matrix + Top scenarios
-  html += _renderSeedingMatrix(results.team_results);
-  html += _renderTopScenarios(results.top_scenarios);
+  if (results) {
+    const showWarning = results.low_confidence || !results.convergence_achieved;
+    if (showWarning) {
+      html += `<p class="mdn-hint" style="color:var(--mdn-accent-700);margin:0 0 16px">${results.low_confidence ? "Low confidence." : ""}${results.convergence_achieved ? "" : " Convergence not achieved."}</p>`;
+    }
+    html += _renderPlayoffProbabilityTables(results.team_results);
+    html += _renderSeedingMatrix(results.team_results);
+    html += _renderTopScenarios(results.top_scenarios);
+  } else {
+    html += `<p class="mdn-hint" style="margin-bottom:28px">No simulation results yet — configure the controls above and click Simulate.</p>`;
+  }
 
   html += `</div>`;
 
@@ -237,14 +437,18 @@ async function renderResults(contentEl) {
 
   contentEl.innerHTML = html;
 
-  // Attach click handlers for team names
-  contentEl.querySelectorAll("[data-team-click]").forEach((el) => {
-    el.addEventListener("click", (e) => {
-      e.preventDefault();
-      const teamName = el.getAttribute("data-team-click");
-      _showTeamDetail(teamName, results);
+  _wireSimulationHeaderCard(status);
+
+  if (results) {
+    // Attach click handlers for team names
+    contentEl.querySelectorAll("[data-team-click]").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        e.preventDefault();
+        const teamName = el.getAttribute("data-team-click");
+        _showTeamDetail(teamName, results);
+      });
     });
-  });
+  }
 }
 
 /**
@@ -279,8 +483,8 @@ function _renderPlayoffProbabilityTables(teamResults) {
           <th>Team</th>
           <th class="mdn-num">Record</th>
           <th>Division</th>
-          <th style="width:220px">Playoff %</th>
-          <th class="mdn-num">Strength</th>
+          <th style="width:220px">Playoff %${_infoIcon("Share of simulated seasons in which this team reaches the playoffs. Each trial plays out every remaining game using team strength plus noise, applies the NFL tiebreakers, then checks whether the team lands in the top 7 of its conference. 12,414 of 15,000 trials = 82.8%.")}</th>
+          <th class="mdn-num">Strength${_infoIcon("Relative team rating derived from results so far. Higher values win more simulated games; 1.000 is league average.")}</th>
         </tr>
       </thead>
       <tbody>`;
@@ -468,37 +672,49 @@ function _showTeamDetail(teamName, results) {
   }
 
   const logoId = TEAM_LOGO_IDS[teamName] || "";
-  let html = `<div class="mdn-conf-head" style="margin-top:8px">
-    ${logoId ? `<img src="img/logos/${logoId}.png" alt="" width="32" height="32">` : ""}
-    <h2>${_escapeHtml(teamName)} — Details</h2>
+  const iterationsRun = results.iterations_run || (parseInt(localStorage.getItem("sim-iterations"), 10) || 10000);
+  const pctVal = teamData.playoff_probability;
+  const hits = Math.round((pctVal / 100) * iterationsRun);
+
+  // Bordered/tinted container — marks this as a drill-in on an otherwise
+  // white page (design_handoff_simulation_flow_v2/, Option 3a).
+  let html = `<div style="border:2px solid var(--mdn-divider);border-left:3px solid var(--mdn-accent-500);padding:22px 24px;margin-bottom:28px;background:var(--mdn-neutral-100)">`;
+
+  // Panel header
+  html += `<div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
+    ${logoId ? `<img src="img/logos/${logoId}.png" alt="" width="30" height="30">` : ""}
+    <h2 style="font:800 24px var(--mdn-font-heading);margin:0">${_escapeHtml(teamName)} — Details</h2>
+    <span class="mdn-card-kicker" style="font-size:10px;margin:0">Selected team</span>
+    <button id="btn-close-team-detail" class="mdn-btn mdn-btn-ghost" type="button" style="margin-left:auto">Close ×</button>
   </div>`;
 
-  // Team summary
-  html += `<div class="mdn-card">
-    <div style="display:flex;gap:28px;flex-wrap:wrap">
-      <div><div class="mdn-stat-lbl">Conference</div><div class="mdn-stat-val">${_escapeHtml(teamData.conference)}</div></div>
-      <div><div class="mdn-stat-lbl">Division</div><div class="mdn-stat-val">${_escapeHtml(teamData.division)}</div></div>
-      <div><div class="mdn-stat-lbl">Playoff probability</div><div class="mdn-stat-val">${teamData.playoff_probability.toFixed(1)}%</div></div>
-      <div><div class="mdn-stat-lbl">Strength rating</div><div class="mdn-stat-val">${teamData.strength_rating.toFixed(3)}</div></div>
-    </div>
+  // Stat row — a fixed label line-height keeps "Conference"/"Division"
+  // (plain text) aligned with "Playoff Probability"/"Strength Rating"
+  // (which carry a taller inline tooltip icon).
+  html += `<div style="display:flex;gap:36px;flex-wrap:wrap;padding-bottom:20px;border-bottom:1px solid var(--mdn-divider);margin-bottom:22px">
+    <div><div class="mdn-stat-lbl" style="height:13px;display:flex;align-items:center;gap:4px;margin-bottom:5px">Conference</div><div class="mdn-stat-val">${_escapeHtml(teamData.conference)}</div></div>
+    <div><div class="mdn-stat-lbl" style="height:13px;display:flex;align-items:center;gap:4px;margin-bottom:5px">Division</div><div class="mdn-stat-val">${_escapeHtml(teamData.division)}</div></div>
+    <div><div class="mdn-stat-lbl" style="height:13px;display:flex;align-items:center;gap:4px;margin-bottom:5px">Playoff Probability${_infoIcon(`Share of simulated seasons in which the ${teamName} reach the playoffs — remaining games are simulated from team strength plus noise, tiebreakers applied, then a top-7 conference finish counted. ${hits.toLocaleString()} of ${iterationsRun.toLocaleString()} trials = ${pctVal.toFixed(1)}%.`)}</div><div class="mdn-stat-val">${pctVal.toFixed(1)}%</div></div>
+    <div><div class="mdn-stat-lbl" style="height:13px;display:flex;align-items:center;gap:4px;margin-bottom:5px">Strength Rating${_infoIcon("Relative team rating derived from results so far. Higher values win more simulated games; 1.000 is league average.")}</div><div class="mdn-stat-val">${teamData.strength_rating.toFixed(3)}</div></div>
   </div>`;
 
-  // Seed distribution
-  html += `<div style="margin-bottom:20px">
-    <div class="mdn-div-lbl">Seed Distribution</div>
-    <table class="mdn-led-table" aria-label="Seed distribution for ${_escapeHtml(teamName)}">
-      <thead><tr>`;
-  for (let s = 1; s <= 7; s++) {
-    html += `<th class="mdn-num">Seed ${s}</th>`;
-  }
-  html += `</tr></thead><tbody><tr>`;
+  // Seed distribution — 7-column grid of tinted blocks, not a table. Every
+  // cell keeps a visible border so 0% cells (transparent fill) still read
+  // as a cell, matching the Statistics page's bar-track convention.
+  html += `<div class="mdn-div-lbl" style="margin-bottom:10px">Seed Distribution${_infoIcon(`How often the ${teamName} finish at each conference seed across all trials. Columns sum to the playoff probability; the remainder is seasons where they miss the playoffs.`)}</div>
+  <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:26px">`;
   const seeds = teamData.seed_probabilities || {};
   for (let s = 1; s <= 7; s++) {
     const prob = seeds[String(s)] || 0;
     const { tint, hi } = _seedTint(prob);
-    html += `<td class="mdn-num${hi ? " mdn-seed-hi" : ""}" style="background:${tint};font-weight:700">${prob.toFixed(1)}%</td>`;
+    html += `<div>
+      <div class="mdn-stat-lbl" style="text-align:right;margin-bottom:6px">Seed ${s}</div>
+      <div style="height:34px;background:${tint};border:1px solid var(--mdn-neutral-400);display:flex;align-items:center;justify-content:flex-end;padding:0 10px;box-sizing:border-box">
+        <span class="${hi ? "mdn-seed-hi" : ""}" style="font-weight:700;font-size:13px">${prob.toFixed(1)}%</span>
+      </div>
+    </div>`;
   }
-  html += `</tr></tbody></table></div>`;
+  html += `</div>`;
 
   // Impact games (if available in team data)
   if (teamData.impact_games && teamData.impact_games.length > 0) {
@@ -523,14 +739,14 @@ function _showTeamDetail(teamName, results) {
 
   // Clinching scenarios - on-demand button (only for teams between 0% and 100%)
   if (teamData.playoff_probability > 0 && teamData.playoff_probability < 100) {
-    html += `<div class="mdn-card" id="clinch-section-${_escapeHtml(teamName)}">
+    html += `<div id="clinch-section-${_escapeHtml(teamName)}">
       <div class="mdn-card-kicker">Clinching scenarios</div>
-      <div class="mdn-card-title" style="font-size:16px">Clinching Scenarios</div>
-      <p style="font-size:12.5px;opacity:0.65;margin:8px 0 4px">
+      <div class="mdn-card-title" style="font-size:17px;margin-bottom:6px">Clinching Scenarios</div>
+      <p style="font-size:13px;opacity:0.65;margin:0 0 10px">
         Find all game-outcome combinations that guarantee ${_escapeHtml(teamName)} a playoff spot.
       </p>
-      <p id="clinch-estimate-text" style="font-size:12.5px;opacity:0.65;margin-bottom:10px"></p>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <p id="clinch-estimate-text" style="font-size:12.5px;margin:0 0 16px"></p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:22px">
         <button id="btn-clinching" class="mdn-btn mdn-btn-primary" type="button" data-team="${_escapeHtml(teamName)}">
           Clinching Scenarios
         </button>
@@ -541,18 +757,18 @@ function _showTeamDetail(teamName, results) {
           Export Performance Data
         </button>
       </div>
-      <div style="margin-top:14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <label for="clinch-enum-threshold" style="font:800 10px var(--mdn-font-heading);letter-spacing:.04em;text-transform:uppercase;opacity:.65;white-space:nowrap">Enumerate up to</label>
-        <input class="mdn-input" type="range" id="clinch-enum-threshold" min="5" max="14" value="9" style="width:100px">
-        <span id="clinch-enum-label" style="font-size:12px;font-weight:700">9 games</span>
-        <label for="clinch-samples" style="font:800 10px var(--mdn-font-heading);letter-spacing:.04em;text-transform:uppercase;opacity:.65;white-space:nowrap;margin-left:10px">Sampling iterations</label>
-        <input class="mdn-input" type="number" id="clinch-samples" min="100" max="100000" value="10000" style="width:100px">
-        <span id="clinch-enum-info" style="font-size:11.5px;opacity:.65"></span>
+      <div class="mdn-field">
+        <label for="clinch-enum-threshold">Enumerate up to <span id="clinch-enum-label" style="font-weight:400">9 games</span></label>
+        <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+          <input class="mdn-input" type="range" id="clinch-enum-threshold" min="1" max="14" value="9" style="width:220px">
+          <span id="clinch-enum-info" style="font-size:12.5px;color:rgba(32,30,29,.65)"></span>
+        </div>
       </div>
-      <p id="clinch-mode-explanation" style="font-size:11px;opacity:.6;margin-top:8px;margin-bottom:0;line-height:1.6">
-        <strong>Enumeration</strong>: checks every possible outcome combination (exhaustive, proven results).<br>
-        <strong>Sampling</strong>: tests strength-weighted random outcomes (faster, but may miss rare scenarios).<br>
-        <strong>Export Performance Data</strong>: writes solver timing measurements to <code>doc/solver-performance.md</code> for cross-platform comparison. One row per method, using the median of the last 50 runs.<br>
+      <p class="mdn-hint" style="margin:10px 0 0">Trials, noise, and worker count follow the Simulation settings above.</p>
+      <p id="clinch-mode-explanation" style="font-size:11.5px;opacity:.6;margin-top:20px;padding-top:16px;border-top:1px solid var(--mdn-divider);line-height:1.7">
+        <strong>Enumeration</strong> — checks every possible outcome combination (exhaustive, proven results).<br>
+        <strong>Sampling</strong> — tests strength-weighted random outcomes (faster, but may miss rare scenarios).<br>
+        <strong>Export Performance Data</strong> — writes solver timing measurements to <code>doc/solver-performance.md</code> for cross-platform comparison. One row per method, using the median of the last 50 runs.<br>
         Time estimates are rough approximations (work in progress) — actual runtime depends on the number of qualifying scenarios found and the underlying hardware.
       </p>
       <div id="clinch-progress" style="display:none;margin-top:14px;align-items:center;gap:10px">
@@ -564,9 +780,14 @@ function _showTeamDetail(teamName, results) {
     </div>`;
   }
 
+  html += `</div>`; // close bordered/tinted container
+
   panel.innerHTML = html;
   panel.hidden = false;
   panel.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  const closeBtn = document.getElementById("btn-close-team-detail");
+  if (closeBtn) closeBtn.addEventListener("click", () => { panel.hidden = true; });
 
   // Wire up Timing History button
   const timingBtn = document.getElementById("btn-timing-history");
@@ -595,21 +816,33 @@ function _showTeamDetail(teamName, results) {
     let msPerEval = 2.0;
     let serverCpuCount = parseInt(localStorage.getItem("sim-workers"), 10) || 4;
 
+    // The solver reuses the main Simulation page's Iterations, Noise, and
+    // Workers values — there is no separate solver-only sampling/noise/
+    // worker setting.
+    function sharedIterations() {
+      return parseInt(localStorage.getItem("sim-iterations"), 10) || 10000;
+    }
+    function sharedNoise() {
+      return (parseInt(localStorage.getItem("sim-noise"), 10) || 34) / 100;
+    }
+
     function updateEnumLabel() {
       const val = parseInt(enumSlider.value, 10);
       enumLabel.textContent = val + " games";
+      const coresLabel = serverCpuCount === 1 ? "1 core" : serverCpuCount + " cores";
+      const noiseLabel = sharedNoise().toFixed(2) + " noise";
       if (relevantGames > 0) {
         if (relevantGames <= val) {
           const combos = Math.pow(3, relevantGames) * teamRecordCombos;
           const estLow = Math.max(1, Math.round((combos * msPerEval * 8 / 1000) / serverCpuCount));
           const estHigh = Math.max(estLow + 1, Math.round((combos * msPerEval * 15 / 1000) / serverCpuCount));
-          enumInfo.textContent = "→ enumeration · " + combos.toLocaleString() + " evaluations · " + _formatTime(estLow) + " – " + _formatTime(estHigh);
+          enumInfo.textContent = "→ enumeration · " + combos.toLocaleString() + " evaluations · " + coresLabel + " · " + _formatTime(estLow) + " – " + _formatTime(estHigh);
         } else {
-          const samplingIters = samplesInput ? parseInt(samplesInput.value, 10) || 10000 : 10000;
+          const samplingIters = sharedIterations();
           const samplingEvals = samplingIters * teamRecordCombos;
           const estLow = Math.max(1, Math.round((samplingEvals * msPerEval * 8 / 1000) / serverCpuCount));
           const estHigh = Math.max(estLow + 1, Math.round((samplingEvals * msPerEval * 15 / 1000) / serverCpuCount));
-          enumInfo.textContent = "→ sampling · " + samplingIters.toLocaleString() + " trials × " + teamRecordCombos + " records · " + _formatTime(estLow) + " – " + _formatTime(estHigh);
+          enumInfo.textContent = "→ sampling · " + samplingIters.toLocaleString() + " trials × " + teamRecordCombos + " records · " + noiseLabel + " · " + coresLabel + " · " + _formatTime(estLow) + " – " + _formatTime(estHigh);
         }
       }
     }
@@ -617,21 +850,12 @@ function _showTeamDetail(teamName, results) {
       if (sec < 60) return sec + "s";
       return Math.floor(sec / 60) + "m " + (sec % 60) + "s";
     }
-    const samplesInput = document.getElementById("clinch-samples");
     // Restore from localStorage
     const savedThreshold = localStorage.getItem("clinch-enum-threshold");
-    const savedSamples = localStorage.getItem("clinch-samples");
     if (savedThreshold && enumSlider) enumSlider.value = savedThreshold;
-    if (savedSamples && samplesInput) samplesInput.value = savedSamples;
     if (enumSlider) {
       enumSlider.addEventListener("input", () => {
         localStorage.setItem("clinch-enum-threshold", enumSlider.value);
-        updateEnumLabel();
-      });
-    }
-    if (samplesInput) {
-      samplesInput.addEventListener("input", () => {
-        localStorage.setItem("clinch-samples", samplesInput.value);
         updateEnumLabel();
       });
     }
@@ -648,7 +872,9 @@ function _showTeamDetail(teamName, results) {
         relevantGames = est.relevant_games;
         teamRecordCombos = est.team_record_combos || 1;
         msPerEval = est.ms_per_eval || 2.0;
-        serverCpuCount = est.cpu_count || 4;
+        // Keep serverCpuCount pinned to the shared Workers value (sim-workers) —
+        // est.cpu_count is the server's total detected core count, not the
+        // worker count actually sent to the solver.
         estEl.textContent = est.relevant_games + " relevant games · " + teamRecordCombos + " team record combinations";
         updateEnumLabel();
       }
@@ -692,9 +918,9 @@ function _showTeamDetail(teamName, results) {
 
       try {
         const enumThreshold = enumSlider ? parseInt(enumSlider.value, 10) : null;
-        const numSamples = samplesInput ? parseInt(samplesInput.value, 10) : null;
+        const numSamples = sharedIterations();
         const numWorkers = parseInt(localStorage.getItem("sim-workers"), 10) || null;
-        const body = { team: teamName };
+        const body = { team: teamName, noise: sharedNoise() };
         if (cutoffWeek != null) body.cutoff_week = cutoffWeek;
         if (enumThreshold != null) body.enumeration_threshold = enumThreshold;
         if (numSamples != null) body.num_samples = numSamples;

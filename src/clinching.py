@@ -60,7 +60,7 @@ MAX_QUALIFYING_FOR_MINIMALITY = 200
 TIE_PROBABILITY = 0.005
 
 # Noise applied to team strengths per game during sampling
-SAMPLING_NOISE = 0.2
+SAMPLING_NOISE = 0.34
 
 
 @dataclass
@@ -314,11 +314,18 @@ def _generate_team_records(
 def _simulate_game_outcome(
     game: Game,
     strengths: dict[str, float],
+    noise: float = SAMPLING_NOISE,
 ) -> tuple[str, str | None, bool]:
     """Simulate a single game outcome using team strength ratings.
 
     Uses the same algorithm as the main simulator: strength-weighted win
     probability with log-normal noise and a small tie probability.
+
+    Args:
+        noise: Per-game strength noise sigma. Defaults to SAMPLING_NOISE but
+            callers should pass the same noise value used for the main
+            Monte Carlo simulation so clinching scenarios are found at a
+            consistent rate.
 
     Returns:
         (game_id, winner_or_None, is_tie)
@@ -332,9 +339,9 @@ def _simulate_game_outcome(
     away_strength = strengths.get(game.away_team, 1.0)
 
     # Apply per-game noise
-    if SAMPLING_NOISE > 0:
-        home_strength *= random.lognormvariate(0, SAMPLING_NOISE)
-        away_strength *= random.lognormvariate(0, SAMPLING_NOISE)
+    if noise > 0:
+        home_strength *= random.lognormvariate(0, noise)
+        away_strength *= random.lognormvariate(0, noise)
 
     total = home_strength + away_strength
     if total <= 0:
@@ -447,12 +454,17 @@ def _sample_qualifying_universes(
     other_games: list[Game],
     strengths: dict[str, float],
     num_samples: int = MC_SAMPLES,
+    noise: float = SAMPLING_NOISE,
 ) -> list[list[tuple[str, str | None, bool]]]:
     """Strength-weighted Monte Carlo sampling of other-game outcomes.
 
     Uses team strength ratings to generate realistic game outcomes (same
     algorithm as the main simulator). This ensures qualifying universes
     are found at roughly the same rate as in the main simulation.
+
+    Args:
+        noise: Per-game strength noise sigma — should match the main
+            simulation's noise setting for consistent results.
 
     Returns:
         List of other_outcomes lists for qualifying universes found by sampling.
@@ -461,7 +473,7 @@ def _sample_qualifying_universes(
 
     for _ in range(num_samples):
         other_outcomes = [
-            _simulate_game_outcome(game, strengths)
+            _simulate_game_outcome(game, strengths, noise)
             for game in other_games
         ]
         if _check_universe(team, fixed_games, team_outcomes, other_outcomes):
@@ -507,6 +519,7 @@ def _sample_qualifying_universes_full(
     other_games: list[Game],
     strengths: dict[str, float],
     num_samples: int = MC_SAMPLES,
+    noise: float = SAMPLING_NOISE,
 ) -> list[list[tuple[str, str | None, bool]]]:
     """Strength-weighted Monte Carlo sampling using full tiebreakers.
 
@@ -515,6 +528,10 @@ def _sample_qualifying_universes_full(
     the fast path found no qualifying universes but the MC simulation
     indicates a non-zero playoff probability.
 
+    Args:
+        noise: Per-game strength noise sigma — should match the main
+            simulation's noise setting for consistent results.
+
     Returns:
         List of other_outcomes lists for qualifying universes found by sampling.
     """
@@ -522,7 +539,7 @@ def _sample_qualifying_universes_full(
 
     for _ in range(num_samples):
         other_outcomes = [
-            _simulate_game_outcome(game, strengths)
+            _simulate_game_outcome(game, strengths, noise)
             for game in other_games
         ]
         if _check_universe_full(team, fixed_games, team_outcomes, other_outcomes):
@@ -676,12 +693,12 @@ def _process_team_record_batch(args: tuple) -> list[dict[str, Any]]:
 
     Args:
         args: Tuple of (team, fixed_games, team_record_combos, other_games,
-              use_sampling, strengths, num_samples, playoff_probability)
+              use_sampling, strengths, num_samples, playoff_probability, noise)
 
     Returns:
         List of serialized RecordGroup dicts.
     """
-    team, fixed_games, team_record_combos, other_games, use_sampling, strengths, num_samples, playoff_probability = args
+    team, fixed_games, team_record_combos, other_games, use_sampling, strengths, num_samples, playoff_probability, noise = args
     results = []
 
     # Determine the maximum possible wins across all combos to limit
@@ -695,7 +712,7 @@ def _process_team_record_batch(args: tuple) -> list[dict[str, Any]]:
 
         if use_sampling:
             qualifying = _sample_qualifying_universes(
-                team, fixed_games, team_outcomes, other_games, strengths, num_samples
+                team, fixed_games, team_outcomes, other_games, strengths, num_samples, noise
             )
         else:
             qualifying = _enumerate_qualifying_universes(
@@ -717,7 +734,7 @@ def _process_team_record_batch(args: tuple) -> list[dict[str, Any]]:
             used_full_tiebreakers = True
             if use_sampling:
                 qualifying = _sample_qualifying_universes_full(
-                    team, fixed_games, team_outcomes, other_games, strengths, num_samples
+                    team, fixed_games, team_outcomes, other_games, strengths, num_samples, noise
                 )
             else:
                 qualifying = _enumerate_qualifying_universes_full(
@@ -755,7 +772,7 @@ def _process_team_record_batch(args: tuple) -> list[dict[str, Any]]:
             )
             if use_sampling:
                 qualifying = _sample_qualifying_universes_full(
-                    team, fixed_games, team_outcomes, other_games, strengths, num_samples
+                    team, fixed_games, team_outcomes, other_games, strengths, num_samples, noise
                 )
                 clinches_regardless = (len(qualifying) == num_samples)
             else:
@@ -807,6 +824,7 @@ def compute_clinching_scenarios(
     enumeration_threshold: int | None = None,
     num_samples: int | None = None,
     playoff_probability: float = 0.0,
+    noise: float | None = None,
 ) -> ClinchingResult:
     """Compute all clinching scenarios for a team.
 
@@ -822,10 +840,16 @@ def compute_clinching_scenarios(
         playoff_probability: MC simulation playoff probability for this team
             (0.0 to 100.0). When > 0 and the fast path finds no qualifying
             universes, a second pass with full NFL tiebreakers is triggered.
+        noise: Per-game strength noise sigma for sampling (None = use
+            SAMPLING_NOISE). Callers should pass the same noise value used
+            for the main Monte Carlo simulation so clinching scenarios are
+            found at a consistent rate. Only affects the sampling method —
+            enumeration is exhaustive and noise-independent.
 
     Returns:
         ClinchingResult with all scenarios grouped by team record.
     """
+    sampling_noise = noise if noise is not None else SAMPLING_NOISE
     if cutoff_week < 14:
         return ClinchingResult(
             team=team,
@@ -885,14 +909,14 @@ def compute_clinching_scenarios(
     # all games; simulated_outcomes override results for post-cutoff games).
     if num_workers <= 1 or len(team_record_combos) <= 1:
         raw_results = _process_team_record_batch(
-            (team, all_games, team_record_combos, other_games, use_sampling, strengths, samples, playoff_probability)
+            (team, all_games, team_record_combos, other_games, use_sampling, strengths, samples, playoff_probability, sampling_noise)
         )
     else:
         batch_size = max(1, len(team_record_combos) // num_workers)
         batches = []
         for i in range(0, len(team_record_combos), batch_size):
             batch = team_record_combos[i:i + batch_size]
-            batches.append((team, all_games, batch, other_games, use_sampling, strengths, samples, playoff_probability))
+            batches.append((team, all_games, batch, other_games, use_sampling, strengths, samples, playoff_probability, sampling_noise))
 
         with Pool(processes=num_workers) as pool:
             batch_results = pool.map(_process_team_record_batch, batches)

@@ -56,12 +56,13 @@ class SimulationConfig:
         iterations: Number of simulation trials to run (default 10000).
         tie_probability: Probability of a game ending in a tie (default 0.5%).
         cutoff_week: Optional explicit cutoff week (1-18). If None, auto-detected.
-        noise: Per-game strength noise as a standard deviation (default 0.2).
+        noise: Per-game strength noise as a standard deviation (default 0.34).
             Before each simulated game, both teams' strengths are multiplied by
             a random factor drawn from a log-normal distribution with this sigma.
             0.0 = no noise (deterministic strengths), 0.2 = moderate "any given
-            Sunday" variance, 0.5 = high chaos. The jitter is independent per
-            game and per trial, modeling game-to-game performance fluctuation.
+            Sunday" variance, 0.34 = high — reflecting current NFL upset rates,
+            0.5 = chaos. The jitter is independent per game and per trial,
+            modeling game-to-game performance fluctuation.
         num_workers: Number of worker processes for parallel simulation.
             None = auto-detect using os.cpu_count(). 1 = single-process (no overhead).
         MIN_ITERATIONS: Class-level minimum allowed iterations.
@@ -71,7 +72,7 @@ class SimulationConfig:
     iterations: int = 10_000
     tie_probability: float = 0.005
     cutoff_week: int | None = None
-    noise: float = 0.2
+    noise: float = 0.34
     num_workers: int | None = None
 
     MIN_ITERATIONS: int = field(default=100, init=False, repr=False)
