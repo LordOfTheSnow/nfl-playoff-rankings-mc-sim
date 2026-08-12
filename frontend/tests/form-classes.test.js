@@ -6,6 +6,11 @@
  * element SHALL have the correct Modernist design-system class for its
  * type: `mdn-btn` + `mdn-btn-primary`/`mdn-btn-secondary` for buttons,
  * `mdn-input` for text/number inputs, range inputs, and select elements.
+ * Small icon-style controls (currently just the Tie Probability field's `R`
+ * reset button, `mdn-reset-btn` — visually matching the non-interactive
+ * `.mdn-info-ic` tooltip icon, but a real focusable/clickable `<button>`)
+ * are exempt from the primary/secondary requirement — they intentionally
+ * don't look like full buttons.
  *
  * The simulation controls used to live on a standalone Bootstrap-styled
  * `#simulate` view (`renderSimulation` in simulation.js), then moved onto
@@ -90,6 +95,7 @@ describe("Property 4: Form element Modernist class assignment", () => {
         const buttons = contentEl.querySelectorAll("button");
         expect(buttons.length).toBeGreaterThan(0);
         for (const button of buttons) {
+          if (button.classList.contains("mdn-reset-btn")) continue;
           expect(button.classList.contains("mdn-btn")).toBe(true);
           const hasPrimary = button.classList.contains("mdn-btn-primary");
           const hasSecondary = button.classList.contains("mdn-btn-secondary");
@@ -141,6 +147,7 @@ describe("Property 4: Form element Modernist class assignment", () => {
 
           const buttons = contentEl.querySelectorAll("button");
           for (const button of buttons) {
+            if (button.classList.contains("mdn-reset-btn")) continue;
             expect(button.classList.contains("mdn-btn")).toBe(true);
             const hasPrimary = button.classList.contains("mdn-btn-primary");
             const hasSecondary = button.classList.contains("mdn-btn-secondary");

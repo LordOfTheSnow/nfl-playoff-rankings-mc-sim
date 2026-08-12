@@ -118,6 +118,15 @@ class Cache:
                 name TEXT PRIMARY KEY,
                 total INTEGER NOT NULL DEFAULT 0
             );
+
+            CREATE TABLE IF NOT EXISTS tie_stats (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                games INTEGER NOT NULL,
+                ties INTEGER NOT NULL,
+                season_count INTEGER NOT NULL,
+                excluded_season INTEGER NOT NULL,
+                computed_at TEXT NOT NULL
+            );
         """)
         self._conn.commit()
 
@@ -341,6 +350,49 @@ class Cache:
                 result[week] = {}
             result[week][row[1]] = row[2]
         return result
+
+    def store_tie_stats(self, games: int, ties: int, season_count: int, excluded_season: int) -> None:
+        """Persist the pooled tie-probability stats across complete prior seasons.
+
+        Singleton row (id=1), overwritten on every call. Recomputed whenever
+        data is fetched or the active season changes, since either can change
+        which seasons are "complete" or which season is excluded from the pool.
+
+        Args:
+            games: Total completed games pooled across eligible seasons.
+            ties: Total tied games within that pool.
+            season_count: Number of complete seasons contributing to the pool.
+            excluded_season: The season year excluded from the pool (the one
+                currently being simulated) — used to detect staleness if the
+                active season changes without a refresh.
+        """
+        self._conn.execute(
+            """INSERT OR REPLACE INTO tie_stats
+               (id, games, ties, season_count, excluded_season, computed_at)
+               VALUES (1, ?, ?, ?, ?, ?)""",
+            (games, ties, season_count, excluded_season, datetime.now(UTC).isoformat()),
+        )
+        self._conn.commit()
+
+    def get_tie_stats(self) -> dict[str, Any] | None:
+        """Retrieve the persisted pooled tie-probability stats, if computed.
+
+        Returns:
+            Dict with keys games/ties/season_count/excluded_season/computed_at,
+            or None if never computed (e.g. fresh database, no fetch yet).
+        """
+        row = self._conn.execute(
+            "SELECT games, ties, season_count, excluded_season, computed_at FROM tie_stats WHERE id = 1"
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "games": row["games"],
+            "ties": row["ties"],
+            "season_count": row["season_count"],
+            "excluded_season": row["excluded_season"],
+            "computed_at": row["computed_at"],
+        }
 
     def is_fresh(self, year: int, week: int) -> bool:
         """Check if cached data for a given year/week is still fresh.

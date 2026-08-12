@@ -28,7 +28,14 @@ from src.cache import Cache
 from src.cp_solver import ORTOOLS_AVAILABLE, CPSolverConfig, solve_clinch, solve_clinch_all
 from src.data_client import DataClient, FetchResult, Game, GameStatus
 from src.nfl_teams import ALL_TEAMS, get_team_abbreviation, get_team_conference
-from src.simulator import SimulationConfig, Simulator, SimulationResult
+from src.simulator import (
+    SimulationConfig,
+    Simulator,
+    SimulationResult,
+    _auto_detect_cutoff_week,
+    compute_prior_seasons_tie_pool,
+    resolve_tie_probability,
+)
 from src.standings import compute_standings, determine_playoff_bracket
 
 logger = logging.getLogger(__name__)
@@ -377,6 +384,16 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             # Use 272 as the standard regular season total
             expected_total = 272
 
+            # Default tie probability the frontend should seed its slider
+            # with (empirical estimate if enough data exists, else the
+            # hardcoded default) — mirrors what an omitted tie_probability
+            # on /api/simulate would resolve to for an auto-detected cutoff
+            default_tie_probability = resolve_tie_probability(
+                self._resolve_prior_ties_pool(server),
+                games,
+                _auto_detect_cutoff_week(games),
+            )
+
             response = {
                 "version": server.version,
                 "last_fetch_time": cache_status.get("last_fetch_time"),
@@ -392,6 +409,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 "weeks_with_games": weeks_with_games,
                 "games_per_week": games_per_week,
                 "cpu_count": os.cpu_count() or 1,
+                "default_tie_probability": default_tie_probability,
             }
             self._send_json_response(200, response)
         except Exception as e:
@@ -418,6 +436,10 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
 
             # Pre-compute weekly team strengths for all cutoff weeks
             self._compute_weekly_strengths(server)
+
+            # Refresh the persisted tie-probability pool — new data may
+            # change the current season's completeness or its game outcomes
+            self._refresh_tie_stats(server)
 
             response = {
                 "games_fetched": len(result.games),
@@ -448,6 +470,11 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
 
         server.season_year = season
         logger.info("Season changed to %d", season)
+
+        # The active season is excluded from the tie-probability pool, so
+        # switching seasons changes what that pool should contain
+        self._refresh_tie_stats(server)
+
         self._send_json_response(200, {"season_year": season})
 
     def _handle_get_cp_clinch(self, path: str) -> None:
@@ -949,11 +976,23 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                     noise = None
                 else:
                     noise = float(noise)
+            tie_probability = body.get("tie_probability")
+            if tie_probability is not None:
+                if not isinstance(tie_probability, (int, float)) or tie_probability < 0.0 or tie_probability > 1.0:
+                    tie_probability = None
+                else:
+                    tie_probability = float(tie_probability)
+            if tie_probability is None:
+                # Not passed explicitly — resolve the same empirical estimate
+                # the main simulation would use, so both stay in sync
+                tie_probability = resolve_tie_probability(
+                    self._resolve_prior_ties_pool(server), games, cutoff_week
+                )
             start_time = time.perf_counter()
             playoff_probability = body.get("playoff_probability", 0.0)
             if not isinstance(playoff_probability, (int, float)):
                 playoff_probability = 0.0
-            result = compute_clinching_scenarios(team, games, cutoff_week, num_workers=num_workers, enumeration_threshold=enum_threshold, num_samples=num_samples, playoff_probability=float(playoff_probability), noise=noise)
+            result = compute_clinching_scenarios(team, games, cutoff_week, num_workers=num_workers, enumeration_threshold=enum_threshold, num_samples=num_samples, playoff_probability=float(playoff_probability), noise=noise, tie_probability=tie_probability)
 
             if result.error:
                 self._send_error_response(400, result.error, "")
@@ -1060,6 +1099,32 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
 
         logger.info("Pre-computed weekly strengths for weeks 1-18")
 
+    def _refresh_tie_stats(self, server: "NFLSimulatorServer") -> None:
+        """Recompute and persist the prior-seasons tie-probability pool.
+
+        Called after data is fetched and after the active season changes —
+        either can change which seasons are complete or which season is
+        excluded from the pool (the one currently being simulated).
+        """
+        games, ties, season_count = compute_prior_seasons_tie_pool(
+            server.cache, server.season_year
+        )
+        server.cache.store_tie_stats(games, ties, season_count, server.season_year)
+
+    def _resolve_prior_ties_pool(
+        self, server: "NFLSimulatorServer"
+    ) -> tuple[int, int, int] | None:
+        """Read the persisted prior-seasons tie pool, if it's still current.
+
+        Returns None if never computed, or if it was computed while a
+        different season was active (stale — treated as unavailable rather
+        than silently mixing in the wrong season's exclusion).
+        """
+        stats = server.cache.get_tie_stats()
+        if stats is None or stats["excluded_season"] != server.season_year:
+            return None
+        return stats["games"], stats["ties"], stats["season_count"]
+
     def _handle_post_simulate(self) -> None:
         """Handle POST /api/simulate — run Monte Carlo simulation."""
         server: NFLSimulatorServer = self.server  # type: ignore[assignment]
@@ -1075,6 +1140,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
         cutoff_week = body.get("cutoff_week", None)
         noise = body.get("noise", 0.34)
         num_workers = body.get("num_workers", None)
+        tie_probability = body.get("tie_probability", None)
 
         # Validate iterations
         if not isinstance(iterations, int) or iterations < 100 or iterations > 1_000_000:
@@ -1114,6 +1180,16 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
+        # Validate tie_probability
+        if tie_probability is not None:
+            if not isinstance(tie_probability, (int, float)) or tie_probability < 0.0 or tie_probability > 1.0:
+                self._send_error_response(
+                    400,
+                    "Invalid tie_probability parameter",
+                    "tie_probability must be a number between 0.0 and 1.0",
+                )
+                return
+
         # Check if cached data exists
         games = server.cache.get_games(server.season_year)
         if not games:
@@ -1124,12 +1200,24 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        # Resolve effective tie probability: explicit override, else the
+        # empirical estimate (persisted prior-seasons pool + this season's
+        # own completed games up to the resolved cutoff), else the default
+        resolved_cutoff_week = cutoff_week if cutoff_week is not None else _auto_detect_cutoff_week(games)
+        effective_tie_probability = (
+            float(tie_probability) if tie_probability is not None
+            else resolve_tie_probability(
+                self._resolve_prior_ties_pool(server), games, resolved_cutoff_week
+            )
+        )
+
         # Run simulation
         try:
             config = SimulationConfig(
                 iterations=iterations,
                 cutoff_week=cutoff_week,
                 noise=float(noise),
+                tie_probability=effective_tie_probability,
                 num_workers=num_workers,
             )
             simulator = Simulator(config)

@@ -2,9 +2,10 @@
 
 [← Back to README](../README.md) | [Algorithms](algorithms.md) | [Technical Details](technical.md)
 
-**Status:** Investigation complete, fix not yet implemented. Logged for a future session
-(see the README `## ToDo` entry). No functional bug was found — this is a maintainability /
-drift-risk finding, not a correctness incident.
+**Status:** Fixed. `clinching.py` now calls `simulator.py`'s `_simulate_game_standalone`
+directly (see the "Minimum fix" recommendation below, and the `### Fixed` entry in
+`CHANGELOG.md`'s Unreleased section). No functional bug was found — this was a
+maintainability / drift-risk finding, not a correctness incident.
 
 ## Summary
 

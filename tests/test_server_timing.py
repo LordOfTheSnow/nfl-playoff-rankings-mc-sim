@@ -51,6 +51,13 @@ def _make_handler(mock_cache: MagicMock, season_year: int = 2024) -> MagicMock:
     handler._serialize_clinching_result = (
         NFLRequestHandler._serialize_clinching_result.__get__(handler, NFLRequestHandler)
     )
+    handler._resolve_prior_ties_pool = (
+        NFLRequestHandler._resolve_prior_ties_pool.__get__(handler, NFLRequestHandler)
+    )
+
+    # No persisted tie-probability pool by default — resolve_tie_probability
+    # falls back to DEFAULT_TIE_PROBABILITY
+    mock_cache.get_tie_stats.return_value = None
 
     return handler
 

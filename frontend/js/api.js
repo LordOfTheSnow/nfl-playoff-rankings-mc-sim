@@ -76,9 +76,11 @@ const API = (() => {
    * @param {number|null} cutoffWeek - Cutoff week (1–18) or null for auto-detect.
    * @param {number|null} noise - Per-game strength noise (0.0–1.0) or null for default.
    * @param {number|null} numWorkers - Number of parallel workers or null for auto-detect.
+   * @param {number|null} [tieProbability] - Per-game tie probability (0.0–1.0) or null
+   *   for the server's empirical estimate (see GET /api/status's default_tie_probability).
    * @returns {Promise<Object>} Simulation results (team_results, scenarios, etc.).
    */
-  function runSimulation(iterations, cutoffWeek, noise, numWorkers) {
+  function runSimulation(iterations, cutoffWeek, noise, numWorkers, tieProbability) {
     const body = { iterations };
     if (cutoffWeek != null) {
       body.cutoff_week = cutoffWeek;
@@ -88,6 +90,9 @@ const API = (() => {
     }
     if (numWorkers != null) {
       body.num_workers = numWorkers;
+    }
+    if (tieProbability != null) {
+      body.tie_probability = tieProbability;
     }
     return request("/api/simulate", {
       method: "POST",
@@ -154,14 +159,17 @@ const API = (() => {
    * @param {number|null} [numSamples] - Number of MC samples when using sampling method.
    * @param {number|null} [noise] - Per-game strength noise sigma (0.0-1.0); should match
    *   the main simulation's Noise setting for consistent results.
+   * @param {number|null} [tieProbability] - Per-game tie probability (0.0-1.0); should
+   *   match the main simulation's effective tie probability for consistent results.
    * @returns {Promise<Object>} Clinching scenarios grouped by team record.
    */
-  function clinchingScenarios(team, cutoffWeek, enumerationThreshold, numSamples, noise) {
+  function clinchingScenarios(team, cutoffWeek, enumerationThreshold, numSamples, noise, tieProbability) {
     const body = { team };
     if (cutoffWeek != null) body.cutoff_week = cutoffWeek;
     if (enumerationThreshold != null) body.enumeration_threshold = enumerationThreshold;
     if (numSamples != null) body.num_samples = numSamples;
     if (noise != null) body.noise = noise;
+    if (tieProbability != null) body.tie_probability = tieProbability;
     return request("/api/clinching-scenarios", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

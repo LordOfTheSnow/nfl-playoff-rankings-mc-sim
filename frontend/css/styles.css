@@ -188,6 +188,7 @@ body {
     display: flex;
     align-items: center;
     gap: 5px;
+    white-space: nowrap;
 }
 
 .mdn-input {
@@ -373,6 +374,32 @@ body {
     position: relative;
     display: inline-flex;
     vertical-align: middle;
+}
+
+.mdn-reset-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: content-box;
+    width: 13px;
+    height: 13px;
+    border: 1px solid currentColor;
+    opacity: 0.5;
+    font-size: 9px;
+    font-style: italic;
+    font-family: inherit;
+    line-height: 1;
+    padding: 0;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+}
+
+.mdn-reset-btn:hover,
+.mdn-reset-btn:focus-visible {
+    opacity: 1;
+    border-color: var(--mdn-accent-700);
+    color: var(--mdn-accent-700);
 }
 
 .mdn-tt-pop {

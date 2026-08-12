@@ -78,6 +78,27 @@ Ratings are normalized so the average across all teams is 1.0. A rating of 1.5 m
 
 ---
 
+## Tie Probability Estimation
+
+Each simulated game is a strength-weighted win/loss draw (see `_simulate_game_standalone` in `src/simulator.py`) — the model has no notion of a score margin, so a tie can't fall out of it on its own. A small slice of the random roll is reserved for "tie" before the win/loss split is computed, controlled by `tie_probability`.
+
+### Default: empirical estimate
+
+Rather than a fixed guess, `tie_probability` defaults to an estimate derived from real game data, pooled from two sources:
+
+1. **Prior complete seasons** — every season in the cache with no games still SCHEDULED or IN_PROGRESS (a POSTPONED/CANCELLED game, e.g. a suspended-and-never-resumed game, counts the season as over too — it just contributes no game/tie count of its own, since it has no score). Pooled across *all* such seasons (not just the two most recent) since NFL ties are rare (~0.5%) and a small sample is dominated by noise. Persisted in the `tie_stats` SQLite table (`Cache.store_tie_stats`/`get_tie_stats`) and recomputed whenever new data is fetched (`POST /api/fetch-data`) or the active season changes (`POST /api/set-season`) — see `compute_prior_seasons_tie_pool` in `src/simulator.py`.
+2. **The active season's own completed games, truncated at `cutoff_week`** — added in live per request, never including games beyond the cutoff. This matters for retroactively simulating an already-finished season at an earlier cutoff: only that season's games through the cutoff count, not the full season.
+
+The two are combined as `(prior_ties + current_ties) / (prior_games + current_games)` — see `resolve_tie_probability` in `src/simulator.py`. At least 2 complete prior seasons must be cached before the estimate is trusted; otherwise `tie_probability` falls back to a hardcoded 0.5% (`DEFAULT_TIE_PROBABILITY`).
+
+The active season is excluded from its own persisted pool (step 1) specifically so its cutoff-truncated contribution (step 2) isn't double-counted or leaked past the cutoff.
+
+### Override
+
+Both `POST /api/simulate` and `POST /api/clinching-scenarios` accept an explicit `tie_probability` (0.0-1.0), overriding the empirical estimate entirely — exposed as the Tie Probability slider on the Simulations page, next to Noise. `GET /api/status`'s `default_tie_probability` field reports what the empirical estimate currently resolves to, so the frontend can seed the slider with it.
+
+---
+
 ## Clinching Scenarios Solver
 
 When viewing simulation results, clicking a team with playoff probability between 0% and 100% shows a "Clinching Scenarios" button. This computes all minimal sets of game-outcome conditions that guarantee the team a playoff spot. Available after week 14 only.

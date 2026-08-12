@@ -27,9 +27,12 @@ Returns the current cache status.
   "weeks_completed": 15,
   "weeks_with_games": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
   "games_per_week": {"1": 16, "2": 16, "...": "..."},
-  "cpu_count": 12
+  "cpu_count": 12,
+  "default_tie_probability": 0.0043
 }
 ```
+
+`default_tie_probability` is the tie probability `/api/simulate`/`/api/clinching-scenarios` would use if the request omits `tie_probability` — an empirical estimate (ties ÷ games pooled across every complete prior season plus the active season's own completed games through its auto-detected cutoff) once at least 2 complete prior seasons are cached, otherwise the hardcoded 0.005 default. The frontend seeds the Tie Probability slider from this value. See "Tie probability estimation" under [Algorithms](algorithms.md).
 
 ---
 
@@ -259,6 +262,7 @@ Runs a Monte Carlo simulation with the given parameters.
   "iterations": 10000,
   "cutoff_week": 16,
   "noise": 0.34,
+  "tie_probability": 0.0043,
   "num_workers": 4
 }
 ```
@@ -268,6 +272,7 @@ Runs a Monte Carlo simulation with the given parameters.
 | `iterations` | int | 10000 | 100 - 1,000,000 |
 | `cutoff_week` | int | auto | 1 - 18 |
 | `noise` | float | 0.34 | 0.0 - 1.0 |
+| `tie_probability` | float | empirical estimate, or 0.005 | 0.0 - 1.0; per-game tie probability. When omitted, resolved from historical data — see `default_tie_probability` on `GET /api/status` above and "Tie probability estimation" in [Algorithms](algorithms.md). |
 | `num_workers` | int | CPU count | >= 1 |
 
 **Prerequisite:** Data must be fetched first (`POST /api/fetch-data`), otherwise returns `409`.
@@ -424,7 +429,8 @@ Computes all minimal game-outcome sets that guarantee a team a playoff spot.
   "enumeration_threshold": 13,
   "num_samples": 10000,
   "playoff_probability": 0.85,
-  "noise": 0.34
+  "noise": 0.34,
+  "tie_probability": 0.0043
 }
 ```
 
@@ -437,6 +443,7 @@ Computes all minimal game-outcome sets that guarantee a team a playoff spot.
 | `num_samples` | int | 10000 | 100 - 100,000 |
 | `playoff_probability` | float | 0.0 | MC probability for context |
 | `noise` | float | 0.34 | 0.0 - 1.0; per-game strength noise sigma for the sampling method (ignored by enumeration). Frontend passes the same value as the main `/api/simulate` Noise control so clinching scenarios are found at a consistent rate. |
+| `tie_probability` | float | empirical estimate, or 0.005 | 0.0 - 1.0; per-game tie probability for the sampling method (ignored by enumeration). When omitted, resolved the same way as `/api/simulate`'s default — see "Tie probability estimation" in [Algorithms](algorithms.md). Frontend passes the same effective value used by the main simulation for consistent results. |
 
 **Response:**
 

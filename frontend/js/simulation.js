@@ -211,25 +211,63 @@ function _buildSimulationHeaderCard(status) {
   const savedCutoffLS = App.getCutoffWeek();
   const cpuCount = status.cpu_count || 4;
   const savedWorkers = parseInt(localStorage.getItem("sim-workers"), 10) || cpuCount;
+  // Persist the resolved default immediately (not just on drag), so every
+  // other reader of `sim-workers` — notably the clinching panel's estimate
+  // line — sees the same value this slider is showing. Without this the key
+  // stays unset until the user drags the slider, and each reader falls back
+  // to its own default (6 here vs. a hardcoded 4 there).
+  if (localStorage.getItem("sim-workers") == null) {
+    localStorage.setItem("sim-workers", String(savedWorkers));
+  }
   const savedNoise = localStorage.getItem("sim-noise") || "34";
   const noiseVal = (parseInt(savedNoise, 10) / 100).toFixed(2);
   const noiseLabel = _noiseLabel(parseFloat(noiseVal));
   const savedIterations = parseInt(localStorage.getItem("sim-iterations"), 10) || 10000;
 
-  let html = `<div class="mdn-card" style="display:grid;grid-template-columns:1fr 1.7fr;gap:32px">`;
+  // Tie Probability slider: raw value is hundredths of a percent (0-300 =
+  // 0.00%-3.00%), so tieProbFraction = sliderValue / 10000. Seeded from the
+  // server's empirical estimate (status.default_tie_probability) the first
+  // time — falls back to the DEFAULT_TIE_PROBABILITY constant's value (0.5%)
+  // if the status response doesn't have one yet (e.g. no data fetched).
+  const storedTieProb = localStorage.getItem("sim-tie-probability");
+  const savedTieProb = storedTieProb != null
+    ? storedTieProb
+    : String(Math.round((status.default_tie_probability != null ? status.default_tie_probability : 0.005) * 10000));
+  // Persist the resolved default immediately (not just on drag) so
+  // sharedTieProbability() — used by the clinching panel's estimate line —
+  // reflects the real value in effect even before the user touches the slider.
+  if (storedTieProb == null) localStorage.setItem("sim-tie-probability", savedTieProb);
+  const tieProbVal = (parseInt(savedTieProb, 10) / 100).toFixed(2);
+  const tieProbSource = storedTieProb != null ? "custom" : "estimated";
+
+  // Left column is content-sized (`auto`) rather than a fixed fraction: the
+  // "Season data" cell needs ~490px for its 4-stat row and nothing more, so
+  // any extra proportional width it got was dead space that the controls
+  // column needed to keep Simulate/Fetch data on the fields' row.
+  let html = `<div class="mdn-card" style="display:grid;grid-template-columns:auto minmax(0,1fr);gap:24px">`;
   html += `<div>${buildSeasonDataCell(status, savedCutoffLS)}</div>`;
 
-  html += '<div>';
+  // `justify-self:end` sizes this cell to its content and pins it to the
+  // card's right edge, so the surplus the controls column gets above 1600px
+  // (where .mdn-container's max-width jumps 1400 -> 1600) lands as a gap
+  // between the two cells instead of trailing after "Fetch data". Below that
+  // the content fills the column and this is a no-op.
+  html += '<div style="justify-self:end">';
   html += '<div class="mdn-card-kicker">Simulation</div>';
-  html += '<div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;margin-top:6px">';
+  html += '<div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-top:6px">';
 
-  html += '<div class="mdn-field" style="width:95px">' +
+  // Simulate/Fetch data sit at the end of this same wrapping row, grouped
+  // into one flex item so they can never split from each other. The grid's
+  // content-sized left column leaves enough room for them to stay inline
+  // after Workers at normal widths.
+
+  html += '<div class="mdn-field" style="width:85px">' +
     '<label for="sim-iterations-sim">Iterations' +
     _infoIcon("Number of Monte Carlo trials to run. More iterations = more accurate probabilities but longer runtime.") +
     '</label>' +
     '<input class="mdn-input" type="number" id="sim-iterations-sim" min="100" max="1000000" value="' + savedIterations + '"></div>';
 
-  html += '<div class="mdn-field" style="width:110px">' +
+  html += '<div class="mdn-field" style="width:94px">' +
     '<label for="sim-cutoff-sim">Cutoff' +
     _infoIcon("Games up to and including this week use real results. Games after this week are simulated. Synced with the Standings page.") +
     '</label>' +
@@ -239,22 +277,33 @@ function _buildSimulationHeaderCard(status) {
   }
   html += '</select></div>';
 
-  html += '<div class="mdn-field" style="width:120px">' +
+  html += '<div class="mdn-field" style="width:92px">' +
     '<label for="sim-noise-sim">Noise' +
     _infoIcon("Per-game strength noise: adds random variance to each simulated game outcome, modeling the unpredictability of real NFL games.") +
     '</label>' +
     '<input type="range" class="mdn-input" id="sim-noise-sim" min="0" max="100" value="' + savedNoise + '">' +
     '<div class="mdn-hint" id="sim-noise-label-sim">' + noiseVal + ' — ' + noiseLabel + '</div></div>';
 
-  html += '<div class="mdn-field" style="width:110px">' +
+  html += '<div class="mdn-field" style="width:140px">' +
+    '<label for="sim-tie-prob-sim">Tie Probability' +
+    _infoIcon("Per-game tie probability. Defaults to an empirical estimate from historical seasons (falls back to 0.50% until enough data is cached) — drag to override.") +
+    ' <span class="mdn-tt-wrap"><button class="mdn-reset-btn" id="sim-tie-prob-reset-sim" type="button" aria-label="Reset to calculated default">R</button>' +
+    '<span class="mdn-tt-pop">Reset to the calculated (empirical) default — in case you forgot the original value after dragging the slider.</span></span>' +
+    '</label>' +
+    '<input type="range" class="mdn-input" id="sim-tie-prob-sim" min="0" max="100" value="' + savedTieProb + '">' +
+    '<div class="mdn-hint" id="sim-tie-prob-label-sim">' + tieProbVal + '% (' + tieProbSource + ')</div></div>';
+
+  html += '<div class="mdn-field" style="width:88px">' +
     '<label for="sim-workers-sim">Workers' +
     _infoIcon("Number of parallel CPU cores used to run the simulation. The clinching-scenarios solver uses the same worker count.") +
     '</label>' +
     '<input type="range" class="mdn-input" id="sim-workers-sim" min="1" max="' + cpuCount + '" value="' + savedWorkers + '">' +
     '<div class="mdn-hint" id="sim-workers-label-sim">' + savedWorkers + (savedWorkers === 1 ? ' core' : ' cores') + ' of ' + cpuCount + '</div></div>';
 
-  html += '<button id="btn-run-sim" class="mdn-btn mdn-btn-primary" type="button" style="margin-top:23px">Simulate</button>';
-  html += '<button id="btn-fetch-data-sim" class="mdn-btn mdn-btn-secondary" type="button" style="margin-top:23px">Fetch data</button>';
+  html += '<div style="display:flex;gap:10px;margin-top:23px">' +
+    '<button id="btn-run-sim" class="mdn-btn mdn-btn-primary" type="button">Simulate</button>' +
+    '<button id="btn-fetch-data-sim" class="mdn-btn mdn-btn-secondary" type="button">Fetch data</button>' +
+    '</div>';
   html += '</div>';
   html += '<p class="mdn-hint" id="sim-total-sim" style="margin-top:10px"></p>';
   html += '<div id="sim-progress-sim" style="margin-top:0.75rem;display:none;align-items:center;gap:0.6rem">' +
@@ -275,6 +324,7 @@ function _wireSimulationHeaderCard(status) {
   const iterInput = document.getElementById("sim-iterations-sim");
   const cutoffSel = document.getElementById("sim-cutoff-sim");
   const noiseSl = document.getElementById("sim-noise-sim");
+  const tieProbSl = document.getElementById("sim-tie-prob-sim");
   const workersSl = document.getElementById("sim-workers-sim");
   const runBtn = document.getElementById("btn-run-sim");
   const fetchBtn = document.getElementById("btn-fetch-data-sim");
@@ -321,6 +371,27 @@ function _wireSimulationHeaderCard(status) {
     localStorage.setItem('sim-noise', noiseSl.value);
   });
 
+  if (tieProbSl) tieProbSl.addEventListener("input", () => {
+    const val = (parseInt(tieProbSl.value, 10) / 100).toFixed(2);
+    const labelEl = document.getElementById("sim-tie-prob-label-sim");
+    if (labelEl) labelEl.textContent = val + "% (custom)";
+    localStorage.setItem('sim-tie-probability', tieProbSl.value);
+  });
+
+  const tieProbResetBtn = document.getElementById("sim-tie-prob-reset-sim");
+  if (tieProbResetBtn && tieProbSl) {
+    const calculatedDefault = Math.min(100, Math.max(0, Math.round(
+      (status && status.default_tie_probability != null ? status.default_tie_probability : 0.005) * 10000
+    )));
+    tieProbResetBtn.addEventListener("click", () => {
+      tieProbSl.value = calculatedDefault;
+      const val = (calculatedDefault / 100).toFixed(2);
+      const labelEl = document.getElementById("sim-tie-prob-label-sim");
+      if (labelEl) labelEl.textContent = val + "% (estimated)";
+      localStorage.setItem('sim-tie-probability', String(calculatedDefault));
+    });
+  }
+
   if (workersSl) {
     const cpuCount = (status && status.cpu_count) ? status.cpu_count : 4;
     workersSl.addEventListener("input", () => {
@@ -335,6 +406,7 @@ function _wireSimulationHeaderCard(status) {
     const iterations = parseInt(iterInput.value, 10) || 10000;
     const cutoffWeek = cutoffSel.value ? parseInt(cutoffSel.value, 10) : null;
     const noise = noiseSl ? parseInt(noiseSl.value, 10) / 100 : 0.34;
+    const tieProbability = tieProbSl ? parseInt(tieProbSl.value, 10) / 10000 : null;
     const numWorkers = workersSl ? parseInt(workersSl.value, 10) : null;
 
     if (iterations < 100 || iterations > 1000000) {
@@ -342,13 +414,13 @@ function _wireSimulationHeaderCard(status) {
       return;
     }
 
-    const controls = [iterInput, cutoffSel, noiseSl, workersSl, runBtn, fetchBtn].filter(Boolean);
+    const controls = [iterInput, cutoffSel, noiseSl, tieProbSl, tieProbResetBtn, workersSl, runBtn, fetchBtn].filter(Boolean);
     controls.forEach((el) => { el.disabled = true; });
     const progressEl = document.getElementById("sim-progress-sim");
     if (progressEl) progressEl.style.display = "flex";
 
     try {
-      const results = await API.runSimulation(iterations, cutoffWeek, noise, numWorkers);
+      const results = await API.runSimulation(iterations, cutoffWeek, noise, numWorkers, tieProbability);
       results._ranAt = new Date();
       window._simulationResults = results;
       App.showInfo("Simulation complete.");
@@ -764,7 +836,7 @@ function _showTeamDetail(teamName, results) {
           <span id="clinch-enum-info" style="font-size:12.5px;color:rgba(32,30,29,.65)"></span>
         </div>
       </div>
-      <p class="mdn-hint" style="margin:10px 0 0">Trials, noise, and worker count follow the Simulation settings above.</p>
+      <p class="mdn-hint" id="clinch-settings-hint" style="margin:10px 0 0">Worker count follows the Simulation settings above.</p>
       <p id="clinch-mode-explanation" style="font-size:11.5px;opacity:.6;margin-top:20px;padding-top:16px;border-top:1px solid var(--mdn-divider);line-height:1.7">
         <strong>Enumeration</strong> — checks every possible outcome combination (exhaustive, proven results).<br>
         <strong>Sampling</strong> — tests strength-weighted random outcomes (faster, but may miss rare scenarios).<br>
@@ -814,7 +886,11 @@ function _showTeamDetail(teamName, results) {
     let relevantGames = 0;
     let teamRecordCombos = 1;
     let msPerEval = 2.0;
-    let serverCpuCount = parseInt(localStorage.getItem("sim-workers"), 10) || 4;
+    // Falls back to the server's detected core count (filled in from
+    // est.cpu_count below) rather than a hardcoded guess — with num_workers
+    // unset the server itself uses os.cpu_count(), so that is the count the
+    // run will actually get.
+    let serverCpuCount = parseInt(localStorage.getItem("sim-workers"), 10) || null;
 
     // The solver reuses the main Simulation page's Iterations, Noise, and
     // Workers values — there is no separate solver-only sampling/noise/
@@ -825,24 +901,35 @@ function _showTeamDetail(teamName, results) {
     function sharedNoise() {
       return (parseInt(localStorage.getItem("sim-noise"), 10) || 34) / 100;
     }
+    function sharedTieProbability() {
+      const stored = localStorage.getItem("sim-tie-probability");
+      return stored != null ? parseInt(stored, 10) / 10000 : null;
+    }
 
     function updateEnumLabel() {
       const val = parseInt(enumSlider.value, 10);
       enumLabel.textContent = val + " games";
       const coresLabel = serverCpuCount === 1 ? "1 core" : serverCpuCount + " cores";
       const noiseLabel = sharedNoise().toFixed(2) + " noise";
+      const tieProbLabel = ((sharedTieProbability() != null ? sharedTieProbability() : 0.005) * 100).toFixed(2) + "% tie";
+      const settingsHint = document.getElementById("clinch-settings-hint");
       if (relevantGames > 0) {
         if (relevantGames <= val) {
           const combos = Math.pow(3, relevantGames) * teamRecordCombos;
           const estLow = Math.max(1, Math.round((combos * msPerEval * 8 / 1000) / serverCpuCount));
           const estHigh = Math.max(estLow + 1, Math.round((combos * msPerEval * 15 / 1000) / serverCpuCount));
           enumInfo.textContent = "→ enumeration · " + combos.toLocaleString() + " evaluations · " + coresLabel + " · " + _formatTime(estLow) + " – " + _formatTime(estHigh);
+          // Enumeration exhaustively tries all 3 outcomes per game with no
+          // probability weighting — noise and tie probability have no effect
+          // on it (same reason they're absent from the line above).
+          if (settingsHint) settingsHint.textContent = "Enumeration tries every outcome exhaustively — Noise and Tie Probability don't apply. Worker count follows the Simulation settings above.";
         } else {
           const samplingIters = sharedIterations();
           const samplingEvals = samplingIters * teamRecordCombos;
           const estLow = Math.max(1, Math.round((samplingEvals * msPerEval * 8 / 1000) / serverCpuCount));
           const estHigh = Math.max(estLow + 1, Math.round((samplingEvals * msPerEval * 15 / 1000) / serverCpuCount));
-          enumInfo.textContent = "→ sampling · " + samplingIters.toLocaleString() + " trials × " + teamRecordCombos + " records · " + noiseLabel + " · " + coresLabel + " · " + _formatTime(estLow) + " – " + _formatTime(estHigh);
+          enumInfo.textContent = "→ sampling · " + samplingIters.toLocaleString() + " trials × " + teamRecordCombos + " records · " + noiseLabel + " · " + tieProbLabel + " · " + coresLabel + " · " + _formatTime(estLow) + " – " + _formatTime(estHigh);
+          if (settingsHint) settingsHint.textContent = "Trials, Noise, Tie Probability, and worker count follow the Simulation settings above.";
         }
       }
     }
@@ -872,9 +959,13 @@ function _showTeamDetail(teamName, results) {
         relevantGames = est.relevant_games;
         teamRecordCombos = est.team_record_combos || 1;
         msPerEval = est.ms_per_eval || 2.0;
-        // Keep serverCpuCount pinned to the shared Workers value (sim-workers) —
-        // est.cpu_count is the server's total detected core count, not the
-        // worker count actually sent to the solver.
+        // serverCpuCount stays pinned to the shared Workers value (sim-workers)
+        // when the user has one — est.cpu_count is the server's total detected
+        // core count, not the worker count sent to the solver. But when that
+        // setting is unset we send num_workers: null, and the server then falls
+        // back to os.cpu_count() itself — so est.cpu_count *is* the count the
+        // run will get, and it's the honest number to label and estimate with.
+        if (serverCpuCount == null) serverCpuCount = est.cpu_count || 1;
         estEl.textContent = est.relevant_games + " relevant games · " + teamRecordCombos + " team record combinations";
         updateEnumLabel();
       }
@@ -925,6 +1016,8 @@ function _showTeamDetail(teamName, results) {
         if (enumThreshold != null) body.enumeration_threshold = enumThreshold;
         if (numSamples != null) body.num_samples = numSamples;
         if (numWorkers != null) body.num_workers = numWorkers;
+        const tieProbability = sharedTieProbability();
+        if (tieProbability != null) body.tie_probability = tieProbability;
         // Pass MC playoff probability so the solver can trigger full tiebreaker
         // resolution when the fast path finds no qualifying universes.
         if (window._simulationResults) {

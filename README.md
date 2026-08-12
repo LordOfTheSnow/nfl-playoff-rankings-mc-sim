@@ -15,7 +15,7 @@ A web application that predicts NFL playoff probabilities using Monte Carlo simu
 
 - Fetch NFL season data from ESPN's public JSON API
 - Iterative team strength ratings with Bayesian dampening
-- Monte Carlo simulation with configurable iterations, cutoff week, and game noise
+- Monte Carlo simulation with configurable iterations, cutoff week, game noise, and tie probability (defaults to an empirical estimate from historical seasons, overridable via slider)
 - Parallel simulation across multiple CPU cores for faster execution
 - Full NFL tiebreaker implementation (head-to-head, division/conference record, strength of victory/schedule, point-based steps) with proper step labeling in standings display
 - Interactive standings view with team logos, clinch/division/#1-seed/eliminated status tags, and hover-tooltip tiebreaker explanations
@@ -199,7 +199,6 @@ pytest tests/ -v
 ## ToDo
 
 - **Vectorize standings computation with NumPy**: Rewrite the MC simulation hot path to process all trials simultaneously as batched array operations. Game outcome simulation (random draws + strength comparisons) and W/L/T record accumulation can be expressed as matrix operations over a `(trials, games)` array, eliminating per-trial Python loops. The tiebreaker logic would remain in Python but only be invoked for the subset of trials where teams are actually tied in win percentage. Expected 5-15x overall speedup for the simulation pipeline.
-- **Consolidate the clinching solver's duplicated game-simulation logic**: `src/clinching.py` reimplements `src/simulator.py`'s per-game outcome algorithm as a separate function, with its own independently-hardcoded tie-probability constant (`TIE_PROBABILITY = 0.005` vs. `SimulationConfig.tie_probability = 0.005` — same value today, but two unrelated sources of truth that can silently drift). Neither is exposed as a user setting. Fix: have the clinching solver call `simulator.py`'s function directly instead of maintaining a second copy. Full investigation, including a (ruled out) multiprocessing RNG-correlation hypothesis, is written up in [doc/clinching-solver-consolidation.md](doc/clinching-solver-consolidation.md).
 
 ## Disclaimer
 
