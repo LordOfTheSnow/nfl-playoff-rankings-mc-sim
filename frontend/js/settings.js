@@ -94,16 +94,57 @@ function _buildCountersCard(data) {
   card.className = "mdn-card";
   card.style.marginTop = "22px";
 
-  let html = '<div class="mdn-card-kicker">Lifetime totals</div>';
-  html += '<div class="mdn-card-title">Simulation &amp; resolver activity</div>';
+  let html = '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">';
+  html += '<div><div class="mdn-card-kicker">Lifetime totals</div>' +
+    '<div class="mdn-card-title">Simulation &amp; resolver activity</div></div>';
+  html += '<div style="display:flex;align-items:center;gap:4px;margin-top:2px">' +
+    '<button id="btn-reset-counters" class="mdn-btn mdn-btn-secondary" type="button">Reset</button>' +
+    _infoIcon("Resets only these two counters (Games simulated, Clinching resolver evaluations) to 0. Nothing else on this page — cached game data, standings, or fetch history — is affected.") +
+    '</div>';
+  html += '</div>';
   html += '<div style="display:flex;gap:28px;margin-top:12px;flex-wrap:wrap">';
-  html += _statBlock("Games simulated", _formatCount(counters.games_simulated_total));
-  html += _statBlock("Clinching resolver evaluations", _formatCount(counters.clinching_resolver_evals_total));
+  html += _statBlock("Games simulated", _formatCount(counters.games_simulated_total), "lifetime-games-simulated");
+  html += _statBlock("Clinching resolver evaluations", _formatCount(counters.clinching_resolver_evals_total), "lifetime-clinching-evals");
   html += "</div>";
   html += '<p class="mdn-hint" style="margin-top:10px">Games simulated sums every individual game outcome rolled across every Monte Carlo simulation run (iterations &times; remaining games per run) on this database.<br>Clinching resolver evaluations sum the game-outcome universes evaluated by every clinching scenarios run.</p>';
 
   card.innerHTML = html;
+
+  setTimeout(() => {
+    const btn = document.getElementById("btn-reset-counters");
+    if (btn) btn.addEventListener("click", _handleResetCounters);
+  }, 0);
+
   return card;
+}
+
+/**
+ * Handle the "Reset" button click on the Lifetime totals card: zeroes the
+ * two persisted run counters (games simulated, clinching resolver
+ * evaluations) both on screen and in the database.
+ */
+async function _handleResetCounters() {
+  const btn = document.getElementById("btn-reset-counters");
+  if (!btn) return;
+  if (!window.confirm("Reset Games simulated and Clinching resolver evaluations to 0? This can't be undone.")) {
+    return;
+  }
+
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Resetting…";
+  try {
+    const result = await API.resetCounters();
+    const gamesEl = document.getElementById("lifetime-games-simulated");
+    const evalsEl = document.getElementById("lifetime-clinching-evals");
+    if (gamesEl) gamesEl.textContent = _formatCount(result.games_simulated_total);
+    if (evalsEl) evalsEl.textContent = _formatCount(result.clinching_resolver_evals_total);
+    btn.textContent = originalText;
+    btn.disabled = false;
+  } catch (err) {
+    btn.textContent = "Failed";
+    setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2000);
+  }
 }
 
 /**
@@ -225,11 +266,13 @@ function _buildFetchLogCard(data) {
  *
  * @param {string} label
  * @param {string} value
+ * @param {string} [id] - Optional id for the `.mdn-stat-val` element, so callers can update it in place.
  * @returns {string}
  */
-function _statBlock(label, value) {
+function _statBlock(label, value, id) {
+  const idAttr = id ? ' id="' + id + '"' : "";
   return '<div><div class="mdn-stat-lbl">' + _escapeHtml(label) +
-    '</div><div class="mdn-stat-val">' + _escapeHtml(value) + "</div></div>";
+    '</div><div class="mdn-stat-val"' + idAttr + '>' + _escapeHtml(value) + "</div></div>";
 }
 
 /**

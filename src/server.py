@@ -342,6 +342,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             self._handle_post_clinching_scenarios()
         elif path == "/api/set-season":
             self._handle_post_set_season()
+        elif path == "/api/reset-counters":
+            self._handle_post_reset_counters()
         elif path.startswith("/api/"):
             self._send_error_response(404, "Endpoint not found", f"No handler for POST {path}")
         else:
@@ -907,6 +909,20 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             self._send_json_response(200, response)
         except Exception as e:
             logger.exception("Error getting system info")
+            self._send_error_response(500, "Internal server error", str(e))
+
+    def _handle_post_reset_counters(self) -> None:
+        """Handle POST /api/reset-counters — zero the lifetime run counters shown on Settings / Info."""
+        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
+        try:
+            server.cache.reset_counters([COUNTER_GAMES_SIMULATED, COUNTER_CLINCHING_RESOLVER_EVALS])
+            logger.info("Lifetime run counters reset")
+            self._send_json_response(200, {
+                "games_simulated_total": 0,
+                "clinching_resolver_evals_total": 0,
+            })
+        except Exception as e:
+            logger.exception("Error resetting counters")
             self._send_error_response(500, "Internal server error", str(e))
 
     def _handle_post_clinching_scenarios(self) -> None:

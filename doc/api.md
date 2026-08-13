@@ -541,7 +541,7 @@ Reads existing `doc/solver-performance.md`, inserts new timing entries from the 
 
 Returns SQLite cache database metadata (which seasons are stored and how complete each one is, plus recent ESPN fetch attempts), the server's runtime environment (CPU, Python, platform), and lifetime run counters. Backs the "Settings / Info" page.
 
-`lifetime_counters` are persisted in the `run_counters` table and never reset: `games_simulated_total` sums the individual game outcomes rolled across every successful `POST /api/simulate` call against this database (`iterations_run × simulated_games_count` per call); `clinching_resolver_evals_total` sums `total_evals` (the number of game-outcome universes evaluated) of every successful `POST /api/clinching-scenarios` call.
+`lifetime_counters` are persisted in the `run_counters` table: `games_simulated_total` sums the individual game outcomes rolled across every successful `POST /api/simulate` call against this database (`iterations_run × simulated_games_count` per call); `clinching_resolver_evals_total` sums `total_evals` (the number of game-outcome universes evaluated) of every successful `POST /api/clinching-scenarios` call. Both can be zeroed via `POST /api/reset-counters`.
 
 `database.recent_fetches` is the 20 most recent rows from the `fetch_log` table (one row per week per fetch attempt), most recent first. `success: false` rows are ESPN fetches that failed (timeout, HTTP error, network error, or a schema error) — `games_count` is 0 for those.
 
@@ -595,6 +595,21 @@ Returns SQLite cache database metadata (which seasons are stored and how complet
     "games_simulated_total": 55940000,
     "clinching_resolver_evals_total": 812400
   }
+}
+```
+
+---
+
+### `POST /api/reset-counters`
+
+Zeroes the `lifetime_counters` shown on Settings / Info (`games_simulated_total` and `clinching_resolver_evals_total`) in the `run_counters` table. No request body. Nothing else — cached game/schedule data, standings, solver timings, or fetch history — is affected.
+
+**Response:**
+
+```json
+{
+  "games_simulated_total": 0,
+  "clinching_resolver_evals_total": 0
 }
 ```
 

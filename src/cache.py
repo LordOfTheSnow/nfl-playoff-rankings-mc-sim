@@ -683,6 +683,19 @@ class Cache:
         rows = self._conn.execute("SELECT name, total FROM run_counters").fetchall()
         return {row["name"]: row["total"] for row in rows}
 
+    def reset_counters(self, names: list[str]) -> None:
+        """Zero the given lifetime run counters, persisting immediately.
+
+        Args:
+            names: Counter identifiers to reset (e.g. ["games_simulated_total"]).
+        """
+        self._conn.executemany(
+            "INSERT INTO run_counters (name, total) VALUES (?, 0) "
+            "ON CONFLICT(name) DO UPDATE SET total = 0",
+            [(name,) for name in names],
+        )
+        self._conn.commit()
+
     def close(self) -> None:
         """Close the database connection."""
         self._conn.close()

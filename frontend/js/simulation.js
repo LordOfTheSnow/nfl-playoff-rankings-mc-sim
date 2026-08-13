@@ -243,18 +243,22 @@ function _buildSimulationHeaderCard(status) {
   // Left column is content-sized (`auto`) rather than a fixed fraction: the
   // "Season data" cell needs ~490px for its 4-stat row and nothing more, so
   // any extra proportional width it got was dead space that the controls
-  // column needed to keep Simulate/Fetch data on the fields' row.
-  let html = `<div class="mdn-card" style="display:grid;grid-template-columns:auto minmax(0,1fr);gap:24px">`;
+  // column needed to keep Simulate/Fetch data on the fields' row. The 100px
+  // gap is a fixed, deliberate separator between the two cells (not just
+  // grid breathing room) — the right column stretches to fill the rest of
+  // the row, so this gap is exactly the visible space between them.
+  let html = `<div class="mdn-card" style="display:grid;grid-template-columns:auto minmax(0,1fr);gap:160px">`;
   html += `<div>${buildSeasonDataCell(status, savedCutoffLS)}</div>`;
 
-  // `justify-self:end` sizes this cell to its content and pins it to the
-  // card's right edge, so the surplus the controls column gets above 1600px
-  // (where .mdn-container's max-width jumps 1400 -> 1600) lands as a gap
-  // between the two cells instead of trailing after "Fetch data". Below that
-  // the content fills the column and this is a no-op.
-  html += '<div style="justify-self:end">';
+  // This cell stretches to fill the grid's full right column (default grid
+  // item behavior), and the fields row below uses `justify-content:
+  // space-between` so any extra width the column gets on wide screens is
+  // spent widening the gaps *between* Iterations/Cutoff/Noise/Tie
+  // Probability/Workers/Simulate+Fetch, rather than collecting as one dead
+  // strip before the whole cluster.
+  html += '<div>';
   html += '<div class="mdn-card-kicker">Simulation</div>';
-  html += '<div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-top:6px">';
+  html += '<div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;justify-content:space-between;margin-top:6px">';
 
   // Simulate/Fetch data sit at the end of this same wrapping row, grouped
   // into one flex item so they can never split from each other. The grid's

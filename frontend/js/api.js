@@ -243,6 +243,17 @@ const API = (() => {
     return request("/api/system-info");
   }
 
+  /**
+   * Reset the lifetime run counters (games simulated, clinching resolver
+   * evaluations) shown on Settings / Info back to 0.
+   * POST /api/reset-counters
+   *
+   * @returns {Promise<{games_simulated_total: number, clinching_resolver_evals_total: number}>}
+   */
+  function resetCounters() {
+    return request("/api/reset-counters", { method: "POST" });
+  }
+
   return {
     fetchStatus,
     fetchData,
@@ -257,5 +268,6 @@ const API = (() => {
     fetchCPClinchAll,
     solverTimings,
     getSystemInfo,
+    resetCounters,
   };
 })();

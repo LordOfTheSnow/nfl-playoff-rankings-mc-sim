@@ -582,8 +582,8 @@ function buildStatusPanel(status) {
   }
   html += '</select></div>';
 
-  html += '<button id="btn-fetch-data-standings" class="mdn-btn mdn-btn-secondary" type="button" style="margin-top:23px">Fetch data</button>';
-  html += '<a href="#simulations" class="mdn-btn mdn-btn-primary" style="margin-top:23px;text-decoration:none">Go to Simulations →</a>';
+  html += '<button id="btn-fetch-data-standings" class="mdn-btn mdn-btn-secondary" type="button" style="margin-top:19px">Fetch data</button>';
+  html += '<a href="#simulations" class="mdn-btn mdn-btn-primary" style="margin-top:19px;text-decoration:none">Go to Simulations →</a>';
   html += '</div>';
   html += '<p class="mdn-hint" style="margin-top:10px">Set the cutoff here, then run and explore simulations on the Simulations page.</p>';
   html += '</div>';
