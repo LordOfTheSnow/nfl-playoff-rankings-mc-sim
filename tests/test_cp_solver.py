@@ -417,3 +417,87 @@ class TestSolveClincAll:
         with patch("src.cp_solver.ORTOOLS_AVAILABLE", False):
             with pytest.raises(RuntimeError, match="OR-Tools is not installed"):
                 solve_clinch_all(games, cutoff_week=17)
+
+
+class TestDivisionHomefieldClinchSeasonLengthIndependence:
+    """Regression test for a bug where `_build_cpsat_model`/`_build_ranking_model`
+    hardcoded each team's full-season game count to 17 (true for 2021+ seasons
+    only). For any season with a different per-team game total — e.g. the
+    16-game/17-week seasons played through 2020 — the `wins + losses + ties
+    == 17` constraint contradicted the per-game outcome constraints for every
+    team, making the whole CP-SAT model vacuously infeasible regardless of
+    actual records. `_check_division_clinch`/`_check_homefield_clinch`
+    interpret INFEASIBLE as "no rival can catch up", so every non-eliminated
+    team in a division came back `clinched_division=True` simultaneously —
+    impossible, since only one team per division can win it.
+    """
+
+    def test_division_clinch_correct_in_a_16_game_season(self):
+        """A clear division leader clinches; rivals who can't catch up do not.
+
+        AFC North, 1 game remaining each (mirrors a 16-game/17-week season
+        like 2020): Steelers' 12 wins already exceed what Ravens/Browns can
+        possibly reach (9 + 1 = 10), so only Steelers should be clinched.
+        """
+        from src.cp_solver import CPSolverConfig, _check_division_clinch
+
+        remaining_games = [
+            _make_game(17, "Steelers", "Colts"),
+            _make_game(17, "Ravens", "Giants"),
+            _make_game(17, "Browns", "Jets"),
+        ]
+        fixed_standings = {
+            "Steelers": (12, 2, 0),
+            "Ravens": (9, 5, 0),
+            "Browns": (9, 5, 0),
+        }
+        all_contenders = ["Steelers", "Ravens", "Browns"]
+        config = CPSolverConfig(time_limit=5)
+
+        assert _check_division_clinch(
+            "Steelers", remaining_games, 16, remaining_games,
+            fixed_standings, all_contenders, "AFC", config,
+        ) is True
+        assert _check_division_clinch(
+            "Ravens", remaining_games, 16, remaining_games,
+            fixed_standings, all_contenders, "AFC", config,
+        ) is False
+        assert _check_division_clinch(
+            "Browns", remaining_games, 16, remaining_games,
+            fixed_standings, all_contenders, "AFC", config,
+        ) is False
+
+    def test_homefield_clinch_correct_in_a_16_game_season(self):
+        """At most one team per conference can have clinched homefield.
+
+        Chiefs (14 wins, 1 remaining) already beat what every other AFC
+        division-leader candidate can reach, so only Chiefs clinches
+        homefield — division leaders in closer races must not.
+        """
+        from src.cp_solver import CPSolverConfig, _check_homefield_clinch
+
+        remaining_games = [
+            _make_game(17, "Chiefs", "Broncos"),
+            _make_game(17, "Steelers", "Colts"),
+            _make_game(17, "Bills", "Jets"),
+        ]
+        fixed_standings = {
+            "Chiefs": (14, 1, 0),
+            "Steelers": (12, 2, 0),
+            "Bills": (12, 3, 0),
+        }
+        all_contenders = ["Chiefs", "Steelers", "Bills"]
+        config = CPSolverConfig(time_limit=5)
+
+        assert _check_homefield_clinch(
+            "Chiefs", remaining_games, 16, remaining_games,
+            fixed_standings, all_contenders, "AFC", config,
+        ) is True
+        assert _check_homefield_clinch(
+            "Steelers", remaining_games, 16, remaining_games,
+            fixed_standings, all_contenders, "AFC", config,
+        ) is False
+        assert _check_homefield_clinch(
+            "Bills", remaining_games, 16, remaining_games,
+            fixed_standings, all_contenders, "AFC", config,
+        ) is False

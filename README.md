@@ -5,7 +5,7 @@
 [![Docker Image](https://img.shields.io/badge/ghcr.io-nfl--playoff--rankings--mc--sim-blue?logo=docker)](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/pkgs/container/nfl-playoff-rankings-mc-sim)
 [![Build Status](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/actions/workflows/docker-publish.yml)
 
-**v1.0.0**
+**v1.0.1**
 
 A web application that predicts NFL playoff probabilities using Monte Carlo simulation. It fetches real game data from ESPN's public API, computes strength-of-schedule-weighted team ratings, simulates remaining games, applies official NFL tiebreaker rules, and presents probability distributions through an interactive browser UI.
 
@@ -130,6 +130,11 @@ pytest tests/ -v
 - [Technical](doc/technical.md) — Parallel simulation, solver performance export
 - [Solver Performance](doc/solver-performance.md) — Cross-platform benchmark results
 - [Clinching Solver Consolidation](doc/clinching-solver-consolidation.md) — Investigation notes on duplicated game-simulation logic between the main simulator and the clinching solver
+
+## Known Bugs
+
+- **Pre-2021 seasons (16 games/17 weeks) are assumed to be 17 games/18 weeks throughout, causing cosmetic — but confusing — display bugs**: several places hardcode the modern 2021+ season shape instead of deriving it from the loaded schedule: `expected_games_per_season`/`expected_total` (`src/server.py`, backing both `GET /api/status` and `GET /api/system-info`), the Cutoff Week dropdowns' fixed 1-18 range (`standings.js`, `simulation.js`), and the Schedule Grid's fixed 18-column layout (`_build_schedule_grid` in `src/server.py` always allocates `[None] * 18` per team; `schedule-grid.js` always renders 18 columns). Concretely, for a fully-loaded, fully-completed 2020 season: Standings and Settings / Info permanently show "17 / 18 weeks loaded" and "256 / 272 games (94%)" instead of 100%, and the Schedule Grid renders a false league-wide "BYE" for every team in the 18th column, since `null` unconditionally renders as "BYE" and week 18 never has games to fill it.
+  Confirmed this is display-only, not a correctness bug: cutoff-week auto-detection (`_auto_detect_cutoff_week`) and remaining-games computation already derive from the real per-season game data dynamically, so simulation/standings/CP-solver results for these seasons are unaffected. Fix needs a season-length-aware game/week count (e.g. a small lookup table by year, or inferring it from the fetched schedule's actual max week) threaded through the two backend endpoints and the two frontend hardcodes.
 
 ## ToDo
 

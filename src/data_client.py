@@ -71,6 +71,16 @@ _ESPN_DISPLAY_NAME_TO_SHORT: dict[str, str] = {
     "Tampa Bay Buccaneers": "Buccaneers",
     "Tennessee Titans": "Titans",
     "Washington Commanders": "Commanders",
+    # Historical franchise names (ESPN returns the name in use at the time of
+    # the season, not the current one) — the "last word" fallback below can't
+    # resolve these since it either isn't a real team name ("Team") or points
+    # to the wrong current team ("Washington" alone, "Redskins").
+    "Washington Football Team": "Commanders",
+    "Washington Redskins": "Commanders",
+    "Washington": "Commanders",
+    "Oakland Raiders": "Raiders",
+    "San Diego Chargers": "Chargers",
+    "St. Louis Rams": "Rams",
 }
 
 

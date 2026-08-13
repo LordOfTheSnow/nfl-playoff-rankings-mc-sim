@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-08-13
+
+### Fixed
+- CP solver (`_build_cpsat_model`/`_build_ranking_model`) hardcoded every team's total season games to 17, correct only for 2021+ seasons. For any earlier season (16 games/17 weeks, e.g. 2020) the resulting CP-SAT model was vacuously infeasible for every team regardless of actual records — `clinched_division`/`clinched_homefield` came back `True` for every team still alive, including multiple teams in the same division simultaneously (e.g. both Titans and Colts, or every AFC/NFC division leader, shown as "#1 SEED" at once). The constraint was already redundant with the per-game outcome constraints it duplicated, so it's simply removed rather than made season-aware
+- ESPN team name resolution (`_resolve_team_name`) didn't recognize Washington's historical names (`"Washington"`, `"Washington Football Team"`, `"Washington Redskins"` — used for the 2020 and 2021 seasons before the 2022 Commanders rebrand) or older relocated franchises' historical city names (`"Oakland Raiders"`, `"San Diego Chargers"`, `"St. Louis Rams"`). Since `compute_standings()` silently drops any game where either team's name isn't recognized, every Washington game vanished from *both* participants' win/loss totals for 2020/2021 — e.g. the Giants' real 2020 record (5-10-0) displayed as 3-10-0, understating their ceiling enough to make a team with a *worse* real record (Eagles) show as more clearly alive than they did
+
 ## [1.0.0] - 2026-08-13
 
 Full "Modernist" redesign of every page (flat red-on-white style, Bootstrap removed entirely), a restructured Simulations flow, empirical tie-probability estimation, a new Settings / Info diagnostics page, and a round of documentation and test-coverage cleanup.
@@ -380,7 +386,8 @@ Full "Modernist" redesign of every page (flat red-on-white style, Bootstrap remo
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.4...v1.0.0
 [0.7.4]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.2...v0.7.3
