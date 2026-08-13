@@ -573,9 +573,6 @@ def _build_cpsat_model(
     # --- Team record variables and arithmetic constraints ---
     team_record_vars: dict[str, tuple[Any, Any, Any]] = {}
 
-    # Total games per team in the full season = 17
-    total_season_games = 17
-
     for t in contenders:
         fw, fl, ft = fixed_standings.get(t, (0, 0, 0))
 
@@ -631,9 +628,6 @@ def _build_cpsat_model(
             model.add(ties_var == ft + sum(tie_bools))
         else:
             model.add(ties_var == ft)
-
-        # W + L + T = 17 for every team
-        model.add(wins_var + losses_var + ties_var == total_season_games)
 
         team_record_vars[t] = (wins_var, losses_var, ties_var)
 
@@ -867,7 +861,6 @@ def _build_ranking_model(
             team_away_games[game.away_team].append(game.game_id)
 
     team_record_vars: dict[str, tuple[Any, Any, Any]] = {}
-    total_season_games = 17
 
     for t in contenders:
         fw, fl, ft = fixed_standings.get(t, (0, 0, 0))
@@ -916,7 +909,6 @@ def _build_ranking_model(
         else:
             model.add(ties_var == ft)
 
-        model.add(wins_var + losses_var + ties_var == total_season_games)
         team_record_vars[t] = (wins_var, losses_var, ties_var)
 
     return (model, game_outcome_vars, team_record_vars)
