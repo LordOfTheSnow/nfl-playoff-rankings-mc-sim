@@ -48,6 +48,11 @@ class Cache:
         self._conn.row_factory = sqlite3.Row
         self._create_tables()
 
+    @property
+    def db_path(self) -> str:
+        """Path to the underlying SQLite database file."""
+        return self._db_path
+
     def _create_tables(self) -> None:
         """Create database tables and indexes if they don't exist."""
         self._conn.executescript("""
@@ -107,6 +112,20 @@ class Cache:
                 total_evals INTEGER NOT NULL,
                 num_workers INTEGER NOT NULL DEFAULT 0,
                 recorded_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS run_counters (
+                name TEXT PRIMARY KEY,
+                total INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS tie_stats (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                games INTEGER NOT NULL,
+                ties INTEGER NOT NULL,
+                season_count INTEGER NOT NULL,
+                excluded_season INTEGER NOT NULL,
+                computed_at TEXT NOT NULL
             );
         """)
         self._conn.commit()
@@ -173,6 +192,47 @@ class Cache:
                     (year, week, now, len(week_games)),
                 )
             self._conn.commit()
+
+    def log_fetch_failure(self, year: int, week: int) -> None:
+        """Record a failed fetch attempt for a given year/week.
+
+        Args:
+            year: The NFL season year.
+            week: The week number that failed to fetch.
+        """
+        now = datetime.now(UTC).isoformat()
+        self._conn.execute(
+            """INSERT INTO fetch_log (year, week, fetched_at, games_count, success)
+               VALUES (?, ?, ?, 0, 0)""",
+            (year, week, now),
+        )
+        self._conn.commit()
+
+    def get_fetch_log(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Retrieve the most recent fetch attempts, successful or failed.
+
+        Args:
+            limit: Maximum number of records to return (default 20).
+
+        Returns:
+            List of dicts with keys: year, week, fetched_at, games_count,
+            success (bool). Ordered by insertion order, most recent first.
+        """
+        rows = self._conn.execute(
+            "SELECT year, week, fetched_at, games_count, success "
+            "FROM fetch_log ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [
+            {
+                "year": row["year"],
+                "week": row["week"],
+                "fetched_at": row["fetched_at"],
+                "games_count": row["games_count"],
+                "success": bool(row["success"]),
+            }
+            for row in rows
+        ]
 
     def get_games(self, year: int, week: int | None = None) -> list[Game]:
         """Retrieve cached games filtered by year and optional week.
@@ -291,6 +351,49 @@ class Cache:
             result[week][row[1]] = row[2]
         return result
 
+    def store_tie_stats(self, games: int, ties: int, season_count: int, excluded_season: int) -> None:
+        """Persist the pooled tie-probability stats across complete prior seasons.
+
+        Singleton row (id=1), overwritten on every call. Recomputed whenever
+        data is fetched or the active season changes, since either can change
+        which seasons are "complete" or which season is excluded from the pool.
+
+        Args:
+            games: Total completed games pooled across eligible seasons.
+            ties: Total tied games within that pool.
+            season_count: Number of complete seasons contributing to the pool.
+            excluded_season: The season year excluded from the pool (the one
+                currently being simulated) — used to detect staleness if the
+                active season changes without a refresh.
+        """
+        self._conn.execute(
+            """INSERT OR REPLACE INTO tie_stats
+               (id, games, ties, season_count, excluded_season, computed_at)
+               VALUES (1, ?, ?, ?, ?, ?)""",
+            (games, ties, season_count, excluded_season, datetime.now(UTC).isoformat()),
+        )
+        self._conn.commit()
+
+    def get_tie_stats(self) -> dict[str, Any] | None:
+        """Retrieve the persisted pooled tie-probability stats, if computed.
+
+        Returns:
+            Dict with keys games/ties/season_count/excluded_season/computed_at,
+            or None if never computed (e.g. fresh database, no fetch yet).
+        """
+        row = self._conn.execute(
+            "SELECT games, ties, season_count, excluded_season, computed_at FROM tie_stats WHERE id = 1"
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "games": row["games"],
+            "ties": row["ties"],
+            "season_count": row["season_count"],
+            "excluded_season": row["excluded_season"],
+            "computed_at": row["computed_at"],
+        }
+
     def is_fresh(self, year: int, week: int) -> bool:
         """Check if cached data for a given year/week is still fresh.
 
@@ -350,6 +453,44 @@ class Cache:
             "last_fetch_time": row["last_fetch"] if row else None,
             "games_cached": count_row["cnt"] if count_row else 0,
         }
+
+    def get_seasons_summary(self) -> list[dict[str, Any]]:
+        """Return per-season data completeness, most recent season first.
+
+        Returns:
+            List of dicts with keys: year, games_cached, completed_games,
+            weeks_with_data, last_fetch_time.
+        """
+        years = [
+            row["year"]
+            for row in self._conn.execute(
+                "SELECT DISTINCT year FROM games ORDER BY year DESC"
+            ).fetchall()
+        ]
+
+        summary = []
+        for year in years:
+            total_row = self._conn.execute(
+                "SELECT COUNT(*) as cnt FROM games WHERE year = ?", (year,)
+            ).fetchone()
+            completed_row = self._conn.execute(
+                "SELECT COUNT(*) as cnt FROM games WHERE year = ? AND status = 'completed'",
+                (year,),
+            ).fetchone()
+            weeks_row = self._conn.execute(
+                "SELECT COUNT(DISTINCT week) as cnt FROM games WHERE year = ?", (year,)
+            ).fetchone()
+            last_fetch_row = self._conn.execute(
+                "SELECT MAX(fetched_at) as last_fetch FROM games WHERE year = ?", (year,)
+            ).fetchone()
+            summary.append({
+                "year": year,
+                "games_cached": total_row["cnt"] if total_row else 0,
+                "completed_games": completed_row["cnt"] if completed_row else 0,
+                "weeks_with_data": weeks_row["cnt"] if weeks_row else 0,
+                "last_fetch_time": last_fetch_row["last_fetch"] if last_fetch_row else None,
+            })
+        return summary
 
     def get_last_fetch_time(self) -> datetime | None:
         """Return the timestamp of the most recent fetch, or None if no data cached."""
@@ -427,13 +568,19 @@ class Cache:
             return None
 
         data = json.loads(row["result_json"])
+        if "clinched_division" not in data or "clinched_homefield" not in data:
+            # Pre-0.7.4 cache row, written before these fields existed.
+            # Treat as a miss rather than silently defaulting to False —
+            # that previously made stale rows serve permanently wrong
+            # clinched_division/clinched_homefield status (never re-solved).
+            return None
         return CPSolverResult(
             team=data["team"],
             status=ClinchStatus(data["status"]),
             clinched=data["clinched"],
             eliminated=data["eliminated"],
-            clinched_division=data.get("clinched_division", False),
-            clinched_homefield=data.get("clinched_homefield", False),
+            clinched_division=data["clinched_division"],
+            clinched_homefield=data["clinched_homefield"],
             exhaustive=data["exhaustive"],
             solve_time_ms=data["solve_time_ms"],
             num_variables=data["num_variables"],
@@ -516,6 +663,38 @@ class Cache:
             }
             for row in rows
         ]
+
+    def increment_counter(self, name: str, amount: int = 1) -> None:
+        """Add `amount` to a named lifetime run counter, creating it if absent.
+
+        Args:
+            name: Counter identifier (e.g. "simulation_trials_total").
+            amount: Amount to add (default 1).
+        """
+        self._conn.execute(
+            "INSERT INTO run_counters (name, total) VALUES (?, ?) "
+            "ON CONFLICT(name) DO UPDATE SET total = total + excluded.total",
+            (name, amount),
+        )
+        self._conn.commit()
+
+    def get_counters(self) -> dict[str, int]:
+        """Return all lifetime run counters as a name -> total dict."""
+        rows = self._conn.execute("SELECT name, total FROM run_counters").fetchall()
+        return {row["name"]: row["total"] for row in rows}
+
+    def reset_counters(self, names: list[str]) -> None:
+        """Zero the given lifetime run counters, persisting immediately.
+
+        Args:
+            names: Counter identifiers to reset (e.g. ["games_simulated_total"]).
+        """
+        self._conn.executemany(
+            "INSERT INTO run_counters (name, total) VALUES (?, 0) "
+            "ON CONFLICT(name) DO UPDATE SET total = 0",
+            [(name,) for name in names],
+        )
+        self._conn.commit()
 
     def close(self) -> None:
         """Close the database connection."""

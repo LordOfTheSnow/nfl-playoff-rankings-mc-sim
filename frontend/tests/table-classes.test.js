@@ -1,12 +1,11 @@
 /**
- * Property Test: Table Bootstrap class assignment
+ * Property Test: Table Modernist class assignment
  *
  * **Validates: Requirements 4.1, 4.3, 4.4**
  *
  * Property 2: For any table rendered by the application (standings, results
- * probability, schedule), the table element SHALL contain the Bootstrap `table`
- * class plus the context-appropriate modifier classes (`table-striped table-hover`
- * for standings and probability tables, `table-hover` for schedule tables).
+ * probability, schedule), the table element SHALL contain the Modernist
+ * `mdn-led-table` ledger class.
  */
 
 import { describe, it, expect } from "vitest";
@@ -69,23 +68,21 @@ const scheduleDataArbitrary = fc.record({
 
 // --- Property Tests ---
 
-describe("Property 2: Table Bootstrap class assignment", () => {
-  it("standings tables have 'table table-striped table-hover' classes", () => {
+describe("Property 2: Table Modernist class assignment", () => {
+  it("standings tables have the 'mdn-led-table' Modernist ledger class", () => {
     fc.assert(
       fc.property(divisionNameArbitrary, teamsArrayArbitrary, (divName, teams) => {
         const section = buildDivisionSection(divName, teams);
         const table = section.querySelector("table");
 
         expect(table).not.toBeNull();
-        expect(table.classList.contains("table")).toBe(true);
-        expect(table.classList.contains("table-striped")).toBe(true);
-        expect(table.classList.contains("table-hover")).toBe(true);
+        expect(table.classList.contains("mdn-led-table")).toBe(true);
       }),
       { numRuns: 100 }
     );
   });
 
-  it("schedule tables have 'table table-hover' but NOT 'table-striped'", () => {
+  it("schedule tables have the 'mdn-led-table' Modernist ledger class", () => {
     fc.assert(
       fc.property(scheduleDataArbitrary, (data) => {
         const contentEl = document.createElement("div");
@@ -93,19 +90,17 @@ describe("Property 2: Table Bootstrap class assignment", () => {
         const table = contentEl.querySelector("table");
 
         expect(table).not.toBeNull();
-        expect(table.classList.contains("table")).toBe(true);
-        expect(table.classList.contains("table-hover")).toBe(true);
-        expect(table.classList.contains("table-striped")).toBe(false);
+        expect(table.classList.contains("mdn-led-table")).toBe(true);
       }),
       { numRuns: 100 }
     );
   });
 
-  it("results probability tables have 'table table-striped table-hover' classes", () => {
-    fc.assert(
-      fc.property(
+  it("playoff and seeding probability tables have the 'mdn-led-table' Modernist ledger class", async () => {
+    await fc.assert(
+      fc.asyncProperty(
         fc.integer({ min: 1, max: 16 }),
-        (teamCount) => {
+        async (teamCount) => {
           // Build mock simulation results with random teams
           const teamResults = [];
           for (let i = 0; i < teamCount; i++) {
@@ -131,15 +126,19 @@ describe("Property 2: Table Bootstrap class assignment", () => {
           };
 
           const contentEl = document.createElement("div");
-          renderResults(contentEl);
+          await renderSimulations(contentEl);
 
-          const tables = contentEl.querySelectorAll("table");
-          expect(tables.length).toBeGreaterThan(0);
+          const playoffTables = contentEl.querySelectorAll('table[aria-label$="playoff probabilities"]');
+          const seedingTables = contentEl.querySelectorAll('table[aria-label$="seeding probability matrix"]');
+          expect(playoffTables.length).toBeGreaterThan(0);
+          expect(seedingTables.length).toBeGreaterThan(0);
 
-          tables.forEach((table) => {
-            expect(table.classList.contains("table")).toBe(true);
-            expect(table.classList.contains("table-striped")).toBe(true);
-            expect(table.classList.contains("table-hover")).toBe(true);
+          playoffTables.forEach((table) => {
+            expect(table.classList.contains("mdn-led-table")).toBe(true);
+          });
+
+          seedingTables.forEach((table) => {
+            expect(table.classList.contains("mdn-led-table")).toBe(true);
           });
         }
       ),

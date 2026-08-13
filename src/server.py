@@ -28,10 +28,21 @@ from src.cache import Cache
 from src.cp_solver import ORTOOLS_AVAILABLE, CPSolverConfig, solve_clinch, solve_clinch_all
 from src.data_client import DataClient, FetchResult, Game, GameStatus
 from src.nfl_teams import ALL_TEAMS, get_team_abbreviation, get_team_conference
-from src.simulator import SimulationConfig, Simulator, SimulationResult
+from src.simulator import (
+    SimulationConfig,
+    Simulator,
+    SimulationResult,
+    _auto_detect_cutoff_week,
+    compute_prior_seasons_tie_pool,
+    resolve_tie_probability,
+)
 from src.standings import compute_standings, determine_playoff_bracket
 
 logger = logging.getLogger(__name__)
+
+# Names of lifetime run counters persisted via Cache.increment_counter().
+COUNTER_GAMES_SIMULATED = "games_simulated_total"
+COUNTER_CLINCHING_RESOLVER_EVALS = "clinching_resolver_evals_total"
 
 
 def _json_error(code: int, message: str, details: str = "") -> tuple[int, dict[str, Any]]:
@@ -146,22 +157,29 @@ def _build_schedule_grid(games: list[Game], all_teams: list[str]) -> list[dict[s
         List of 32 team entries, each containing:
         - team: full team name (e.g., "Bills")
         - abbreviation: short ID (e.g., "BUF")
-        - weeks: list of 18 entries (index 0 = week 1), each null for bye or:
+        - weeks: list of 18 entries (index 0 = week 1), each null for a true
+          bye (no game scheduled that week) or:
           - opponent: abbreviation of opponent
           - home: boolean (true = home game)
-          - status: "scheduled" | "in-progress" | "completed"
-          - team_score: int | null
-          - opponent_score: int | null
+          - status: "scheduled" | "in-progress" | "completed" | "postponed" | "cancelled"
+          - team_score: int | null (null unless status is "completed" or "in-progress")
+          - opponent_score: int | null (same)
     """
-    # Status mapping from GameStatus enum values to grid API values
+    # Status mapping from GameStatus enum values to grid API values. Postponed
+    # and cancelled games are included (not skipped) so the grid can show
+    # them distinctly rather than as a phantom bye week — see e.g. the 2022
+    # Week 17 Bills @ Bengals game, which ESPN marks STATUS_CANCELED and
+    # never resumed.
     _STATUS_MAP: dict[str, str] = {
         GameStatus.SCHEDULED.value: "scheduled",
         GameStatus.IN_PROGRESS.value: "in-progress",
         GameStatus.COMPLETED.value: "completed",
+        GameStatus.POSTPONED.value: "postponed",
+        GameStatus.CANCELLED.value: "cancelled",
     }
 
-    # Statuses to skip (leave as null/bye)
-    _SKIP_STATUSES = {GameStatus.POSTPONED, GameStatus.CANCELLED}
+    # Statuses that carry a meaningful score
+    _SCORED_STATUSES = {GameStatus.COMPLETED, GameStatus.IN_PROGRESS}
 
     # Initialize 32 team entries with 18-element weeks arrays (all null)
     grid: dict[str, dict[str, Any]] = {}
@@ -175,10 +193,6 @@ def _build_schedule_grid(games: list[Game], all_teams: list[str]) -> list[dict[s
 
     # Populate grid from games
     for game in games:
-        # Skip postponed/cancelled games
-        if game.status in _SKIP_STATUSES:
-            continue
-
         # Validate week is in range 1-18
         if game.week < 1 or game.week > 18:
             continue
@@ -187,6 +201,10 @@ def _build_schedule_grid(games: list[Game], all_teams: list[str]) -> list[dict[s
         status = _STATUS_MAP.get(game.status.value)
         if status is None:
             continue
+
+        is_scored = game.status in _SCORED_STATUSES
+        home_score = game.home_score if is_scored else None
+        away_score = game.away_score if is_scored else None
 
         home_abbr = get_team_abbreviation(game.home_team)
         away_abbr = get_team_abbreviation(game.away_team)
@@ -197,8 +215,8 @@ def _build_schedule_grid(games: list[Game], all_teams: list[str]) -> list[dict[s
                 "opponent": away_abbr,
                 "home": True,
                 "status": status,
-                "team_score": game.home_score,
-                "opponent_score": game.away_score,
+                "team_score": home_score,
+                "opponent_score": away_score,
             }
 
         # Populate from away team's perspective
@@ -207,8 +225,8 @@ def _build_schedule_grid(games: list[Game], all_teams: list[str]) -> list[dict[s
                 "opponent": home_abbr,
                 "home": False,
                 "status": status,
-                "team_score": game.away_score,
-                "opponent_score": game.home_score,
+                "team_score": away_score,
+                "opponent_score": home_score,
             }
 
     # Sort team entries alphabetically by abbreviation
@@ -302,6 +320,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             self._handle_get_solver_timings()
         elif path == "/api/export-solver-performance":
             self._handle_get_export_solver_performance()
+        elif path == "/api/system-info":
+            self._handle_get_system_info()
         elif path.startswith("/api/team/"):
             team_name = path[len("/api/team/"):]
             self._handle_get_team(team_name)
@@ -322,6 +342,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             self._handle_post_clinching_scenarios()
         elif path == "/api/set-season":
             self._handle_post_set_season()
+        elif path == "/api/reset-counters":
+            self._handle_post_reset_counters()
         elif path.startswith("/api/"):
             self._send_error_response(404, "Endpoint not found", f"No handler for POST {path}")
         else:
@@ -364,6 +386,16 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             # Use 272 as the standard regular season total
             expected_total = 272
 
+            # Default tie probability the frontend should seed its slider
+            # with (empirical estimate if enough data exists, else the
+            # hardcoded default) — mirrors what an omitted tie_probability
+            # on /api/simulate would resolve to for an auto-detected cutoff
+            default_tie_probability = resolve_tie_probability(
+                self._resolve_prior_ties_pool(server),
+                games,
+                _auto_detect_cutoff_week(games),
+            )
+
             response = {
                 "version": server.version,
                 "last_fetch_time": cache_status.get("last_fetch_time"),
@@ -379,6 +411,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 "weeks_with_games": weeks_with_games,
                 "games_per_week": games_per_week,
                 "cpu_count": os.cpu_count() or 1,
+                "default_tie_probability": default_tie_probability,
             }
             self._send_json_response(200, response)
         except Exception as e:
@@ -405,6 +438,10 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
 
             # Pre-compute weekly team strengths for all cutoff weeks
             self._compute_weekly_strengths(server)
+
+            # Refresh the persisted tie-probability pool — new data may
+            # change the current season's completeness or its game outcomes
+            self._refresh_tie_stats(server)
 
             response = {
                 "games_fetched": len(result.games),
@@ -435,6 +472,11 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
 
         server.season_year = season
         logger.info("Season changed to %d", season)
+
+        # The active season is excluded from the tie-probability pool, so
+        # switching seasons changes what that pool should contain
+        self._refresh_tie_stats(server)
+
         self._send_json_response(200, {"season_year": season})
 
     def _handle_get_cp_clinch(self, path: str) -> None:
@@ -820,6 +862,69 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             logger.exception("Error exporting solver performance")
             self._send_error_response(500, "Export error", str(e))
 
+    def _handle_get_system_info(self) -> None:
+        """Handle GET /api/system-info — return DB metadata and runtime environment info."""
+        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
+        try:
+            import multiprocessing
+            import platform as platform_module
+
+            from src.experience_export import get_cpu_info
+            from src.simulator import _mp_context as simulator_mp_context
+
+            cpu_cores, cpu_model = get_cpu_info()
+
+            db_path = server.cache.db_path
+            db_size_bytes = (
+                os.path.getsize(db_path)
+                if db_path != ":memory:" and os.path.exists(db_path)
+                else None
+            )
+
+            counters = server.cache.get_counters()
+
+            response = {
+                "version": server.version,
+                "season_year": server.season_year,
+                "database": {
+                    "path": db_path,
+                    "size_bytes": db_size_bytes,
+                    "expected_games_per_season": 272,
+                    "seasons": server.cache.get_seasons_summary(),
+                    "recent_fetches": server.cache.get_fetch_log(limit=20),
+                },
+                "runtime": {
+                    "cpu_model": cpu_model,
+                    "cpu_cores": cpu_cores,
+                    "python_version": platform_module.python_version(),
+                    "platform": platform_module.platform(),
+                    "simulation_mp_method": simulator_mp_context.get_start_method(),
+                    "clinching_resolver_mp_method": multiprocessing.get_context().get_start_method(),
+                },
+                "lifetime_counters": {
+                    "games_simulated_total": counters.get(COUNTER_GAMES_SIMULATED, 0),
+                    "clinching_resolver_evals_total": counters.get(COUNTER_CLINCHING_RESOLVER_EVALS, 0),
+                },
+            }
+            self._send_json_response(200, response)
+        except Exception as e:
+            logger.exception("Error getting system info")
+            self._send_error_response(500, "Internal server error", str(e))
+
+    def _handle_post_reset_counters(self) -> None:
+        """Handle POST /api/reset-counters — zero the lifetime run counters shown on Settings / Info."""
+        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
+        try:
+            server.cache.reset_counters([COUNTER_GAMES_SIMULATED, COUNTER_CLINCHING_RESOLVER_EVALS])
+            logger.info("Lifetime run counters reset")
+            self._send_json_response(200, {
+                "games_simulated_total": 0,
+                "clinching_resolver_evals_total": 0,
+            })
+        except Exception as e:
+            logger.exception("Error resetting counters")
+            self._send_error_response(500, "Internal server error", str(e))
+
     def _handle_post_clinching_scenarios(self) -> None:
         """Handle POST /api/clinching-scenarios — compute clinching scenarios for a team."""
         server: NFLSimulatorServer = self.server  # type: ignore[assignment]
@@ -881,11 +986,29 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 num_workers = int(num_workers)
                 if num_workers < 1 or num_workers > (os.cpu_count() or 16):
                     num_workers = None
+            noise = body.get("noise")
+            if noise is not None:
+                if not isinstance(noise, (int, float)) or noise < 0.0 or noise > 1.0:
+                    noise = None
+                else:
+                    noise = float(noise)
+            tie_probability = body.get("tie_probability")
+            if tie_probability is not None:
+                if not isinstance(tie_probability, (int, float)) or tie_probability < 0.0 or tie_probability > 1.0:
+                    tie_probability = None
+                else:
+                    tie_probability = float(tie_probability)
+            if tie_probability is None:
+                # Not passed explicitly — resolve the same empirical estimate
+                # the main simulation would use, so both stay in sync
+                tie_probability = resolve_tie_probability(
+                    self._resolve_prior_ties_pool(server), games, cutoff_week
+                )
             start_time = time.perf_counter()
             playoff_probability = body.get("playoff_probability", 0.0)
             if not isinstance(playoff_probability, (int, float)):
                 playoff_probability = 0.0
-            result = compute_clinching_scenarios(team, games, cutoff_week, num_workers=num_workers, enumeration_threshold=enum_threshold, num_samples=num_samples, playoff_probability=float(playoff_probability))
+            result = compute_clinching_scenarios(team, games, cutoff_week, num_workers=num_workers, enumeration_threshold=enum_threshold, num_samples=num_samples, playoff_probability=float(playoff_probability), noise=noise, tie_probability=tie_probability)
 
             if result.error:
                 self._send_error_response(400, result.error, "")
@@ -912,6 +1035,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                     total_evals=result.total_evals,
                     num_workers=num_workers or os.cpu_count() or 1,
                 )
+                server.cache.increment_counter(COUNTER_CLINCHING_RESOLVER_EVALS, result.total_evals)
 
         except Exception as e:
             logger.exception("Error computing clinching scenarios")
@@ -991,6 +1115,32 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
 
         logger.info("Pre-computed weekly strengths for weeks 1-18")
 
+    def _refresh_tie_stats(self, server: "NFLSimulatorServer") -> None:
+        """Recompute and persist the prior-seasons tie-probability pool.
+
+        Called after data is fetched and after the active season changes —
+        either can change which seasons are complete or which season is
+        excluded from the pool (the one currently being simulated).
+        """
+        games, ties, season_count = compute_prior_seasons_tie_pool(
+            server.cache, server.season_year
+        )
+        server.cache.store_tie_stats(games, ties, season_count, server.season_year)
+
+    def _resolve_prior_ties_pool(
+        self, server: "NFLSimulatorServer"
+    ) -> tuple[int, int, int] | None:
+        """Read the persisted prior-seasons tie pool, if it's still current.
+
+        Returns None if never computed, or if it was computed while a
+        different season was active (stale — treated as unavailable rather
+        than silently mixing in the wrong season's exclusion).
+        """
+        stats = server.cache.get_tie_stats()
+        if stats is None or stats["excluded_season"] != server.season_year:
+            return None
+        return stats["games"], stats["ties"], stats["season_count"]
+
     def _handle_post_simulate(self) -> None:
         """Handle POST /api/simulate — run Monte Carlo simulation."""
         server: NFLSimulatorServer = self.server  # type: ignore[assignment]
@@ -1004,8 +1154,9 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
         # Extract and validate parameters
         iterations = body.get("iterations", 10000)
         cutoff_week = body.get("cutoff_week", None)
-        noise = body.get("noise", 0.2)
+        noise = body.get("noise", 0.34)
         num_workers = body.get("num_workers", None)
+        tie_probability = body.get("tie_probability", None)
 
         # Validate iterations
         if not isinstance(iterations, int) or iterations < 100 or iterations > 1_000_000:
@@ -1045,6 +1196,16 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
+        # Validate tie_probability
+        if tie_probability is not None:
+            if not isinstance(tie_probability, (int, float)) or tie_probability < 0.0 or tie_probability > 1.0:
+                self._send_error_response(
+                    400,
+                    "Invalid tie_probability parameter",
+                    "tie_probability must be a number between 0.0 and 1.0",
+                )
+                return
+
         # Check if cached data exists
         games = server.cache.get_games(server.season_year)
         if not games:
@@ -1055,12 +1216,24 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        # Resolve effective tie probability: explicit override, else the
+        # empirical estimate (persisted prior-seasons pool + this season's
+        # own completed games up to the resolved cutoff), else the default
+        resolved_cutoff_week = cutoff_week if cutoff_week is not None else _auto_detect_cutoff_week(games)
+        effective_tie_probability = (
+            float(tie_probability) if tie_probability is not None
+            else resolve_tie_probability(
+                self._resolve_prior_ties_pool(server), games, resolved_cutoff_week
+            )
+        )
+
         # Run simulation
         try:
             config = SimulationConfig(
                 iterations=iterations,
                 cutoff_week=cutoff_week,
                 noise=float(noise),
+                tie_probability=effective_tie_probability,
                 num_workers=num_workers,
             )
             simulator = Simulator(config)
@@ -1078,7 +1251,16 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             )
 
             response = _serialize_simulation_result(result, games=games)
-            self._send_json_response(200, response)
+            try:
+                self._send_json_response(200, response)
+            except BrokenPipeError:
+                # User cancelled — do NOT count this run
+                return
+
+            server.cache.increment_counter(
+                COUNTER_GAMES_SIMULATED,
+                result.iterations_run * result.simulated_games_count,
+            )
         except ValueError as e:
             self._send_error_response(400, "Invalid simulation parameters", str(e))
         except Exception as e:
@@ -1452,6 +1634,28 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             # Count one-score games (point differential <= 8)
             one_score_games = sum(1 for g in completed if abs(g.home_score - g.away_score) <= 8)
 
+            # Score margin distribution, bucketed by point differential
+            margin_buckets = [
+                ("Tie", 0, 0),
+                ("1–3", 1, 3),
+                ("4–8", 4, 8),
+                ("9–13", 9, 13),
+                ("14–20", 14, 20),
+                ("21–27", 21, 27),
+                ("28+", 28, None),
+            ]
+            margin_distribution = []
+            for label, lo, hi in margin_buckets:
+                if hi is None:
+                    count = sum(1 for g in completed if abs(g.home_score - g.away_score) >= lo)
+                else:
+                    count = sum(1 for g in completed if lo <= abs(g.home_score - g.away_score) <= hi)
+                margin_distribution.append({
+                    "label": label,
+                    "count": count,
+                    "pct": round(count / total_games * 100, 1) if total_games > 0 else 0,
+                })
+
             # Compute streaks per team
             from src.nfl_teams import ALL_TEAMS
 
@@ -1527,6 +1731,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 "one_score_pct": round(one_score_games / total_games * 100, 1) if total_games > 0 else 0,
                 "longest_win_streak": longest_win_streak,
                 "longest_lose_streak": longest_lose_streak,
+                "margin_distribution": margin_distribution,
             }
             self._send_json_response(200, response)
         except Exception as e:

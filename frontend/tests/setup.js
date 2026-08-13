@@ -4,8 +4,8 @@
  * Loads the app's JS files into the JSDOM environment so that
  * global functions (App, renderStandings, etc.) are available in tests.
  *
- * Bootstrap CSS is not loaded (no CDN in tests), but we verify class assignments
- * and DOM structure rather than computed styles.
+ * styles.css is not loaded (no stylesheet in tests), but we verify class
+ * assignments and DOM structure rather than computed styles.
  */
 
 import { readFileSync } from "fs";
@@ -31,25 +31,21 @@ function loadScript(filename) {
 beforeAll(() => {
   // Set up minimal DOM structure matching index.html
   document.body.innerHTML = `
-    <nav class="navbar navbar-expand-lg navbar-dark sticky-top" style="background-color:#1b3a6b">
-      <div class="container-xl">
-        <a class="navbar-brand d-flex align-items-center gap-2" href="#standings">
-          <img src="img/logos/nfl.png" alt="NFL" width="32" height="32">
-          <span>NFL Monte Carlo Playoff Ranking Simulator</span>
-          <span id="app-version" class="text-muted small ms-2"></span>
-        </a>
-        <div class="collapse navbar-collapse" id="navbarNav">
-          <ul class="navbar-nav ms-auto">
-            <li class="nav-item"><a class="nav-link active" aria-current="page" href="#standings">Standings</a></li>
-            <li class="nav-item"><a class="nav-link" href="#statistics">Statistics</a></li>
-            <li class="nav-item"><a class="nav-link" href="#results">Results</a></li>
-          </ul>
-        </div>
+    <nav class="mdn-nav">
+      <a class="mdn-brand" href="#standings">
+        <img src="img/logos/nfl.png" alt="NFL" width="30" height="30">
+        <span>NFL MONTE CARLO PLAYOFF SIM</span>
+        <span id="app-version" class="mdn-brand-version"></span>
+      </a>
+      <div class="mdn-nav-links">
+        <a href="#standings" data-view="standings" class="active" aria-current="page">Standings</a>
+        <a href="#statistics" data-view="statistics">Statistics</a>
+        <a href="#simulations" data-view="simulations">Simulations</a>
       </div>
     </nav>
-    <div id="notification" class="container-xl mt-2 d-none" role="alert" aria-live="polite"></div>
-    <div id="loading" class="d-none" aria-label="Loading"></div>
-    <main id="content" class="container-xl py-4"></main>
+    <div id="notification" class="mdn-container mdn-hidden" role="alert" aria-live="polite"></div>
+    <div id="loading" class="mdn-hidden" aria-label="Loading"></div>
+    <main id="content" class="mdn-container mdn-main"></main>
   `;
 
   // Stub API module to prevent real network calls — assign BEFORE loading scripts
@@ -80,14 +76,14 @@ afterEach(() => {
   // Reset notification
   const notification = document.getElementById("notification");
   if (notification) {
-    notification.classList.add("d-none");
+    notification.classList.add("mdn-hidden");
     notification.innerHTML = "";
   }
 
   // Reset loading
   const loading = document.getElementById("loading");
   if (loading) {
-    loading.classList.add("d-none");
+    loading.classList.add("mdn-hidden");
     loading.innerHTML = "";
   }
 });

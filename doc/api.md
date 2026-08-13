@@ -27,9 +27,12 @@ Returns the current cache status.
   "weeks_completed": 15,
   "weeks_with_games": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
   "games_per_week": {"1": 16, "2": 16, "...": "..."},
-  "cpu_count": 12
+  "cpu_count": 12,
+  "default_tie_probability": 0.0043
 }
 ```
+
+`default_tie_probability` is the tie probability `/api/simulate`/`/api/clinching-scenarios` would use if the request omits `tie_probability` — an empirical estimate (ties ÷ games pooled across every complete prior season plus the active season's own completed games through its auto-detected cutoff) once at least 2 complete prior seasons are cached, otherwise the hardcoded 0.005 default. The frontend seeds the Tie Probability slider from this value. See "Tie probability estimation" under [Algorithms](algorithms.md).
 
 ---
 
@@ -160,7 +163,7 @@ Returns the league-wide schedule grid: all 32 teams with their 18-week matchup a
 }
 ```
 
-Week entries are `null` for bye weeks. Status values: `"scheduled"`, `"in-progress"`, `"completed"`.
+Week entries are `null` only for a true bye (no game scheduled that week). Status values: `"scheduled"`, `"in-progress"`, `"completed"`, `"postponed"`, `"cancelled"` — a postponed/cancelled game still gets its own week entry (not collapsed into `null`) so it isn't mistaken for a second bye; `team_score`/`opponent_score` are always `null` for those two statuses. Example: the 2022 season's Week 17 Bills @ Bengals game, suspended after Damar Hamlin's on-field collapse and never resumed, is reported by ESPN as `STATUS_CANCELED` and appears here with `"status": "cancelled"`.
 
 ---
 
@@ -229,9 +232,20 @@ Returns season-wide statistics computed from completed games.
     "streak": 8,
     "from_week": 2,
     "to_week": 9
-  }
+  },
+  "margin_distribution": [
+    { "label": "Tie", "count": 5, "pct": 2.1 },
+    { "label": "1–3", "count": 38, "pct": 15.8 },
+    { "label": "4–8", "count": 52, "pct": 21.7 },
+    { "label": "9–13", "count": 47, "pct": 19.6 },
+    { "label": "14–20", "count": 51, "pct": 21.3 },
+    { "label": "21–27", "count": 30, "pct": 12.5 },
+    { "label": "28+", "count": 17, "pct": 7.1 }
+  ]
 }
 ```
+
+`margin_distribution` buckets every completed game by point differential (`Tie` = 0, then 1–3, 4–8, 9–13, 14–20, 21–27, 28+), each entry's `pct` relative to `total_games`.
 
 ---
 
@@ -247,7 +261,8 @@ Runs a Monte Carlo simulation with the given parameters.
 {
   "iterations": 10000,
   "cutoff_week": 16,
-  "noise": 0.2,
+  "noise": 0.34,
+  "tie_probability": 0.0043,
   "num_workers": 4
 }
 ```
@@ -256,7 +271,8 @@ Runs a Monte Carlo simulation with the given parameters.
 |---|---|---|---|
 | `iterations` | int | 10000 | 100 - 1,000,000 |
 | `cutoff_week` | int | auto | 1 - 18 |
-| `noise` | float | 0.2 | 0.0 - 1.0 |
+| `noise` | float | 0.34 | 0.0 - 1.0 |
+| `tie_probability` | float | empirical estimate, or 0.005 | 0.0 - 1.0; per-game tie probability. When omitted, resolved from historical data — see `default_tie_probability` on `GET /api/status` above and "Tie probability estimation" in [Algorithms](algorithms.md). |
 | `num_workers` | int | CPU count | >= 1 |
 
 **Prerequisite:** Data must be fetched first (`POST /api/fetch-data`), otherwise returns `409`.
@@ -412,7 +428,9 @@ Computes all minimal game-outcome sets that guarantee a team a playoff spot.
   "num_workers": 4,
   "enumeration_threshold": 13,
   "num_samples": 10000,
-  "playoff_probability": 0.85
+  "playoff_probability": 0.85,
+  "noise": 0.34,
+  "tie_probability": 0.0043
 }
 ```
 
@@ -424,6 +442,8 @@ Computes all minimal game-outcome sets that guarantee a team a playoff spot.
 | `enumeration_threshold` | int | 13 | 1 - 18; games above this use sampling |
 | `num_samples` | int | 10000 | 100 - 100,000 |
 | `playoff_probability` | float | 0.0 | MC probability for context |
+| `noise` | float | 0.34 | 0.0 - 1.0; per-game strength noise sigma for the sampling method (ignored by enumeration). Frontend passes the same value as the main `/api/simulate` Noise control so clinching scenarios are found at a consistent rate. |
+| `tie_probability` | float | empirical estimate, or 0.005 | 0.0 - 1.0; per-game tie probability for the sampling method (ignored by enumeration). When omitted, resolved the same way as `/api/simulate`'s default — see "Tie probability estimation" in [Algorithms](algorithms.md). Frontend passes the same effective value used by the main simulation for consistent results. |
 
 **Response:**
 
@@ -510,6 +530,86 @@ Reads existing `doc/solver-performance.md`, inserts new timing entries from the 
 {
   "entries_added": 2,
   "output_path": "doc/solver-performance.md"
+}
+```
+
+---
+
+## System
+
+### `GET /api/system-info`
+
+Returns SQLite cache database metadata (which seasons are stored and how complete each one is, plus recent ESPN fetch attempts), the server's runtime environment (CPU, Python, platform), and lifetime run counters. Backs the "Settings / Info" page.
+
+`lifetime_counters` are persisted in the `run_counters` table: `games_simulated_total` sums the individual game outcomes rolled across every successful `POST /api/simulate` call against this database (`iterations_run × simulated_games_count` per call); `clinching_resolver_evals_total` sums `total_evals` (the number of game-outcome universes evaluated) of every successful `POST /api/clinching-scenarios` call. Both can be zeroed via `POST /api/reset-counters`.
+
+`database.recent_fetches` is the 20 most recent rows from the `fetch_log` table (one row per week per fetch attempt), most recent first. `success: false` rows are ESPN fetches that failed (timeout, HTTP error, network error, or a schema error) — `games_count` is 0 for those.
+
+`runtime.simulation_mp_method` and `runtime.clinching_resolver_mp_method` can differ: simulation always uses a fixed context (`fork` on Unix, `spawn` on Windows), while the clinching resolver uses Python's platform-default multiprocessing start method, which varies by Python version (e.g. `forkserver` became the Linux default starting in Python 3.14).
+
+**Response:**
+
+```json
+{
+  "version": "0.5.0",
+  "season_year": 2025,
+  "database": {
+    "path": "nfl_cache.db",
+    "size_bytes": 2457600,
+    "expected_games_per_season": 272,
+    "seasons": [
+      {
+        "year": 2025,
+        "games_cached": 272,
+        "completed_games": 240,
+        "weeks_with_data": 18,
+        "last_fetch_time": "2025-12-20T10:30:00+00:00"
+      }
+    ],
+    "recent_fetches": [
+      {
+        "year": 2025,
+        "week": 18,
+        "fetched_at": "2025-12-20T10:30:00+00:00",
+        "games_count": 0,
+        "success": false
+      },
+      {
+        "year": 2025,
+        "week": 17,
+        "fetched_at": "2025-12-20T10:29:58+00:00",
+        "games_count": 16,
+        "success": true
+      }
+    ]
+  },
+  "runtime": {
+    "cpu_model": "12th Gen Intel(R) Core(TM) i5-1245U",
+    "cpu_cores": 12,
+    "python_version": "3.11.9",
+    "platform": "Linux-6.8.0-x86_64-with-glibc2.39",
+    "simulation_mp_method": "fork",
+    "clinching_resolver_mp_method": "fork"
+  },
+  "lifetime_counters": {
+    "games_simulated_total": 55940000,
+    "clinching_resolver_evals_total": 812400
+  }
+}
+```
+
+---
+
+### `POST /api/reset-counters`
+
+Zeroes the `lifetime_counters` shown on Settings / Info (`games_simulated_total` and `clinching_resolver_evals_total`) in the `run_counters` table. No request body. Nothing else — cached game/schedule data, standings, solver timings, or fetch history — is affected.
+
+**Response:**
+
+```json
+{
+  "games_simulated_total": 0,
+  "clinching_resolver_evals_total": 0
 }
 ```
 

@@ -17,12 +17,12 @@ describe("Property 1: Navigation active state synchronization", () => {
   let navLinks;
 
   /** Valid views that correspond to nav link hrefs */
-  const navLinkViews = ["standings", "statistics", "results"];
+  const navLinkViews = ["standings", "statistics", "simulations"];
 
   beforeAll(() => {
     // Trigger DOMContentLoaded to ensure App.init() resolves DOM references
     document.dispatchEvent(new Event("DOMContentLoaded"));
-    navLinks = document.querySelectorAll(".navbar-nav .nav-link");
+    navLinks = document.querySelectorAll(".mdn-nav-links a[data-view]");
   });
 
   it("active class and aria-current are set on the correct nav-link only (100+ iterations)", () => {
@@ -35,7 +35,7 @@ describe("Property 1: Navigation active state synchronization", () => {
           App.route();
 
           // Re-query nav links to get current state
-          const links = document.querySelectorAll(".navbar-nav .nav-link");
+          const links = document.querySelectorAll(".mdn-nav-links a[data-view]");
 
           for (const link of links) {
             const href = link.getAttribute("href") || "";
@@ -67,7 +67,7 @@ describe("Property 1: Navigation active state synchronization", () => {
           App.route();
 
           // Assert: exactly one link has active class
-          const links = document.querySelectorAll(".navbar-nav .nav-link");
+          const links = document.querySelectorAll(".mdn-nav-links a[data-view]");
           const activeLinks = Array.from(links).filter((l) =>
             l.classList.contains("active")
           );
@@ -88,8 +88,8 @@ describe("Property 1: Navigation active state synchronization", () => {
   });
 
   it("routes not matching any nav link result in no active nav-link (100+ iterations)", () => {
-    // Views that exist in the router but have no nav-link (e.g., "simulate", "team/xxx")
-    const nonNavRoutes = ["simulate", "team/Buffalo Bills", "team/Kansas City Chiefs"];
+    // Views that exist in the router but have no nav-link (e.g., legacy aliases, "team/xxx")
+    const nonNavRoutes = ["simulate", "results", "team/Buffalo Bills", "team/Kansas City Chiefs"];
 
     fc.assert(
       fc.property(
@@ -100,7 +100,7 @@ describe("Property 1: Navigation active state synchronization", () => {
           App.route();
 
           // Assert: no nav-link should have active class
-          const links = document.querySelectorAll(".navbar-nav .nav-link");
+          const links = document.querySelectorAll(".mdn-nav-links a[data-view]");
           for (const link of links) {
             expect(link.classList.contains("active")).toBe(false);
             expect(link.hasAttribute("aria-current")).toBe(false);

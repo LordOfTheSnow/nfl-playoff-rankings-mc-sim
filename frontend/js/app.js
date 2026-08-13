@@ -8,8 +8,10 @@
  *   #standings      — Standings view (default)
  *   #team/<name>    — Team schedule view
  *   #schedule-grid  — League-wide schedule grid
- *   #simulate       — Simulation controls
- *   #results        — Simulation results
+ *   #simulate       — Redirects to #simulations (legacy alias)
+ *   #results        — Redirects to #simulations (legacy alias)
+ *   #simulations    — Simulation setup + results (owns the sim controls)
+ *   #settings       — Settings / Info (database & runtime environment)
  *
  * Requirements: 11.3, 11.4, 11.6
  */
@@ -22,55 +24,60 @@ const App = (() => {
   let notificationEl = null;
   let loadingEl = null;
   let navLinks = null;
+  let footerEl = null;
+
+  // Views whose render function already renders its own Modernist-styled
+  // "Back to top" link — the app-wide footer link would otherwise duplicate it.
+  const VIEWS_WITH_OWN_BACK_TO_TOP = new Set(["team", "statistics", "schedule-grid"]);
 
   // --- Notification timeout handle ---
   let notificationTimeout = null;
 
   /**
+   * Render a dismissible Modernist alert into the notification area.
+   *
+   * @param {string} variant - "danger" or "info".
+   * @param {string} message - The message to display.
+   * @param {number} autoHideMs - Milliseconds before auto-dismissing.
+   */
+  function _renderAlert(variant, message, autoHideMs) {
+    if (!notificationEl) return;
+    notificationEl.innerHTML =
+      '<div class="mdn-alert mdn-alert-' + variant + '" role="alert">' +
+      message +
+      '<button type="button" class="mdn-alert-close" aria-label="Close">' +
+      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>' +
+      '</button>' +
+      '</div>';
+    notificationEl.classList.remove("mdn-hidden");
+
+    const closeBtn = notificationEl.querySelector(".mdn-alert-close");
+    if (closeBtn) closeBtn.addEventListener("click", hideNotification);
+
+    if (notificationTimeout) {
+      clearTimeout(notificationTimeout);
+    }
+    notificationTimeout = setTimeout(() => {
+      hideNotification();
+    }, autoHideMs);
+  }
+
+  /**
    * Display an error message in the notification area.
-   * Renders a Bootstrap alert-danger dismissible alert.
    *
    * @param {string} message - The error message to display.
    */
   function showError(message) {
-    if (!notificationEl) return;
-    notificationEl.innerHTML =
-      '<div class="alert alert-danger alert-dismissible fade show" role="alert">' +
-      message +
-      '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>' +
-      '</div>';
-    notificationEl.classList.remove("d-none");
-
-    // Auto-hide after 8 seconds
-    if (notificationTimeout) {
-      clearTimeout(notificationTimeout);
-    }
-    notificationTimeout = setTimeout(() => {
-      hideNotification();
-    }, 8000);
+    _renderAlert("danger", message, 8000);
   }
 
   /**
    * Display an informational message in the notification area.
-   * Renders a Bootstrap alert-info dismissible alert.
    *
    * @param {string} message - The info message to display.
    */
   function showInfo(message) {
-    if (!notificationEl) return;
-    notificationEl.innerHTML =
-      '<div class="alert alert-info alert-dismissible fade show" role="alert">' +
-      message +
-      '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>' +
-      '</div>';
-    notificationEl.classList.remove("d-none");
-
-    if (notificationTimeout) {
-      clearTimeout(notificationTimeout);
-    }
-    notificationTimeout = setTimeout(() => {
-      hideNotification();
-    }, 5000);
+    _renderAlert("info", message, 5000);
   }
 
   /**
@@ -78,7 +85,7 @@ const App = (() => {
    */
   function hideNotification() {
     if (!notificationEl) return;
-    notificationEl.classList.add("d-none");
+    notificationEl.classList.add("mdn-hidden");
     notificationEl.innerHTML = "";
     if (notificationTimeout) {
       clearTimeout(notificationTimeout);
@@ -88,17 +95,15 @@ const App = (() => {
 
   /**
    * Show the loading/progress indicator.
-   * Renders a Bootstrap spinner-border inside a fixed overlay.
    */
   function showLoading() {
     if (!loadingEl) return;
     loadingEl.innerHTML =
-      '<div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background:rgba(0,0,0,0.5);z-index:1055">' +
-      '<div class="spinner-border text-primary" role="status">' +
-      '<span class="visually-hidden">Loading…</span>' +
-      '</div>' +
+      '<div class="mdn-loading-overlay">' +
+      '<span class="mdn-spinner mdn-spinner-lg" role="status"></span>' +
+      '<span class="mdn-visually-hidden">Loading…</span>' +
       '</div>';
-    loadingEl.classList.remove("d-none");
+    loadingEl.classList.remove("mdn-hidden");
   }
 
   /**
@@ -106,7 +111,7 @@ const App = (() => {
    */
   function hideLoading() {
     if (!loadingEl) return;
-    loadingEl.classList.add("d-none");
+    loadingEl.classList.add("mdn-hidden");
     loadingEl.innerHTML = "";
   }
 
@@ -124,7 +129,7 @@ const App = (() => {
     }
 
     // Known routes
-    const knownRoutes = ["standings", "simulate", "results", "statistics", "schedule-grid"];
+    const knownRoutes = ["standings", "simulate", "results", "simulations", "statistics", "schedule-grid", "settings"];
     if (knownRoutes.includes(hash)) {
       return { view: hash, param: null };
     }
@@ -135,7 +140,7 @@ const App = (() => {
 
   /**
    * Update the active state of navigation links based on the current route.
-   * Sets Bootstrap `active` class and `aria-current="page"` on the matching link.
+   * Sets the `active` class and `aria-current="page"` on the matching link.
    *
    * @param {string} activeView - The current view name.
    */
@@ -163,6 +168,9 @@ const App = (() => {
     const { view, param } = parseHash();
     updateNavActive(view);
     hideNotification();
+    if (footerEl) {
+      footerEl.hidden = VIEWS_WITH_OWN_BACK_TO_TOP.has(view);
+    }
 
     try {
       switch (view) {
@@ -179,8 +187,13 @@ const App = (() => {
           break;
 
         case "simulate":
-          // Redirect to standings (controls are now there)
-          App.navigate("standings");
+          // Legacy alias — controls live on the Simulations page now.
+          App.navigate("simulations");
+          break;
+
+        case "results":
+          // Legacy alias — the "Results" page was renamed to "Simulations".
+          App.navigate("simulations");
           break;
 
         case "schedule-grid":
@@ -195,9 +208,15 @@ const App = (() => {
           }
           break;
 
-        case "results":
-          if (typeof renderResults === "function") {
-            await renderResults(contentEl);
+        case "simulations":
+          if (typeof renderSimulations === "function") {
+            await renderSimulations(contentEl);
+          }
+          break;
+
+        case "settings":
+          if (typeof renderSettings === "function") {
+            await renderSettings(contentEl);
           }
           break;
 
@@ -222,6 +241,29 @@ const App = (() => {
   }
 
   /**
+   * Read the app-level cutoff-week value, shared and persisted across the
+   * Standings and Simulations pages.
+   *
+   * @returns {string|null} The saved cutoff week ("" = Auto), or null if unset.
+   */
+  function getCutoffWeek() {
+    return localStorage.getItem("sim-cutoff");
+  }
+
+  /**
+   * Persist the app-level cutoff-week value. Changing the cutoff invalidates
+   * any existing simulation results (they were computed for the old cutoff),
+   * so this also clears the in-memory results cache. Callers are responsible
+   * for re-rendering their own page afterward.
+   *
+   * @param {string} value - The new cutoff week ("" for Auto).
+   */
+  function setCutoffWeek(value) {
+    localStorage.setItem("sim-cutoff", value);
+    window._simulationResults = null;
+  }
+
+  /**
    * Initialize the application on DOMContentLoaded.
    * Resolves DOM references, sets up event listeners, and performs initial routing.
    */
@@ -230,7 +272,8 @@ const App = (() => {
     contentEl = document.getElementById("content");
     notificationEl = document.getElementById("notification");
     loadingEl = document.getElementById("loading");
-    navLinks = document.querySelectorAll(".navbar-nav .nav-link");
+    navLinks = document.querySelectorAll(".mdn-nav-links a[data-view]");
+    footerEl = document.getElementById("app-footer");
 
     // Listen for hash changes
     window.addEventListener("hashchange", route);
@@ -302,5 +345,7 @@ const App = (() => {
     hideLoading,
     navigate,
     route,
+    getCutoffWeek,
+    setCutoffWeek,
   };
 })();

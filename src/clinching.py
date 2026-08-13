@@ -37,6 +37,7 @@ from typing import Any, TYPE_CHECKING
 
 from src.data_client import Game, GameStatus
 from src.nfl_teams import NFL_TEAMS, get_team_conference
+from src.simulator import SimulationConfig, _simulate_game_standalone
 from src.standings import compute_standings, determine_playoff_bracket
 
 if TYPE_CHECKING:
@@ -56,11 +57,11 @@ MC_SAMPLES = 10_000
 # Minimality testing is expensive: 2 standings calls per condition per universe.
 MAX_QUALIFYING_FOR_MINIMALITY = 200
 
-# Tie probability used during strength-weighted sampling
-TIE_PROBABILITY = 0.005
-
-# Noise applied to team strengths per game during sampling
-SAMPLING_NOISE = 0.2
+# Tie probability and default noise for strength-weighted sampling — sourced
+# from SimulationConfig so this solver can't silently drift from the main
+# Monte Carlo simulator's values.
+TIE_PROBABILITY = SimulationConfig.tie_probability
+SAMPLING_NOISE = SimulationConfig.noise
 
 
 @dataclass
@@ -311,44 +312,6 @@ def _generate_team_records(
     return results
 
 
-def _simulate_game_outcome(
-    game: Game,
-    strengths: dict[str, float],
-) -> tuple[str, str | None, bool]:
-    """Simulate a single game outcome using team strength ratings.
-
-    Uses the same algorithm as the main simulator: strength-weighted win
-    probability with log-normal noise and a small tie probability.
-
-    Returns:
-        (game_id, winner_or_None, is_tie)
-    """
-    roll = random.random()
-
-    if roll < TIE_PROBABILITY:
-        return (game.game_id, None, True)
-
-    home_strength = strengths.get(game.home_team, 1.0)
-    away_strength = strengths.get(game.away_team, 1.0)
-
-    # Apply per-game noise
-    if SAMPLING_NOISE > 0:
-        home_strength *= random.lognormvariate(0, SAMPLING_NOISE)
-        away_strength *= random.lognormvariate(0, SAMPLING_NOISE)
-
-    total = home_strength + away_strength
-    if total <= 0:
-        home_win_prob = 0.5
-    else:
-        home_win_prob = home_strength / total
-
-    threshold = TIE_PROBABILITY + (1.0 - TIE_PROBABILITY) * home_win_prob
-    if roll < threshold:
-        return (game.game_id, game.home_team, False)
-    else:
-        return (game.game_id, game.away_team, False)
-
-
 def _check_universe(
     team: str,
     fixed_games: list[Game],
@@ -447,21 +410,35 @@ def _sample_qualifying_universes(
     other_games: list[Game],
     strengths: dict[str, float],
     num_samples: int = MC_SAMPLES,
+    noise: float = SAMPLING_NOISE,
+    rng: random.Random | None = None,
+    tie_prob: float = TIE_PROBABILITY,
 ) -> list[list[tuple[str, str | None, bool]]]:
     """Strength-weighted Monte Carlo sampling of other-game outcomes.
 
-    Uses team strength ratings to generate realistic game outcomes (same
-    algorithm as the main simulator). This ensures qualifying universes
-    are found at roughly the same rate as in the main simulation.
+    Uses team strength ratings to generate realistic game outcomes via
+    simulator.py's shared per-game outcome function. This ensures qualifying
+    universes are found at roughly the same rate as in the main simulation.
+
+    Args:
+        noise: Per-game strength noise sigma — should match the main
+            simulation's noise setting for consistent results.
+        rng: Random instance to use. Defaults to a fresh, unseeded instance.
+        tie_prob: Probability of a tie — should match the main simulation's
+            effective tie probability for consistent results.
 
     Returns:
         List of other_outcomes lists for qualifying universes found by sampling.
     """
+    rng = rng if rng is not None else random.Random()
     qualifying: list[list[tuple[str, str | None, bool]]] = []
 
     for _ in range(num_samples):
         other_outcomes = [
-            _simulate_game_outcome(game, strengths)
+            (game.game_id, *_simulate_game_standalone(
+                game.home_team, game.away_team, strengths,
+                tie_prob, noise, rng,
+            ))
             for game in other_games
         ]
         if _check_universe(team, fixed_games, team_outcomes, other_outcomes):
@@ -507,6 +484,9 @@ def _sample_qualifying_universes_full(
     other_games: list[Game],
     strengths: dict[str, float],
     num_samples: int = MC_SAMPLES,
+    noise: float = SAMPLING_NOISE,
+    rng: random.Random | None = None,
+    tie_prob: float = TIE_PROBABILITY,
 ) -> list[list[tuple[str, str | None, bool]]]:
     """Strength-weighted Monte Carlo sampling using full tiebreakers.
 
@@ -515,14 +495,25 @@ def _sample_qualifying_universes_full(
     the fast path found no qualifying universes but the MC simulation
     indicates a non-zero playoff probability.
 
+    Args:
+        noise: Per-game strength noise sigma — should match the main
+            simulation's noise setting for consistent results.
+        rng: Random instance to use. Defaults to a fresh, unseeded instance.
+        tie_prob: Probability of a tie — should match the main simulation's
+            effective tie probability for consistent results.
+
     Returns:
         List of other_outcomes lists for qualifying universes found by sampling.
     """
+    rng = rng if rng is not None else random.Random()
     qualifying: list[list[tuple[str, str | None, bool]]] = []
 
     for _ in range(num_samples):
         other_outcomes = [
-            _simulate_game_outcome(game, strengths)
+            (game.game_id, *_simulate_game_standalone(
+                game.home_team, game.away_team, strengths,
+                tie_prob, noise, rng,
+            ))
             for game in other_games
         ]
         if _check_universe_full(team, fixed_games, team_outcomes, other_outcomes):
@@ -676,13 +667,19 @@ def _process_team_record_batch(args: tuple) -> list[dict[str, Any]]:
 
     Args:
         args: Tuple of (team, fixed_games, team_record_combos, other_games,
-              use_sampling, strengths, num_samples, playoff_probability)
+              use_sampling, strengths, num_samples, playoff_probability, noise,
+              tie_probability)
 
     Returns:
         List of serialized RecordGroup dicts.
     """
-    team, fixed_games, team_record_combos, other_games, use_sampling, strengths, num_samples, playoff_probability = args
+    team, fixed_games, team_record_combos, other_games, use_sampling, strengths, num_samples, playoff_probability, noise, tie_probability = args
     results = []
+
+    # One RNG per worker for strength-weighted sampling. Unseeded is safe
+    # under multiprocessing: CPython reseeds the global `random` instance
+    # from fresh OS entropy on fork (see doc/clinching-solver-consolidation.md).
+    rng = random.Random()
 
     # Determine the maximum possible wins across all combos to limit
     # expensive full-tiebreaker retries to only the best records.
@@ -695,7 +692,7 @@ def _process_team_record_batch(args: tuple) -> list[dict[str, Any]]:
 
         if use_sampling:
             qualifying = _sample_qualifying_universes(
-                team, fixed_games, team_outcomes, other_games, strengths, num_samples
+                team, fixed_games, team_outcomes, other_games, strengths, num_samples, noise, rng, tie_probability
             )
         else:
             qualifying = _enumerate_qualifying_universes(
@@ -717,7 +714,7 @@ def _process_team_record_batch(args: tuple) -> list[dict[str, Any]]:
             used_full_tiebreakers = True
             if use_sampling:
                 qualifying = _sample_qualifying_universes_full(
-                    team, fixed_games, team_outcomes, other_games, strengths, num_samples
+                    team, fixed_games, team_outcomes, other_games, strengths, num_samples, noise, rng, tie_probability
                 )
             else:
                 qualifying = _enumerate_qualifying_universes_full(
@@ -755,7 +752,7 @@ def _process_team_record_batch(args: tuple) -> list[dict[str, Any]]:
             )
             if use_sampling:
                 qualifying = _sample_qualifying_universes_full(
-                    team, fixed_games, team_outcomes, other_games, strengths, num_samples
+                    team, fixed_games, team_outcomes, other_games, strengths, num_samples, noise, rng, tie_probability
                 )
                 clinches_regardless = (len(qualifying) == num_samples)
             else:
@@ -807,6 +804,8 @@ def compute_clinching_scenarios(
     enumeration_threshold: int | None = None,
     num_samples: int | None = None,
     playoff_probability: float = 0.0,
+    noise: float | None = None,
+    tie_probability: float | None = None,
 ) -> ClinchingResult:
     """Compute all clinching scenarios for a team.
 
@@ -822,10 +821,22 @@ def compute_clinching_scenarios(
         playoff_probability: MC simulation playoff probability for this team
             (0.0 to 100.0). When > 0 and the fast path finds no qualifying
             universes, a second pass with full NFL tiebreakers is triggered.
+        noise: Per-game strength noise sigma for sampling (None = use
+            SAMPLING_NOISE). Callers should pass the same noise value used
+            for the main Monte Carlo simulation so clinching scenarios are
+            found at a consistent rate. Only affects the sampling method —
+            enumeration is exhaustive and noise-independent.
+        tie_probability: Probability of a tie for sampling (None = use
+            TIE_PROBABILITY). Callers should pass the same effective tie
+            probability used for the main Monte Carlo simulation — see
+            src.simulator.resolve_tie_probability. Only affects the sampling
+            method — enumeration is exhaustive and tie-probability-independent.
 
     Returns:
         ClinchingResult with all scenarios grouped by team record.
     """
+    sampling_noise = noise if noise is not None else SAMPLING_NOISE
+    sampling_tie_probability = tie_probability if tie_probability is not None else TIE_PROBABILITY
     if cutoff_week < 14:
         return ClinchingResult(
             team=team,
@@ -885,14 +896,14 @@ def compute_clinching_scenarios(
     # all games; simulated_outcomes override results for post-cutoff games).
     if num_workers <= 1 or len(team_record_combos) <= 1:
         raw_results = _process_team_record_batch(
-            (team, all_games, team_record_combos, other_games, use_sampling, strengths, samples, playoff_probability)
+            (team, all_games, team_record_combos, other_games, use_sampling, strengths, samples, playoff_probability, sampling_noise, sampling_tie_probability)
         )
     else:
         batch_size = max(1, len(team_record_combos) // num_workers)
         batches = []
         for i in range(0, len(team_record_combos), batch_size):
             batch = team_record_combos[i:i + batch_size]
-            batches.append((team, all_games, batch, other_games, use_sampling, strengths, samples, playoff_probability))
+            batches.append((team, all_games, batch, other_games, use_sampling, strengths, samples, playoff_probability, sampling_noise, sampling_tie_probability))
 
         with Pool(processes=num_workers) as pool:
             batch_results = pool.map(_process_team_record_batch, batches)

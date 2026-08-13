@@ -41,6 +41,17 @@ TEAM_ABBREVIATIONS: dict[str, str] = {
 CONFERENCES: list[str] = list(NFL_TEAMS.keys())
 DIVISIONS: list[str] = ["East", "North", "South", "West"]
 
+# Reverse lookup, built once at import time. compute_standings/determine_playoff_bracket
+# call get_team_division/get_team_conference tens of millions of times per simulation
+# run (once per team per game/tiebreaker-step comparison), so this must be O(1) rather
+# than a linear scan through NFL_TEAMS.
+_TEAM_LOCATIONS: dict[str, tuple[str, str]] = {
+    team: (conference_name, division_name)
+    for conference_name, divisions in NFL_TEAMS.items()
+    for division_name, division_teams in divisions.items()
+    for team in division_teams
+}
+
 
 def get_all_teams() -> list[str]:
     """Return a flat list of all 32 NFL team abbreviations."""
@@ -49,20 +60,13 @@ def get_all_teams() -> list[str]:
 
 def get_team_conference(team: str) -> str | None:
     """Return the conference (AFC or NFC) for a given team, or None if not found."""
-    for conference_name, divisions in NFL_TEAMS.items():
-        for division_teams in divisions.values():
-            if team in division_teams:
-                return conference_name
-    return None
+    location = _TEAM_LOCATIONS.get(team)
+    return location[0] if location else None
 
 
 def get_team_division(team: str) -> tuple[str, str] | None:
     """Return (conference, division) for a given team, or None if not found."""
-    for conference_name, divisions in NFL_TEAMS.items():
-        for division_name, division_teams in divisions.items():
-            if team in division_teams:
-                return (conference_name, division_name)
-    return None
+    return _TEAM_LOCATIONS.get(team)
 
 
 def get_team_abbreviation(team: str) -> str | None:

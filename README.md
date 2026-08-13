@@ -5,57 +5,42 @@
 [![Docker Image](https://img.shields.io/badge/ghcr.io-nfl--playoff--rankings--mc--sim-blue?logo=docker)](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/pkgs/container/nfl-playoff-rankings-mc-sim)
 [![Build Status](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/actions/workflows/docker-publish.yml)
 
-**v0.7.4**
+**v1.0.0**
 
 A web application that predicts NFL playoff probabilities using Monte Carlo simulation. It fetches real game data from ESPN's public API, computes strength-of-schedule-weighted team ratings, simulates remaining games, applies official NFL tiebreaker rules, and presents probability distributions through an interactive browser UI.
 
-> **Work in Progress** — This project is under active development. Features may change and some functionality is incomplete.
+> This project is actively maintained; features continue to evolve.
 
 ## Features
 
 - Fetch NFL season data from ESPN's public JSON API
 - Iterative team strength ratings with Bayesian dampening
-- Monte Carlo simulation with configurable iterations, cutoff week, and game noise
+- Monte Carlo simulation with configurable iterations, cutoff week, game noise, and tie probability (defaults to an empirical estimate from historical seasons, overridable via slider)
 - Parallel simulation across multiple CPU cores for faster execution
 - Full NFL tiebreaker implementation (head-to-head, division/conference record, strength of victory/schedule, point-based steps) with proper step labeling in standings display
-- Interactive standings view with team logos and tiebreaker annotations
-- League-wide schedule grid showing all 32 teams x 18 weeks with scores and bye weeks
-- Team schedule view with bye week display and per-week team strength tracking
+- Interactive standings view with team logos, clinch/division/#1-seed/eliminated status tags, and hover-tooltip tiebreaker explanations
+- Team Detail page with a full-season schedule ledger, per-week team strength tracking, and postponed/canceled game handling
+- League-wide schedule grid showing all 32 teams x 18 weeks with scores, bye weeks, and postponed/canceled games
+- Statistics page: game-outcome rates (home/away/tie/overtime/one-score), score margin distribution, and longest winning/losing streaks
 - Simulation results: playoff probabilities, seeding matrix, top scenarios
 - Clinching scenarios solver: find all game-outcome combinations that guarantee a playoff spot (available after week 14)
 - CP-SAT constraint solver for mathematical clinching/elimination detection using Google OR-Tools (provably correct, available from week 1)
 - Solver performance export: one-click export of timing benchmarks to `doc/solver-performance.md`
+- Settings / Info page: SQLite cache database metadata, server runtime environment, recent ESPN fetch attempts, and resettable lifetime run counters (games simulated, clinching resolver evaluations)
 - Season selector in the navbar for switching seasons without restarting
 - Local SQLite caching with TTL policies
-- Responsive UI built on Bootstrap 5.3.8 (CDN) with NFL-branded styling
+- Entire UI — every page, the app-wide nav, and the Solver Timing History dialog — redesigned in a flat "Modernist" style (Archivo type, red accent, zero corner radius); no Bootstrap dependency remains
+- Optional Docker deployment with pre-built multi-architecture images (amd64/arm64) on GHCR
 
 ## Screenshots
 
-### Simulation results (2025 season)
+### Seeding Probabilities — "Modernist" redesign (2025 season, cutoff week 16)
 
-![Clinching Scenarios for the Detroit Lions](/doc/img/screenshot-clinching-scenarios.png)
+![Seeding Probabilities matrix for AFC and NFC in the Modernist Ledger redesign](/doc/img/screenshot-seeding-probabilities-new-design.png)
 
-*Clinching scenarios for the Detroit Lions — season 2025, cutoff week 15, showing all paths to the playoffs grouped by remaining record.*
+*Seeding Probabilities matrix: each cell is tinted on a warm tan-to-maroon scale proportional to that team's probability of landing exactly that seed, switching to white text once the tint gets dark enough — never gray, and never tinted at exactly 0%.*
 
-### Standings page (2025 season, cutoff week 16)
-
-![Standings after week 16, 2025](/doc/img/screenshot-standings.png)
-
-*Standings page after week 16 of 2025. Note the clinching or elimination badges next to the teams already qualified for the playoffs or eliminated.*
-
-## Schedule Grid
-
-The Schedule view (`#schedule-grid`) provides a compact league-wide overview of the entire NFL season. All 32 teams are displayed as rows, sorted alphabetically by abbreviation, with weeks 1-18 as columns.
-
-**Cell contents:**
-- **Home games**: opponent abbreviation (e.g., "MIA")
-- **Away games**: "@" prefix (e.g., "@MIA")
-- **Bye weeks**: "BYE" in muted text
-- **Completed/in-progress games**: score displayed below the opponent (e.g., "24-17")
-
-Each team's name in the first column links to their detailed schedule page. The grid uses a compact font (0.75rem) and minimal padding so all 19 columns fit on screens 1280px or wider, with horizontal scrolling on smaller viewports.
-
-The grid data is served by `GET /api/schedule-grid`, which returns all 32 teams with their 18-week matchup arrays (opponent abbreviation, home/away flag, game status, and scores).
+📸 **[See the full screenshot gallery →](doc/screenshots.md)** — Standings, Team Detail, Schedule Grid, Playoff Probabilities, Top Scenarios, Clinching Scenarios, Solver Timing History, Statistics, and Settings / Info.
 
 ## Setup
 
@@ -93,9 +78,9 @@ python -m src --season 2025 --port 8080
 Then open http://localhost:8080 in your browser.
 
 1. Click **Fetch Data** on the Standings page to pull game data from ESPN
-2. View current standings grouped by conference and division
-3. Configure simulation parameters (iterations, cutoff week, noise) and click **Simulate**
-4. View results on the **Results** page — click any team for details
+2. View current standings grouped by conference and division, and set the cutoff week if needed
+3. Click **Go to Simulations →**, configure simulation parameters (iterations, cutoff week, noise) and click **Simulate**
+4. View results on the same **Simulations** page — click any team for candidate details
 
 ## Docker (optional)
 
@@ -139,16 +124,20 @@ pytest tests/ -v
 
 ## Documentation
 
+- [Screenshot Gallery](doc/screenshots.md) — Every page in the app
 - [API Reference](doc/api.md) — All HTTP endpoints, parameters, and response formats
 - [Algorithms](doc/algorithms.md) — Team strength ratings, clinching scenarios solver, CP solver
 - [Technical](doc/technical.md) — Parallel simulation, solver performance export
 - [Solver Performance](doc/solver-performance.md) — Cross-platform benchmark results
+- [Clinching Solver Consolidation](doc/clinching-solver-consolidation.md) — Investigation notes on duplicated game-simulation logic between the main simulator and the clinching solver
 
 ## ToDo
 
-- **Massive UI overhaul**: The current interface is functional but needs a ground-up redesign for better usability, visual polish, and information hierarchy.
-- **Vectorize standings computation with NumPy**: Rewrite the MC simulation hot path to process all trials simultaneously as batched array operations. Game outcome simulation (random draws + strength comparisons) and W/L/T record accumulation can be expressed as matrix operations over a `(trials, games)` array, eliminating per-trial Python loops. The tiebreaker logic would remain in Python but only be invoked for the subset of trials where teams are actually tied in win percentage. Expected 5-15x overall speedup for the simulation pipeline.
+- **Reduce impact-games computation cost**: Profiling (see [Technical docs](doc/technical.md#where-time-goes-profiling-findings)) found the per-team "Top 5 Impact Games" analysis — not the main Monte Carlo loop — dominates simulation wall-clock time (~90-98% at the default 10,000 iterations), since it runs its own nested mini-simulations per relevant game per team, roughly independent of the main iteration count. Investigate cheaper sampling (fewer/smarter mini-trials) or more effective parallelization.
+- **Vectorize standings computation with NumPy** *(lower priority than previously assumed — see [profiling notes](doc/technical.md#where-time-goes-profiling-findings))*: Rewrite the MC simulation hot path to process all trials simultaneously as batched array operations. Game outcome simulation (random draws + strength comparisons) and W/L/T record accumulation can be expressed as matrix operations over a `(trials, games)` array, eliminating per-trial Python loops. The tiebreaker logic would remain in Python but only be invoked for the subset of trials where teams are actually tied in win percentage. At the current default iteration count, the main trial loop is a small fraction of total time next to impact-games computation (above), so this pays off mainly at much higher iteration counts (~100,000+) where the main loop's linearly-scaling cost catches up — re-profile at that scale before committing to the rewrite.
 
 ## Disclaimer
 
 This is an independent project not affiliated with the NFL or any official NFL service. All data is sourced from publicly available APIs.
+
+Simulation results are probabilistic estimates, not guarantees — they may be incomplete, delayed, or inaccurate. This software is provided "as is", without warranty of any kind; use it at your own risk. Relying on these results (e.g. for betting or other decisions) is done entirely at your own risk, and the author(s) accept no liability for any damages or losses arising from such use.

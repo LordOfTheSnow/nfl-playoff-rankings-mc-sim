@@ -51,5 +51,10 @@ Thumbs.db
 .envrc
 .kiro/settings/mcp.json
 
+# Claude Code local settings (per-user permission allowlist, session-specific
+# noise — .claude/skills/ etc. are intentionally checked in, this isn't)
+.claude/settings.json
+.claude/settings.local.json
+
 # Playwright MCP screenshots/snapshots
 .playwright-mcp/

@@ -53,7 +53,7 @@ const weekEntryArbitrary = fc.oneof(
   fc.record({
     opponent: fc.constantFrom(...Object.values(ABBREVIATIONS)),
     home: fc.boolean(),
-    status: fc.constantFrom("scheduled", "in-progress", "completed"),
+    status: fc.constantFrom("scheduled", "in-progress", "completed", "postponed", "cancelled"),
     team_score: fc.oneof(fc.constant(null), fc.integer({ min: 0, max: 60 })),
     opponent_score: fc.oneof(fc.constant(null), fc.integer({ min: 0, max: 60 })),
   })
@@ -410,11 +410,21 @@ describe("Property 4: Team column rendering (logo, abbreviation, link)", () => {
  * For any non-null weekly entry rendered in the grid: if status is "completed"
  * and scores are present, the cell SHALL display the score in format
  * "TeamScore-OpponentScore" and the cell SHALL be a clickable link to
- * #team/<team_name>; if status is "in-progress" and scores are present, the cell
- * SHALL display the score in format "TeamScore-OpponentScore (r)" and the cell
- * SHALL be a clickable link; if status is "scheduled", the cell SHALL display
- * only the opponent abbreviation with no score text and no link.
+ * #team/<opponent_team_name> (the opponent's own Team Detail page — the
+ * row's team is already linked via the TEAM column); if status is
+ * "in-progress" and scores are present, the cell SHALL display the score in
+ * format "TeamScore-OpponentScore (r)" and the cell SHALL be a clickable
+ * link; if status is "scheduled", the cell SHALL display only the opponent
+ * abbreviation with no score text and no link.
  */
+
+/**
+ * Reverse lookup (abbreviation -> full team name) mirroring the one
+ * `renderGrid` builds internally, used to compute the expected opponent
+ * link href below.
+ */
+const ABBR_TO_TEAM = {};
+ALL_TEAMS.forEach((t) => { ABBR_TO_TEAM[t.abbreviation] = t.team; });
 
 /**
  * Generate weekly entries with specific statuses and score combinations for
@@ -459,32 +469,39 @@ describe("Property 6: Score display rules by game status", () => {
   it("completed+scores → score displayed + link; in-progress+scores → score with (r) + link; scheduled → no score, no link", () => {
     fc.assert(
       fc.property(scoreEntryArbitrary, (entry) => {
-        // Build a minimal grid with one team and one week entry
+        // Build a full 32-team grid (Bills plays the generated entry; every
+        // other team is a bye-only filler) so the opponent abbreviation can
+        // be resolved to a full team name, matching a real API response.
         const weeks = Array(18).fill(null);
         weeks[0] = entry;
 
         const data = {
-          teams: [{
-            team: "Bills",
-            abbreviation: "BUF",
-            weeks,
-          }],
+          teams: ALL_TEAMS.map((t) =>
+            t.team === "Bills"
+              ? { team: t.team, abbreviation: t.abbreviation, weeks }
+              : { team: t.team, abbreviation: t.abbreviation, weeks: Array(18).fill(null) }
+          ),
         };
 
         const contentEl = document.createElement("div");
         renderGrid(contentEl, data);
 
-        const row = contentEl.querySelector("tbody tr");
+        // Locate the Bills row specifically — with all 32 teams present the
+        // rows are sorted alphabetically by abbreviation, so Bills (BUF) is
+        // not necessarily first.
+        const billsLink = contentEl.querySelector('a[href="#team/Bills"]');
+        const row = billsLink.closest("tr");
         const cells = row.querySelectorAll("td");
         const cell = cells[1]; // First week cell (index 0 is TEAM column)
 
         const hasScores = entry.team_score != null && entry.opponent_score != null;
+        const expectedOpponentHref = "#team/" + encodeURIComponent(ABBR_TO_TEAM[entry.opponent]);
 
         if (entry.status === "completed" && hasScores) {
-          // Should have a link
+          // Should have a link to the opponent's own Team Detail page
           const link = cell.querySelector("a");
           expect(link).not.toBeNull();
-          expect(link.getAttribute("href")).toBe("#team/Bills");
+          expect(link.getAttribute("href")).toBe(expectedOpponentHref);
 
           // Should display score in format "TeamScore-OpponentScore"
           const scoreText = entry.team_score + "-" + entry.opponent_score;
@@ -492,10 +509,10 @@ describe("Property 6: Score display rules by game status", () => {
           // Should NOT have "(r)" suffix
           expect(cell.textContent).not.toContain("(r)");
         } else if (entry.status === "in-progress" && hasScores) {
-          // Should have a link
+          // Should have a link to the opponent's own Team Detail page
           const link = cell.querySelector("a");
           expect(link).not.toBeNull();
-          expect(link.getAttribute("href")).toBe("#team/Bills");
+          expect(link.getAttribute("href")).toBe(expectedOpponentHref);
 
           // Should display score with "(r)" suffix
           const scoreText = entry.team_score + "-" + entry.opponent_score + " (r)";
@@ -516,6 +533,76 @@ describe("Property 6: Score display rules by game status", () => {
           const expectedText = entry.home ? entry.opponent : "@" + entry.opponent;
           expect(cell.textContent.trim()).toBe(expectedText);
         }
+      }),
+      { numRuns: 100 }
+    );
+  });
+});
+
+
+// Feature: nfl-schedule-grid, Property 7: Postponed/cancelled games are shown distinctly, never as a bye
+
+/**
+ * Property 7: Postponed/cancelled games are shown distinctly, never as a bye
+ *
+ * A postponed or cancelled week entry (non-null, per the backend contract —
+ * see `_build_schedule_grid` in src/server.py) SHALL render the opponent
+ * abbreviation plus a "Postponed"/"Canceled" label, SHALL NOT render "BYE",
+ * and — same as a scored game — SHALL still link to the opponent's own Team
+ * Detail page whenever it's resolvable, so a canceled/postponed game isn't
+ * less navigable than a played one.
+ */
+
+const postponedCancelledEntryArbitrary = fc.record({
+  opponent: fc.constantFrom(...Object.values(ABBREVIATIONS)),
+  home: fc.boolean(),
+  status: fc.constantFrom("postponed", "cancelled"),
+  team_score: fc.constant(null),
+  opponent_score: fc.constant(null),
+});
+
+describe("Property 7: Postponed/cancelled games are shown distinctly, never as a bye", () => {
+  it("renders opponent + status label, no BYE, still linked to the opponent", () => {
+    fc.assert(
+      fc.property(postponedCancelledEntryArbitrary, (entry) => {
+        // Full 32-team grid (Bills plays the generated entry) so the
+        // opponent abbreviation resolves to a full team name, matching a
+        // real API response — see Property 6 for the same rationale.
+        const weeks = Array(18).fill(null);
+        weeks[0] = entry;
+
+        const data = {
+          teams: ALL_TEAMS.map((t) =>
+            t.team === "Bills"
+              ? { team: t.team, abbreviation: t.abbreviation, weeks }
+              : { team: t.team, abbreviation: t.abbreviation, weeks: Array(18).fill(null) }
+          ),
+        };
+
+        const contentEl = document.createElement("div");
+        renderGrid(contentEl, data);
+
+        const billsLink = contentEl.querySelector('a[href="#team/Bills"]');
+        const row = billsLink.closest("tr");
+        const cell = row.querySelectorAll("td")[1];
+
+        // Never renders as a bye
+        expect(cell.querySelector("span.mdn-bye")).toBeNull();
+        expect(cell.textContent).not.toContain("BYE");
+
+        // Still linked to the opponent's own Team Detail page
+        const link = cell.querySelector("a");
+        expect(link).not.toBeNull();
+        const expectedHref = "#team/" + encodeURIComponent(ABBR_TO_TEAM[entry.opponent]);
+        expect(link.getAttribute("href")).toBe(expectedHref);
+
+        // Shows the opponent abbreviation (with "@" prefix for away games)
+        const expectedOpp = entry.home ? entry.opponent : "@" + entry.opponent;
+        expect(cell.textContent).toContain(expectedOpp);
+
+        // Shows the correct status label
+        const expectedLabel = entry.status === "cancelled" ? "Canceled" : "Postponed";
+        expect(cell.textContent).toContain(expectedLabel);
       }),
       { numRuns: 100 }
     );

@@ -1,0 +1,96 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project overview
+
+A web app that predicts NFL playoff probabilities via Monte Carlo simulation. Python stdlib HTTP server backend (`src/`), vanilla JS frontend (`frontend/`, no build step). Fetches game data from ESPN's public API, computes strength-of-schedule team ratings, simulates remaining games, applies official NFL tiebreaker rules, and exposes results through a REST API consumed by a hash-routed single-page frontend.
+
+## Context files
+
+Read the following to get the full context of the project:
+
+* @context/doc/api.md
+* @context/doc/algorithms.md
+* @cpmtext/doc/technical.md
+
+## Commands
+
+### Backend (Python 3.11+)
+
+```bash
+source .venv/bin/activate
+pip install -e ".[dev]"        # install with pytest/hypothesis
+
+python -m src                  # run server, default port 8080, current season
+python -m src --season 2025 --port 8080
+
+pytest tests/ -v                        # run tests (slow tests excluded by default — see pyproject.toml addopts)
+pytest tests/test_cp_solver.py -v       # single file
+pytest tests/test_cp_solver.py::test_name -v   # single test
+pytest tests/ -v -m slow                # include slow tests (opt-in)
+```
+
+There is no lint/format command configured in this repo (no ruff/black/mypy config present).
+
+### Frontend (Vitest + fast-check, jsdom)
+
+```bash
+npm install
+npm test          # vitest run — property-based tests, min 100 iterations each
+npm run test:watch
+```
+
+Frontend has no build/bundle step — `frontend/` is served as static files directly by the Python server.
+
+### Docker
+
+```bash
+docker build -t nfl-playoff-rankings-mc-sim .
+docker compose up      # builds, mounts ./:/data, maps port 8080
+```
+
+## Architecture
+
+### Backend module responsibilities (`src/`)
+
+- **`server.py`** — `BaseHTTPRequestHandler` subclass (`NFLRequestHandler`) implementing every REST route via long if/elif chains in `do_GET`/`do_POST` (no framework/router). Also serves static frontend files for any non-`/api/` path. `NFLSimulatorServer` (a `ThreadingMixIn` + `HTTPServer`) owns the shared `Cache`, `DataClient`, and current `season_year` for the process lifetime.
+- **`data_client.py`** — Fetches game/schedule data from ESPN's public JSON API, defines `Game`/`GameStatus`.
+- **`cache.py`** — SQLite persistence with per-status TTL policy (`CachePolicy`): schedule data 24h, in-progress games 60s, completed games never expire. DB path defaults to `nfl_cache.db` (gitignored; also stores solver performance timing rows, rolling window of 50/platform).
+- **`team_strength.py`** — Iterative strength-of-schedule rating algorithm with relaxation (50/50 blend to prevent oscillation) and Bayesian dampening toward league average by sample size (see `doc/algorithms.md`).
+- **`simulator.py`** — Monte Carlo engine. Each trial simulates all remaining games and calls into `standings.py` for real tiebreaker resolution. Parallelized via `multiprocessing.ProcessPoolExecutor`; uses `fork` context on Unix, falls back to default (`spawn`) on Windows. Workers split iterations into batches with independent RNGs; results (playoff counts, seeding matrices, scenario counters) are merged by summing.
+- **`standings.py`** — Full NFL tiebreaker implementation (head-to-head, division/conference record, strength of victory/schedule, net points, etc.) via `compute_standings()` and `determine_playoff_bracket()`. This is the single source of truth for "who makes the playoffs" — both the CP solver and the Monte Carlo simulator validate candidate outcomes through it rather than re-implementing tiebreaker logic.
+- **`clinching.py`** — Post-week-14 "clinching scenarios" solver: finds minimal game-outcome condition sets that guarantee/eliminate a playoff spot. Hybrid: full enumeration (3^N) when ≤13 relevant games remain, strength-weighted MC sampling (10k trials/combo) above that. Reduces to strictly-minimal condition sets and dedupes.
+- **`cp_solver.py`** — Google OR-Tools CP-SAT solver for mathematically provable clinch/eliminate/alive status, available from week 1 (no week-14 gate). Decomposes by the target team's possible final record (CP-SAT handles win/loss/tie count constraints), then validates each candidate via the real `standings.py` pipeline rather than encoding tiebreakers as constraints — see `doc/algorithms.md` for why this hybrid is fast (3.4×10^30 → tens of ms).
+- **`experience_export.py`** — Exports solver performance benchmarks from the SQLite rolling window into `doc/solver-performance.md` (grouped by CPU model/cores/method, median + relative "Factor" column). This file is machine-generated — don't hand-edit it; update `_FILE_HEADER` in this module instead.
+- **`nfl_teams.py`** — Static team/conference/division reference data.
+
+### Data flow
+
+`Simulator` and `StandingsEngine`-style computations are instantiated on-demand per API request; `cutoff_week` flows from the HTTP request through `Simulator` → `TeamStrengthCalculator`. Only `Cache` and `DataClient` (and the current season) are long-lived, owned by `NFLSimulatorServer`.
+
+### Frontend (`frontend/js/`, no framework, no build step)
+
+Hash-based SPA routing implemented in `app.js`:
+
+- `#standings` (default), `#team/<name>`, `#schedule-grid`, `#statistics`, `#simulations`, plus legacy aliases `#simulate` and `#results` that redirect to `#simulations`
+
+`app.js` owns routing, global error/loading notifications, and nav state — the notification banners (`App.showError`/`App.showInfo`) and the full-page loading overlay (`App.showLoading`/`App.hideLoading`) are plain Modernist markup (`.mdn-alert`, `.mdn-loading-overlay`), not a framework component. `app.js` also owns the app-level, `localStorage`-persisted cutoff-week value (`App.getCutoffWeek()`/`App.setCutoffWeek()`, key `sim-cutoff`) shared by Standings and Simulations — setting it clears any in-memory simulation results, since they were computed for the old cutoff. Other files are per-view: `standings.js`, `schedule.js`, `schedule-grid.js`, `simulation.js`, `statistics.js`, `charts.js`. `api.js` is the fetch wrapper for all `/api/*` calls. There is no Bootstrap dependency anywhere in the frontend — no CDN `<link>`/`<script>`, no `data-bs-*` attributes, no Bootstrap classes; it was fully removed.
+
+Per `design_handoff_simulation_flow_v2/`, the old "Results" page was renamed **Simulations** and now owns the whole simulation lifecycle: `standings.js` renders Standings with only a cutoff-week field, **Fetch data**, and a **Go to Simulations →** hand-off (`buildStatusPanel`/`buildSeasonDataCell`) — it has no Iterations/Noise/Workers/Simulate controls. `simulation.js` exports `renderSimulations` (`#simulations`), which fetches `/api/status` itself, renders the same shared "Season data" header cell (`buildSeasonDataCell`, defined in `standings.js` and reused here since it loads later in `index.html`'s script order) alongside its own Iterations/Cutoff/Noise/Workers/Simulate/Fetch-data cell, then the playoff-probability/seeding-matrix/top-scenarios output and the inline per-team candidate-details panel (`_showTeamDetail`) revealed by clicking a team name — a bordered, tinted, closable panel below the results, not a separate route.
+
+`standings.js` (Standings), `schedule.js` (Team Detail, `#team/<name>`), `simulation.js` (Simulations, `#simulations`, including the team-detail/clinching panel shown from it), `statistics.js` (Statistics), and `schedule-grid.js` (Schedule Grid) have all been redesigned in the flat "Modernist" style — `.mdn-*` CSS classes in `styles.css` (Archivo type, red accent, zero corner radius, `.mdn-led-table` ledger tables, with `schedule-grid.js` using a denser `.mdn-grid-table` variant for its 19-column layout), each view's root scoped under a `.mdn-page` wrapper div. See `design_handoff_standings_redesign/` for the original Modernist visual spec and `design_handoff_simulation_flow_v2/` for the Standings/Simulations flow restructure — note the handoff itself scoped Schedule Grid out as "close enough" to skip; it was later brought fully in line by request.
+
+`frontend/css/styles.css` is now a single design system: `--mdn-*` tokens under a `:root` block ("Modernist Design System" comment header) that every view uses — there's no separate vendored design-system CSS file despite the handoff doc suggesting one, and no legacy `--color-*`/Bootstrap-brand token block anymore (`body`'s background now uses `--mdn-bg` directly). The nav bar (`.mdn-nav`) and disclaimer strip (`.mdn-disclaimer`) are hard-coded into `index.html` itself (not emitted by any per-view JS), so they render in the Modernist style on *every* page.
+
+### Season selection
+
+The active season is server-side state (`NFLSimulatorServer.season_year`), changed via `POST /api/set-season`, not a per-request parameter — the frontend season selector switches this globally without restarting the server.
+
+## Conventions specific to this repo
+
+- **Docs must stay in sync with code.** Per `.kiro/steering/docs-sync.md`: any change to API endpoints, request/response shapes, or algorithm behavior in `src/` or `frontend/` must be reflected in `doc/api.md`, `README.md` (if user-facing), and/or `doc/algorithms.md` / `doc/technical.md` as appropriate. Do not hand-edit `doc/solver-performance.md` — it's generated.
+- **Release process** (`.kiro/steering/release-process.md`, only when explicitly asked to prepare a release): bump `version` in both `pyproject.toml` and `uv.lock`, update the `**v0.x.y**` string in `README.md`, move `## [Unreleased]` CHANGELOG items into a new dated section, update compare-link references at the bottom of `CHANGELOG.md`, remove completed items from the README `## ToDo` section. The release workflow triggers automatically on merge to `main` when the version changes; PR title becomes the GitHub Release name and the CHANGELOG section becomes the release body. Don't bump version for hotfixes that shouldn't cut a release.
+- **`.kiro/specs/`** contains historical feature specs (requirements/design/tasks) for past work — useful background when touching an area like the CP solver, schedule grid, or experience export, but not necessarily reflective of current code state.
+- Tests use `pytest.mark.slow` for expensive tests (e.g. real parallel-simulation runs); these are excluded by default via `addopts` in `pyproject.toml` and must be opted into with `-m slow`.
+- Property-based tests (both Python/Hypothesis in `tests/strategies/` and JS/fast-check in `frontend/tests/`) are used for tiebreaker/standings/schedule-grid logic given the combinatorial nature of NFL rules — prefer extending strategies over hand-written fixtures when adding coverage in these areas.

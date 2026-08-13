@@ -74,6 +74,16 @@ Sub-linear scaling is expected due to process startup overhead and result mergin
 
 Both produce identical simulation results.
 
+### Where Time Goes: Profiling Findings
+
+A single-process `cProfile` run of a realistic mid-season simulation (2025 season data, cutoff week 10, 123 games to simulate, at the default 10,000 iterations) found:
+
+- **Impact-games computation dominates wall-clock time, not the main Monte Carlo trial loop.** `_compute_all_impact_games` accounted for ~90-98% of total `Simulator.run()` time. It runs its own nested mini-simulations (32 teams × ~15 relevant games each × 2 forced outcomes × up to `impact_iterations = min(200, iterations)` mini-trials) — around 98,000+ standings computations, versus 10,000 for the main loop at the default setting. Because `impact_iterations` caps at 200 once `iterations ≥ 200`, this cost stays roughly *flat* as the main `iterations` config grows, while the main loop's cost scales linearly with it — so the balance shifts substantially at much higher iteration counts (e.g. ~100,000), where the main loop starts to catch up.
+- Within `standings.py` itself (56% of total profiled tottime, summed across every call from both the main loop and impact games), cost is dominated by the tiebreaker cascade — `_sort_with_tiebreakers`, `break_tie`, `_step_conference_record`, `_get_games_against_opponents`, `_step_strength_of_victory` — rather than the record-tallying loop in `compute_standings`. This is branchy, set-intersection-heavy comparison logic over small (≤7-team) tied groups, not bulk numeric work.
+- `nfl_teams.get_team_division`/`get_team_conference` were doing an O(n) linear scan through the nested `NFL_TEAMS` dict on every call, and were called 55-67 million times in the profiled run alone (~14% of total time) — `compute_standings`/`determine_playoff_bracket` call them per-team on essentially every tiebreaker comparison. Fixed by precomputing a `{team: (conference, division)}` reverse-lookup dict once at import time (`_TEAM_LOCATIONS`). A controlled before/after A/B — 5,000 identical simulated outcomes, single-process, only `src/nfl_teams.py` differing — measured a ~23% reduction in the combined `compute_standings` + `determine_playoff_bracket` per-call cost (1.35ms → 1.04ms average across 3 runs each).
+
+These findings directly inform the "Vectorize standings computation with NumPy" item in the README ToDo: at the default iteration count, vectorizing `standings.py` would not address the actual bottleneck (impact-games computation), and the tiebreaker cascade it would need to rewrite is a poor fit for array vectorization regardless (branchy per-tied-group comparisons, not bulk arithmetic). It becomes more relevant at much higher iteration counts, where the main loop's linearly-scaling cost overtakes the roughly-fixed impact-games cost — re-profiling at that scale is the recommended next step before committing to the rewrite.
+
 ---
 
 ## Solver Performance Export

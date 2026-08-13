@@ -7,20 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- Restructured documentation: README trimmed to introduction, screenshots, setup, usage, and Docker; algorithm and technical details moved to dedicated files
-- New `doc/api.md` — full API reference with all 13 endpoints and example responses
-- New `doc/algorithms.md` — team strength ratings, clinching scenarios solver, CP solver with ASCII diagrams
-- New `doc/technical.md` — parallel simulation architecture and solver performance export with data flow diagrams
-- Cross-navigation links added between all doc files (back-to-README, sibling links)
-- `_FILE_HEADER` in `src/experience_export.py` now includes navigation links so they survive export overwrites
+## [1.0.0] - 2026-08-13
 
-### Fixed
-- Docker bind-mount example in README corrected from single-file mount (`./nfl_cache.db:/data/nfl_cache.db`) to directory mount (`./data:/data`)
-- Restored lost "Clinched Division and Clinched Homefield Advantage badges" ToDo item (dropped during a merge conflict)
+Full "Modernist" redesign of every page (flat red-on-white style, Bootstrap removed entirely), a restructured Simulations flow, empirical tie-probability estimation, a new Settings / Info diagnostics page, and a round of documentation and test-coverage cleanup.
 
 ### Added
-- `.kiro/steering/docs-sync.md` — steering file that triggers on any `src/**/*.py` change to prompt documentation sync checks
+- **Settings / Info page** (`#settings`, `GET /api/system-info`): SQLite cache metadata (per-season completeness, file size), runtime environment (CPU, Python, platform, multiprocessing method), the last 20 ESPN fetch attempts with failures flagged, and lifetime run counters (games simulated, clinching resolver evaluations) with a **Reset** button (`POST /api/reset-counters`) to zero them
+- **Simulations page** (`#simulations`, replacing "Results"/`#results`) now owns the whole simulation lifecycle — season status, Iterations/Cutoff/Noise/Workers/Tie Probability controls, and results. Standings keeps only the cutoff field and a "Go to Simulations →" hand-off; `#results`/`#simulate` redirect here
+- **Empirical tie-probability estimation**: `tie_probability` now defaults to the observed tie rate pooled across every complete prior season, falling back to the hardcoded 0.5% default with fewer than 2 seasons of history. Exposed as a Tie Probability slider (with a reset-to-estimate button) and as `tie_probability` on `POST /api/simulate`/`POST /api/clinching-scenarios`; `GET /api/status` gains `default_tie_probability` to seed it
+- `noise` parameter on `POST /api/clinching-scenarios` so the clinching solver's sampling path honors the same Noise setting as the main simulation, instead of a hardcoded value
+- Score Margin Distribution card on the Statistics page, backed by a new `margin_distribution` field in `GET /api/statistics`
+- Shared, app-level cutoff-week state (`App.getCutoffWeek()`/`setCutoffWeek()`, `localStorage` key `sim-cutoff`) used by both Standings and Simulations; changing it invalidates any existing simulation results
+- `doc/api.md` (full endpoint reference), `doc/algorithms.md` (ratings, clinching solver, CP solver), and `doc/technical.md` (parallel simulation architecture, solver performance export) — README trimmed down to intro/screenshots/setup/usage/Docker, with cross-links between all doc files
+- Expanded test coverage ahead of release: HTTP-layer tests for tie-probability validation and threading through `/api/simulate`/`/api/clinching-scenarios`/`/api/status`, and frontend tests for the Workers/Tie Probability persistence, reset behavior, and the clinching panel's enumeration-vs-sampling hint copy
+
+### Changed
+- Every page — Standings, Team Detail, Simulations (formerly Results), Statistics, Schedule Grid, and the Solver Timing History dialog — redesigned in a flat "Modernist" style (dense ledger tables, zero corner radius, Archivo type, red accent); the Bootstrap CDN dependency, its classes, and the legacy `--color-*`/`--radius-*`/`--shadow-*` CSS tokens are gone
+- Postponed/cancelled games (e.g. the suspended 2022 Week 17 Bills @ Bengals game) are now shown distinctly instead of appearing as a phantom bye week, on both Schedule Grid and Team Detail
+- Default per-game Noise value raised from 0.20 to 0.34 across the main simulation, clinching solver, and the Simulations Noise slider, to better reflect real NFL variance
+- Clinching solver's separate "Sampling iterations" control removed — reuses the shared Iterations value, same as it already did for Workers
+- `nfl_teams.get_team_division`/`get_team_conference` use a precomputed reverse-lookup dict instead of a linear scan, cutting combined `compute_standings`/`determine_playoff_bracket` per-call cost ~23% (see `doc/technical.md` for the profiling breakdown)
+- Simulations page's control row now spreads Iterations/Cutoff/Noise/Tie Probability/Workers/Simulate/Fetch-data across the available width instead of clustering to the right, with a fixed visual separator from the Season Data cell; Standings' Fetch data/Go to Simulations buttons realigned with the Cutoff dropdown
+- Tooltip popovers no longer washed out by an ancestor element's `opacity`
+- Various smaller consistency fixes: Seed Distribution cell borders restored, tag font size bumped for legibility, "CLINCHED" tag styling made visually distinct from "ELIMINATED", clinching scenario grammar ("Browns win" not "Browns wins"), README screenshots updated throughout
+- README overhauled ahead of 1.0.0: Features list brought up to date (Team Detail, Schedule Grid, Statistics, Settings/Info with its Reset button, Docker), the growing screenshot collection split out into a new `doc/screenshots.md` gallery (Statistics and Schedule Grid screenshots added) with just one hero shot left inline, and the page-by-page Schedule Grid/Team Detail write-ups removed now that `doc/api.md` and the gallery cover them; Disclaimer section now notes results are probabilistic estimates used at the reader's own risk
+
+### Fixed
+- Clinching solver used its own hand-copied per-game outcome logic with an independently hardcoded tie probability, which could silently drift from the main simulator's; now shares the same code path and `SimulationConfig` defaults
+- Workers slider and the clinching estimate panel could disagree on core count until the slider was touched, understating the time estimate by ~50% (the run itself was always correct)
+- Settings / Info's worker-method stats always read "Unknown"; now report simulation's and the clinching resolver's actual multiprocessing methods separately, since they can legitimately differ
+- CP solver cache served stale division/homefield clinch status forever for rows cached before those fields existed
+- `GET /api/schedule-grid` silently dropped postponed/cancelled games instead of marking them, and Team Detail had no display case for them either
+- Clinching solver's cores estimate showed the server's total CPU count instead of the user's configured Workers value
+- Standings page could throw on rapid re-renders (e.g. changing cutoff week immediately after load) from a stale deferred callback
+- Schedule Grid: clicking a completed game's opponent cell linked back to the row's own team instead of the opponent
+- Candidate-details panel's stat row misaligned whenever only some labels carried a tooltip icon
 
 ## [0.7.4] - 2026-07-27
 
@@ -359,7 +380,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.4...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.4...v1.0.0
 [0.7.4]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.1...v0.7.2

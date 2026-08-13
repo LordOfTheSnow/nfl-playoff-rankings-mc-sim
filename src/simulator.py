@@ -20,7 +20,7 @@ import os
 import random
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from src.data_client import Game, GameStatus
 from src.nfl_teams import NFL_TEAMS, get_team_conference, get_team_division
@@ -31,7 +31,21 @@ from src.standings import (
 )
 from src.team_strength import TeamStrengthCalculator
 
+if TYPE_CHECKING:
+    from src.cache import Cache
+
 logger = logging.getLogger(__name__)
+
+# Hardcoded fallback tie probability, used when an empirical estimate isn't
+# available (see resolve_tie_probability). This is the single literal 0.005
+# in the codebase — SimulationConfig.tie_probability's default and
+# clinching.py's fallback both reference it, so they can't drift apart.
+DEFAULT_TIE_PROBABILITY = 0.005
+
+# Minimum number of complete prior seasons required before trusting an
+# empirical tie-rate estimate over DEFAULT_TIE_PROBABILITY.
+# NFL ties are rare (~0.5%), so fewer seasons produce too noisy an estimate.
+MIN_SEASONS_FOR_TIE_ESTIMATE = 2
 
 # Use 'fork' start method on Unix for efficiency (child inherits parent memory
 # via copy-on-write, no re-import overhead). On Windows, 'fork' is unavailable
@@ -56,12 +70,13 @@ class SimulationConfig:
         iterations: Number of simulation trials to run (default 10000).
         tie_probability: Probability of a game ending in a tie (default 0.5%).
         cutoff_week: Optional explicit cutoff week (1-18). If None, auto-detected.
-        noise: Per-game strength noise as a standard deviation (default 0.2).
+        noise: Per-game strength noise as a standard deviation (default 0.34).
             Before each simulated game, both teams' strengths are multiplied by
             a random factor drawn from a log-normal distribution with this sigma.
             0.0 = no noise (deterministic strengths), 0.2 = moderate "any given
-            Sunday" variance, 0.5 = high chaos. The jitter is independent per
-            game and per trial, modeling game-to-game performance fluctuation.
+            Sunday" variance, 0.34 = high — reflecting current NFL upset rates,
+            0.5 = chaos. The jitter is independent per game and per trial,
+            modeling game-to-game performance fluctuation.
         num_workers: Number of worker processes for parallel simulation.
             None = auto-detect using os.cpu_count(). 1 = single-process (no overhead).
         MIN_ITERATIONS: Class-level minimum allowed iterations.
@@ -69,9 +84,9 @@ class SimulationConfig:
     """
 
     iterations: int = 10_000
-    tie_probability: float = 0.005
+    tie_probability: float = DEFAULT_TIE_PROBABILITY
     cutoff_week: int | None = None
-    noise: float = 0.2
+    noise: float = 0.34
     num_workers: int | None = None
 
     MIN_ITERATIONS: int = field(default=100, init=False, repr=False)
@@ -116,6 +131,129 @@ class SimulationConfig:
                 raise ValueError(
                     f"num_workers must be a positive integer, got {self.num_workers!r}"
                 )
+
+
+def _auto_detect_cutoff_week(games: list[Game]) -> int:
+    """Find the latest week where ALL games are completed.
+
+    Shared by Simulator._determine_cutoff_week and by server.py, which needs
+    the same resolved cutoff_week (before a Simulator exists) to compute the
+    empirical tie-probability estimate for a request that didn't specify an
+    explicit cutoff_week.
+
+    Args:
+        games: All games in the season.
+
+    Returns:
+        The cutoff week number (0-18). 0 if no week is fully complete.
+    """
+    for week in range(18, 0, -1):
+        week_games = [g for g in games if g.week == week]
+        if week_games and all(g.status == GameStatus.COMPLETED for g in week_games):
+            return week
+    return 0
+
+
+def compute_prior_seasons_tie_pool(cache: Cache, exclude_season: int) -> tuple[int, int, int]:
+    """Pool completed games/ties across every complete season other than exclude_season.
+
+    A season counts as complete when none of its games are still SCHEDULED
+    or IN_PROGRESS — not when every game reached COMPLETED specifically.
+    A POSTPONED/CANCELLED game (e.g. the 2022 Week 17 Bills @ Bengals game,
+    suspended after Damar Hamlin's on-field collapse and never resumed) is a
+    permanently resolved outcome, not a sign the season is still pending; a
+    season with one is just as "over" as one where every game completed
+    normally. It contributes no tie/game count of its own (no score exists),
+    but shouldn't block the rest of that season's real completed games from
+    being pooled.
+
+    This is the expensive half of the tie-probability estimate — called
+    only when historical data changes (POST /api/fetch-data, POST
+    /api/set-season), not per simulation request. See resolve_tie_probability
+    for the cheap, cutoff-aware half.
+
+    Args:
+        cache: Cache to read historical season data from.
+        exclude_season: The season currently being simulated — excluded so
+            its own (possibly partial, cutoff-bounded) data isn't pooled in
+            here. It's added back in by resolve_tie_probability instead,
+            truncated to whatever cutoff_week a given request actually uses.
+
+    Returns:
+        Tuple of (total_games, total_ties, season_count) — season_count is
+        the number of complete seasons that contributed to the pool.
+    """
+    total_games = 0
+    total_ties = 0
+    season_count = 0
+
+    for summary in cache.get_seasons_summary():
+        year = summary["year"]
+        if year == exclude_season:
+            continue
+        if summary["games_cached"] < 200:
+            continue  # not a fully-fetched season
+
+        season_games = cache.get_games(year)
+        still_pending = any(
+            g.status in (GameStatus.SCHEDULED, GameStatus.IN_PROGRESS)
+            for g in season_games
+        )
+        if still_pending:
+            continue  # season isn't over yet
+
+        season_count += 1
+        for game in season_games:
+            if game.status != GameStatus.COMPLETED:
+                continue
+            total_games += 1
+            if game.home_score == game.away_score:
+                total_ties += 1
+
+    return total_games, total_ties, season_count
+
+
+def resolve_tie_probability(
+    prior_pool: tuple[int, int, int] | None,
+    all_games: list[Game],
+    cutoff_week: int,
+) -> float:
+    """Resolve the effective tie probability for a simulation request.
+
+    Combines the persisted prior-seasons pool (see compute_prior_seasons_tie_pool)
+    with the current season's own completed games up to cutoff_week — never
+    games beyond it, so a lower cutoff can't leak future-week data into the
+    estimate (e.g. retroactively simulating a finished season at an earlier
+    cutoff only sees that season's games through the cutoff, not the full
+    season). Falls back to DEFAULT_TIE_PROBABILITY when prior_pool is
+    unavailable or too small to trust (see MIN_SEASONS_FOR_TIE_ESTIMATE).
+
+    Args:
+        prior_pool: (games, ties, season_count) from
+            compute_prior_seasons_tie_pool, or None if never computed
+            (e.g. no fetch has happened yet).
+        all_games: All games in the season currently being simulated.
+        cutoff_week: The resolved cutoff week for this request (already
+            auto-detected if the request didn't specify one explicitly).
+
+    Returns:
+        The effective tie probability to use for this simulation.
+    """
+    if prior_pool is not None:
+        pool_games, pool_ties, season_count = prior_pool
+        if season_count >= MIN_SEASONS_FOR_TIE_ESTIMATE:
+            current_completed = [
+                g for g in all_games
+                if g.week <= cutoff_week and g.status == GameStatus.COMPLETED
+            ]
+            games = pool_games + len(current_completed)
+            ties = pool_ties + sum(
+                1 for g in current_completed if g.home_score == g.away_score
+            )
+            if games > 0:
+                return ties / games
+
+    return DEFAULT_TIE_PROBABILITY
 
 
 @dataclass
@@ -678,16 +816,7 @@ class Simulator:
         """
         if self._config.cutoff_week is not None:
             return self._config.cutoff_week
-
-        # Find the latest week where ALL games are completed
-        for week in range(18, 0, -1):
-            week_games = [g for g in games if g.week == week]
-            if week_games and all(
-                g.status == GameStatus.COMPLETED for g in week_games
-            ):
-                return week
-
-        return 0  # No completed weeks
+        return _auto_detect_cutoff_week(games)
 
     def _partition_games(
         self, all_games: list[Game], cutoff_week: int

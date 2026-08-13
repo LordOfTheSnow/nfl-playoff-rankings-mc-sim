@@ -1,246 +1,897 @@
 /* ==========================================================================
-   NFL Monte Carlo Playoff Simulator — Custom Overrides
-   Bootstrap 5.3.x loaded first; this file adds NFL-specific brand styling.
+   NFL Monte Carlo Playoff Simulator
+   Every view uses the Modernist design system below (--mdn-* tokens,
+   `.mdn-*` classes) — there is no Bootstrap dependency and no separate
+   legacy brand palette.
    ========================================================================== */
 
-/* --- NFL Brand Design Tokens --- */
-:root {
-    --color-bg: #f5f7fa;
-    --color-surface: #ffffff;
-    --color-text: #1a1a2e;
-    --color-text-muted: #5a5a7a;
-    --color-primary: #1b3a6b;
-    --color-primary-light: #2d5aa0;
-    --color-accent: #e63946;
-    --color-border: #dde2e8;
-    --color-border-light: #eef1f5;
-    --color-row-stripe: #f8fafc;
-    --color-row-hover: #edf2f7;
-    --color-division-leader-bg: #e8f4fd;
-    --color-division-leader-border: #3b82f6;
-    --color-success: #16a34a;
-    --color-warning: #d97706;
-    --color-conference-afc: #d32f2f;
-    --color-conference-nfc: #1565c0;
-    --font-mono: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
-    --radius-sm: 4px;
-    --radius-md: 8px;
-    --radius-lg: 12px;
-    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
-    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-/* --- Body overrides (only what Bootstrap Reboot doesn't set) --- */
 body {
     min-width: 1024px;
-    background-color: var(--color-bg);
+    background-color: var(--mdn-bg);
 }
 
-/* --- Container max-width override --- */
-.container-xl {
-    max-width: 1400px;
+/* ==========================================================================
+   Modernist Design System
+   Flat, architectural, red-on-white, Archivo type, zero corner radius.
+   Scoped under `mdn-` prefixed classes. The nav bar / disclaimer strip are
+   app-wide; the `.mdn-page` wrapper scopes fonts/tokens to each page's
+   content (Standings, Team Detail, Results, Statistics, Schedule Grid).
+   See design_handoff_standings_redesign/README.md for the source spec.
+   ========================================================================== */
+
+:root {
+    --mdn-font-heading: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --mdn-font-body: "Archivo", "Helvetica Neue", Arial, sans-serif;
+
+    --mdn-ink: #161514;
+    --mdn-bg: #f3f2f2;
+    --mdn-text: #201e1d;
+
+    --mdn-accent-100: #fdeae5;
+    --mdn-accent-200: #fbd0c5;
+    --mdn-accent-300: #f6a488;
+    --mdn-accent-500: #ec3013;
+    --mdn-accent-700: #b8250f;
+    --mdn-accent-900: #7a190a;
+
+    --mdn-neutral-100: #f7f6f6;
+    --mdn-neutral-200: #ebe9e8;
+    --mdn-neutral-300: #dbd9d7;
+    --mdn-neutral-400: #b3b0ae;
+    --mdn-neutral-500: #8a8785;
+    --mdn-neutral-600: #6b6866;
+    --mdn-neutral-800: #332f2d;
+
+    --mdn-divider: rgba(32, 30, 29, 0.14);
+    --mdn-divider-strong: rgba(32, 30, 29, 0.22);
+
+    --mdn-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
+    --mdn-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.28);
+
+    --mdn-bar-warm: oklch(70% 0.13 38);
 }
 
-/* --- Control field vertical stacking --- */
-.control-field {
+/* --- Nav bar (app-wide) --- */
+.mdn-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 14px 32px;
+    background: var(--mdn-ink);
+    color: #f3f2f2;
+    border-bottom: 2px solid var(--mdn-accent-500);
+    font-family: var(--mdn-font-body);
+}
+
+.mdn-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font: 800 16px var(--mdn-font-heading);
+    color: #fff;
+    text-decoration: none;
+}
+
+.mdn-brand-version {
+    font: 400 11px var(--mdn-font-body);
+    color: rgba(255, 255, 255, 0.4);
+    margin-left: 4px;
+}
+
+.mdn-nav-links {
+    display: flex;
+    align-items: center;
+    gap: 28px;
+    flex-wrap: wrap;
+}
+
+.mdn-nav-links a {
+    color: rgba(243, 242, 242, 0.7);
+    text-decoration: none;
+    font: 800 13px var(--mdn-font-heading);
+    letter-spacing: 0.02em;
+    padding-bottom: 2px;
+    border-bottom: 2px solid transparent;
+}
+
+.mdn-nav-links a:hover {
+    color: #fff;
+}
+
+.mdn-nav-links a.active {
+    color: #fff;
+    border-bottom-color: var(--mdn-accent-500);
+}
+
+.mdn-nav-season {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 0;
+    font: 700 12px var(--mdn-font-body);
+    padding: 5px 8px;
+}
+
+.mdn-disclaimer {
+    padding: 5px 32px;
+    font-size: 10.5px;
+    color: rgba(0, 0, 0, 0.45);
+    background: var(--mdn-neutral-200);
+    border-bottom: 1px solid var(--mdn-divider);
+    font-family: var(--mdn-font-body);
+}
+
+/* --- Page scope: any Modernist-redesigned page (Standings, Team Detail) --- */
+.mdn-page {
+    font-family: var(--mdn-font-body);
+    color: var(--mdn-text);
+}
+
+.mdn-page h1,
+.mdn-page h2,
+.mdn-page h3 {
+    font-family: var(--mdn-font-heading);
+}
+
+/* --- Card --- */
+.mdn-card {
+    background: #fff;
+    border: 1px solid var(--mdn-divider);
+    padding: 20px 24px;
+    margin-bottom: 20px;
+}
+
+.mdn-card-kicker {
+    font: 800 9px var(--mdn-font-heading);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    opacity: 0.5;
+    margin-bottom: 4px;
+}
+
+.mdn-card-title {
+    font: 800 19px var(--mdn-font-heading);
+    margin: 0;
+}
+
+/* --- Stat blocks --- */
+.mdn-stat-lbl {
+    font: 800 9px var(--mdn-font-heading);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    /* color-alpha, not `opacity` — this label can carry a .mdn-tt-wrap
+       tooltip; `opacity` on an ancestor caps the whole subtree's alpha,
+       which would make the popup translucent too. */
+    color: rgba(32, 30, 29, 0.5);
+}
+
+.mdn-stat-val {
+    font: 700 15px var(--mdn-font-heading);
+    font-variant-numeric: tabular-nums;
+}
+
+/* --- Field / Input --- */
+.mdn-field {
     display: flex;
     flex-direction: column;
+    gap: 4px;
 }
 
-/* --- Header Disclaimer Bar --- */
-.header-disclaimer {
-    padding: 0.35rem 0;
-    font-size: 0.7rem;
-    color: var(--color-text-muted);
-    background-color: var(--color-border-light);
-}
-
-/* --- Conference Headers --- */
-.conference-header {
-    font-size: 1.5rem;
-    font-weight: 700;
-    padding: 0.75rem 1rem;
-    margin-bottom: 1rem;
-    border-left: 4px solid var(--color-primary);
-    background-color: var(--color-surface);
-    border-radius: var(--radius-sm);
-    box-shadow: var(--shadow-sm);
-}
-
-.conference-header--afc {
-    border-left-color: var(--color-conference-afc);
-}
-
-.conference-header--nfc {
-    border-left-color: var(--color-conference-nfc);
-}
-
-/* --- Division Leader Row Highlighting --- */
-.standings-table tr.division-leader {
-    background-color: var(--color-division-leader-bg);
-    font-weight: 600;
-}
-
-.standings-table tr.division-leader td.team-name {
-    font-weight: 700;
-    border-left: 4px solid var(--color-division-leader-border);
-}
-
-.standings-table tr.division-leader:hover {
-    background-color: #dbeafe;
-}
-
-/* --- Team Link Hover/Focus --- */
-.team-link {
-    color: var(--color-primary-light);
-    text-decoration: none;
-    cursor: pointer;
-}
-
-.team-link:hover {
-    text-decoration: underline;
-    color: var(--color-primary);
-}
-
-.team-link:focus-visible {
-    outline: 2px solid var(--color-primary-light);
-    outline-offset: 2px;
-    border-radius: 2px;
-}
-
-/* --- Standings Table Fixed Column Widths --- */
-.standings-table {
-    table-layout: fixed;
-}
-
-.standings-table th,
-.standings-table td {
-    vertical-align: middle;
-}
-
-.standings-table thead th {
-    font-size: 0.85rem;
-}
-
-.standings-table th:nth-child(1),
-.standings-table td:nth-child(1) { width: 22%; }
-.standings-table th:nth-child(2),
-.standings-table td:nth-child(2) { width: 6%; }
-.standings-table th:nth-child(3),
-.standings-table td:nth-child(3) { width: 6%; }
-.standings-table th:nth-child(4),
-.standings-table td:nth-child(4) { width: 6%; }
-.standings-table th:nth-child(5),
-.standings-table td:nth-child(5) { width: 9%; }
-.standings-table th:nth-child(6),
-.standings-table td:nth-child(6) { width: 10%; }
-.standings-table th:nth-child(7),
-.standings-table td:nth-child(7) { width: 10%; }
-.standings-table th:nth-child(8),
-.standings-table td:nth-child(8) { width: 7%; }
-.standings-table th:nth-child(9),
-.standings-table td:nth-child(9) { width: 9%; }
-.standings-table th:nth-child(10),
-.standings-table td:nth-child(10) { width: 15%; }
-
-/* --- Numeric Cell Styling --- */
-.numeric,
-td.numeric {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-    font-family: var(--font-mono);
-    font-size: 0.85rem;
-}
-
-.numeric-left {
-    text-align: left;
-    font-variant-numeric: tabular-nums;
-    font-family: var(--font-mono);
-    font-size: 0.85rem;
-}
-
-.numeric-inline {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-}
-
-/* --- Game Result Colors --- */
-.game-result--win {
-    color: var(--color-success);
-    font-weight: 600;
-}
-
-.game-result--loss {
-    color: var(--color-accent);
-    font-weight: 600;
-}
-
-.game-result--tie {
-    color: var(--color-warning);
-    font-weight: 600;
-}
-
-/* --- Progress Overlay Backdrop --- */
-.progress-overlay {
-    position: fixed;
-    inset: 0;
-    background-color: rgba(0, 0, 0, 0.5);
-    z-index: 1050;
-}
-
-/* --- Back Navigation Link --- */
-.back-link {
-    display: inline-flex;
+.mdn-field label {
+    font: 800 10px var(--mdn-font-heading);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    /* color-alpha, not `opacity` — see .mdn-stat-lbl above. */
+    color: rgba(32, 30, 29, 0.65);
+    display: flex;
     align-items: center;
-    gap: 0.375rem;
-    color: var(--color-primary-light);
-    text-decoration: none;
-    font-size: 0.9rem;
-    font-weight: 500;
-    margin-bottom: 1rem;
-}
-
-.back-link:hover {
-    text-decoration: underline;
-}
-
-.back-link:focus-visible {
-    outline: 2px solid var(--color-primary-light);
-    outline-offset: 2px;
-    border-radius: 2px;
-}
-
-/* --- Team Logo Contextual Sizing --- */
-.standings-table .team-logo {
-    width: 20px;
-    height: 20px;
-}
-
-.conference-header .team-logo {
-    width: 28px;
-    height: 28px;
-}
-
-/* --- Schedule Grid --- */
-.schedule-grid-wrapper {
-    overflow-x: auto;
-}
-
-.schedule-grid {
-    font-size: 0.75rem;
+    gap: 5px;
     white-space: nowrap;
 }
 
-.schedule-grid td,
-.schedule-grid th {
-    padding: 0.25rem;
-    vertical-align: middle;
-    text-align: center;
+.mdn-input {
+    border: 1px solid var(--mdn-divider-strong);
+    border-radius: 0;
+    background: #fff;
+    padding: 7px 8px;
+    font: 400 13px var(--mdn-font-body);
+    color: var(--mdn-text);
+    font-variant-numeric: tabular-nums;
 }
 
-/* --- Responsive: wider container at large viewports --- */
+.mdn-input:focus {
+    outline: 2px solid var(--mdn-accent-500);
+    outline-offset: -1px;
+}
+
+.mdn-input[type="range"] {
+    padding: 8px 0;
+    border: none;
+    accent-color: var(--mdn-accent-500);
+}
+
+.mdn-hint {
+    font-size: 11px;
+    color: rgba(32, 30, 29, 0.55);
+    margin-top: 2px;
+}
+
+/* --- Buttons --- */
+.mdn-btn {
+    font: 800 12px var(--mdn-font-heading);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    padding: 9px 16px;
+    border: 1px solid transparent;
+    border-radius: 0;
+    cursor: pointer;
+    background: transparent;
+}
+
+.mdn-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.mdn-btn-primary {
+    background: var(--mdn-accent-500);
+    color: #fff;
+    border-color: var(--mdn-accent-500);
+}
+
+.mdn-btn-primary:hover:not(:disabled) {
+    background: var(--mdn-accent-700);
+    border-color: var(--mdn-accent-700);
+}
+
+.mdn-btn-secondary {
+    background: transparent;
+    color: var(--mdn-text);
+    border-color: var(--mdn-divider-strong);
+}
+
+.mdn-btn-secondary:hover:not(:disabled) {
+    background: var(--mdn-neutral-100);
+}
+
+/* --- Segmented control --- */
+.mdn-seg {
+    display: inline-flex;
+    border: 1px solid var(--mdn-divider-strong);
+}
+
+.mdn-seg-opt {
+    font: 800 11px var(--mdn-font-heading);
+    letter-spacing: 0.02em;
+    padding: 6px 12px;
+    cursor: pointer;
+    color: var(--mdn-text);
+    background: #fff;
+    border-right: 1px solid var(--mdn-divider-strong);
+    user-select: none;
+}
+
+.mdn-seg-opt:last-child {
+    border-right: none;
+}
+
+.mdn-seg-opt.active {
+    background: var(--mdn-accent-500);
+    color: #fff;
+}
+
+/* --- Tags / badges --- */
+.mdn-tag {
+    display: inline-block;
+    font: 800 10px var(--mdn-font-heading);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 3px 7px;
+    border-radius: 0;
+    border: 1px solid transparent;
+    line-height: 1.5;
+    white-space: nowrap;
+}
+
+.mdn-tag-accent {
+    background: var(--mdn-accent-500);
+    color: #fff;
+}
+
+.mdn-tag-accent-division {
+    background: var(--mdn-accent-700);
+    color: #fff;
+}
+
+.mdn-tag-outline {
+    background: transparent;
+    color: var(--mdn-text);
+    border-color: var(--mdn-divider-strong);
+    cursor: help;
+}
+
+.mdn-tag-outline-dashed {
+    background: transparent;
+    color: var(--mdn-text);
+    border-color: var(--mdn-divider-strong);
+    border-style: dashed;
+}
+
+.mdn-tag-outline-accent {
+    background: transparent;
+    color: var(--mdn-accent-700);
+    border-color: var(--mdn-accent-500);
+}
+
+.mdn-tag-elim {
+    background: transparent;
+    color: var(--mdn-text);
+    border-color: var(--mdn-divider);
+    opacity: 0.55;
+}
+
+.mdn-tag-win-o {
+    background: transparent;
+    color: var(--mdn-accent-700);
+    border-color: var(--mdn-accent-500);
+}
+
+.mdn-tag-tie {
+    background: transparent;
+    color: var(--mdn-neutral-600);
+    border-color: var(--mdn-neutral-500);
+    border-style: dashed;
+    font-style: italic;
+}
+
+/* Voided game (postponed/cancelled, no result) — struck-through text reads
+   as "doesn't count", distinct from Loss's solid mdn-tag-elim treatment. */
+.mdn-tag-void {
+    background: transparent;
+    color: var(--mdn-neutral-500);
+    border-color: var(--mdn-neutral-400);
+    border-style: dashed;
+    text-decoration: line-through;
+}
+
+/* --- Tooltips (hover-only, dark popover) --- */
+.mdn-info-ic {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 13px;
+    height: 13px;
+    border: 1px solid currentColor;
+    opacity: 0.5;
+    font-size: 9px;
+    font-style: italic;
+    cursor: help;
+}
+
+.mdn-tt-wrap {
+    position: relative;
+    display: inline-flex;
+    vertical-align: middle;
+}
+
+.mdn-reset-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: content-box;
+    width: 13px;
+    height: 13px;
+    border: 1px solid currentColor;
+    opacity: 0.5;
+    font-size: 9px;
+    font-style: italic;
+    font-family: inherit;
+    line-height: 1;
+    padding: 0;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+}
+
+.mdn-reset-btn:hover,
+.mdn-reset-btn:focus-visible {
+    opacity: 1;
+    border-color: var(--mdn-accent-700);
+    color: var(--mdn-accent-700);
+}
+
+.mdn-tt-pop {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--mdn-ink);
+    color: #f3f2f2;
+    padding: 9px 11px;
+    font-size: 10.5px;
+    line-height: 1.6;
+    white-space: pre-line;
+    text-align: left;
+    width: max-content;
+    max-width: 240px;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 30;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+    font-family: var(--mdn-font-body);
+}
+
+.mdn-tt-pop::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-top-color: var(--mdn-ink);
+}
+
+.mdn-tt-wrap:hover .mdn-tt-pop {
+    opacity: 1;
+}
+
+/* --- Conference header --- */
+.mdn-conf-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 0 10px;
+    border-bottom: 2px solid var(--mdn-divider-strong);
+    margin: 0 0 18px;
+}
+
+.mdn-conf-head h2 {
+    font: 800 22px var(--mdn-font-heading);
+    margin: 0;
+}
+
+/* --- Division grid + label --- */
+.mdn-div-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 28px;
+}
+
+.mdn-div-lbl {
+    font: 800 11px var(--mdn-font-heading);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    /* color-alpha, not `opacity` — see .mdn-stat-lbl above. */
+    color: rgba(32, 30, 29, 0.6);
+    margin-bottom: 8px;
+}
+
+/* --- Ledger table --- */
+.mdn-led-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    font-family: var(--mdn-font-body);
+}
+
+.mdn-led-table th {
+    text-align: left;
+    font: 800 10px var(--mdn-font-heading);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    /* color-alpha, not `opacity` — see .mdn-stat-lbl above. */
+    color: rgba(32, 30, 29, 0.55);
+    padding: 6px 10px;
+    border-bottom: 2px solid var(--mdn-divider-strong);
+}
+
+.mdn-led-table td {
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--mdn-divider);
+    font-variant-numeric: tabular-nums;
+    vertical-align: middle;
+}
+
+.mdn-led-table td.mdn-num,
+.mdn-led-table th.mdn-num {
+    text-align: right;
+}
+
+.mdn-led-table tr.mdn-leader {
+    background: var(--mdn-neutral-200);
+}
+
+.mdn-led-table tr.mdn-leader td.mdn-tm {
+    border-left: 3px solid var(--mdn-accent-500);
+}
+
+.mdn-team-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.mdn-team-link {
+    font: 700 13px var(--mdn-font-heading);
+    color: var(--mdn-text);
+    text-decoration: none;
+}
+
+.mdn-team-link:hover {
+    text-decoration: underline;
+    color: var(--mdn-accent-700);
+}
+
+.mdn-bye {
+    font: 800 12px var(--mdn-font-heading);
+    font-style: italic;
+    opacity: 0.55;
+}
+
+/* --- Schedule Grid (league-wide, denser variant of the ledger table) --- */
+.mdn-grid-wrapper {
+    overflow-x: auto;
+}
+
+.mdn-grid-table {
+    font-size: 11.5px;
+}
+
+.mdn-grid-table th,
+.mdn-grid-table td {
+    padding: 5px 6px;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.mdn-grid-table th:first-child,
+.mdn-grid-table td:first-child {
+    text-align: left;
+}
+
+.mdn-grid-team-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font: 700 12px var(--mdn-font-heading);
+    color: var(--mdn-text);
+    text-decoration: none;
+}
+
+.mdn-grid-team-link:hover {
+    color: var(--mdn-accent-700);
+    text-decoration: underline;
+}
+
+.mdn-grid-score-link {
+    display: block;
+    color: inherit;
+    text-decoration: none;
+}
+
+.mdn-grid-score-link:hover {
+    color: var(--mdn-accent-700);
+}
+
+/* --- Seeding probability tint (Results — Seeding Probabilities) --- */
+.mdn-seed-hi {
+    color: #fff;
+}
+
+/* --- Inline stat bar (Statistics — Game Outcomes / Score Margin Distribution) --- */
+.mdn-bar-track {
+    height: 10px;
+    background: var(--mdn-neutral-200);
+    border: 1px solid var(--mdn-neutral-400);
+    position: relative;
+    box-sizing: border-box;
+}
+
+.mdn-bar-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--mdn-bar-warm);
+}
+
+/* --- Top Scenarios disclosure (Results — Top Scenarios) --- */
+.mdn-scenario-card summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    list-style: none;
+}
+
+.mdn-scenario-card summary::-webkit-details-marker {
+    display: none;
+}
+
+.mdn-scenario-triangle {
+    display: inline-block;
+    font-size: 11px;
+    transition: transform 0.12s;
+}
+
+.mdn-scenario-card[open] .mdn-scenario-triangle {
+    transform: rotate(90deg);
+}
+
+/* --- Back link / back-to-top (Team Detail) --- */
+.mdn-back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font: 800 12px var(--mdn-font-heading);
+    color: var(--mdn-text);
+    text-decoration: none;
+    margin-bottom: 18px;
+}
+
+.mdn-back-link:hover {
+    color: var(--mdn-accent-700);
+}
+
+.mdn-back-to-top {
+    display: inline-block;
+    font: 800 12px var(--mdn-font-heading);
+    color: var(--mdn-text);
+    text-decoration: none;
+}
+
+.mdn-back-to-top:hover {
+    color: var(--mdn-accent-700);
+}
+
+/* --- Team hero header (Team Detail) --- */
+.mdn-team-hero {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 2px;
+}
+
+.mdn-team-hero h1 {
+    font: 800 34px var(--mdn-font-heading);
+    margin: 0;
+}
+
+.mdn-team-record {
+    font-size: 13px;
+    color: rgba(32, 30, 29, 0.6);
+    margin: 0 0 20px 54px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* --- Legend --- */
+.mdn-legend {
+    font-size: 12px;
+    line-height: 1.7;
+}
+
+.mdn-legend-table {
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.mdn-legend-table td {
+    padding: 1px 0;
+    vertical-align: baseline;
+}
+
+.mdn-legend-table td:first-child {
+    font-weight: 700;
+    white-space: nowrap;
+    padding-right: 12px;
+}
+
+@media (max-width: 900px) {
+    .mdn-div-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* --- Loading spinner (accent-colored, used inside .mdn-page) --- */
+.mdn-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--mdn-divider-strong);
+    border-top-color: var(--mdn-accent-500);
+    border-radius: 50%;
+    animation: mdn-spin 0.7s linear infinite;
+}
+
+/* Larger variant for the full-page loading overlay */
+.mdn-spinner-lg {
+    width: 32px;
+    height: 32px;
+    border-width: 3px;
+}
+
+@keyframes mdn-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* --- Full-page loading overlay (App.showLoading) --- */
+.mdn-loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(51, 47, 45, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1055;
+}
+
+/* --- Global notification alerts (App.showError / App.showInfo) --- */
+.mdn-alert {
+    position: relative;
+    padding: 12px 44px 12px 16px;
+    margin: 0;
+    font: 400 13px var(--mdn-font-body);
+    line-height: 1.5;
+    border-left: 3px solid;
+    background: #fff;
+    box-shadow: var(--mdn-shadow-sm);
+}
+
+.mdn-alert-danger {
+    border-left-color: var(--mdn-accent-500);
+    background: var(--mdn-accent-100);
+    color: var(--mdn-accent-900);
+}
+
+.mdn-alert-info {
+    border-left-color: var(--mdn-neutral-500);
+    background: var(--mdn-neutral-100);
+    color: var(--mdn-text);
+}
+
+.mdn-alert-close {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 26px;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    cursor: pointer;
+    color: currentColor;
+    opacity: 0.6;
+}
+
+.mdn-alert-close:hover {
+    opacity: 1;
+}
+
+/* --- Utilities --- */
+.mdn-hidden {
+    display: none;
+}
+
+.mdn-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* --- Page container (replaces Bootstrap's .container-xl + .py-4) --- */
+.mdn-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding-left: 32px;
+    padding-right: 32px;
+    box-sizing: border-box;
+}
+
+.mdn-main {
+    padding-top: 24px;
+    padding-bottom: 24px;
+}
+
 @media (min-width: 1600px) {
-    .container-xl {
+    .mdn-container {
         max-width: 1600px;
     }
+}
+
+/* --- Dialog (Solver Timing History) --- */
+.mdn-dialog-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(51, 47, 45, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 20px;
+}
+
+.mdn-dialog {
+    background: #fff;
+    width: 760px;
+    max-width: 92%;
+    max-height: 88vh;
+    box-shadow: var(--mdn-shadow-lg);
+    font-family: var(--mdn-font-body);
+    color: var(--mdn-text);
+    overflow-y: auto;
+}
+
+.mdn-dialog-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 26px 28px 0;
+}
+
+.mdn-dialog-title {
+    font: 800 20px var(--mdn-font-heading);
+}
+
+.mdn-dialog-body {
+    padding: 12px 28px 0;
+}
+
+.mdn-dialog-body p {
+    margin: 0 0 18px;
+    font-size: 14px;
+    opacity: 0.85;
+}
+
+.mdn-dialog-stat-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+    padding-bottom: 14px;
+    border-bottom: 2px solid var(--mdn-divider-strong);
+}
+
+.mdn-dialog-scroll {
+    padding: 0 28px;
+    max-height: 340px;
+    overflow-y: auto;
+}
+
+.mdn-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding: 18px 28px 26px;
+}
+
+.mdn-btn-icon {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+}
+
+.mdn-btn-ghost {
+    background: transparent;
+    color: var(--mdn-text);
+    border-color: transparent;
+}
+
+.mdn-btn-ghost:hover:not(:disabled) {
+    background: var(--mdn-neutral-100);
 }
