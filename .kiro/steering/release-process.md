@@ -36,8 +36,10 @@ After making the changes, suggest:
 git add pyproject.toml uv.lock README.md CHANGELOG.md <other changed files>
 git commit -m "Release 0.x.y: short description"
 git push -u origin <current-branch>
-gh pr create --title "Short release title" --body ""
+gh pr create --title "v0.x.y" --body ""
 ```
+
+The PR title becomes the GitHub Release name verbatim (see Notes below), so it must follow the existing release-naming convention: bare `vX.Y.Z`, optionally with a short suffix (` - `, ` — `, or `: ` + a few words), e.g. `v0.7.3 - Solver performance export` or `v0.7.1: Adaptive Solver Timing`. Never prefix it with the word "Release".
 
 ## Notes
 
