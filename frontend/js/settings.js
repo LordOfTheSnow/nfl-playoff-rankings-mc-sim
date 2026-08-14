@@ -156,7 +156,6 @@ async function _handleResetCounters() {
 function _buildDatabaseCard(data) {
   const db = data.database || {};
   const seasons = db.seasons || [];
-  const expectedTotal = db.expected_games_per_season || 272;
 
   const card = document.createElement("div");
   card.className = "mdn-card";
@@ -186,17 +185,19 @@ function _buildDatabaseCard(data) {
     "</tr></thead><tbody>";
 
   seasons.forEach(function (season) {
-    const pct = expectedTotal > 0
-      ? Math.round(((season.completed_games || 0) / expectedTotal) * 100)
+    const expectedGames = season.expected_games;
+    const seasonWeeks = season.season_weeks;
+    const pct = expectedGames
+      ? Math.round(((season.completed_games || 0) / expectedGames) * 100)
       : 0;
     const lastFetched = season.last_fetch_time
       ? new Date(season.last_fetch_time).toLocaleString()
       : "—";
     html += "<tr>" +
       "<td>" + season.year + "</td>" +
-      '<td class="mdn-num">' + season.games_cached + " / " + expectedTotal + "</td>" +
-      '<td class="mdn-num">' + season.completed_games + " / " + expectedTotal + "</td>" +
-      '<td class="mdn-num">' + season.weeks_with_data + " / 18</td>" +
+      '<td class="mdn-num">' + season.games_cached + " / " + (expectedGames ?? "—") + "</td>" +
+      '<td class="mdn-num">' + season.completed_games + " / " + (expectedGames ?? "—") + "</td>" +
+      '<td class="mdn-num">' + season.weeks_with_data + " / " + (seasonWeeks ?? "—") + "</td>" +
       '<td class="mdn-num">' + pct + "%</td>" +
       "<td>" + _escapeHtml(lastFetched) + "</td>" +
       "</tr>";

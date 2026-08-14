@@ -276,14 +276,14 @@ function _buildSimulationHeaderCard(status) {
     _infoIcon("Games up to and including this week use real results. Games after this week are simulated. Synced with the Standings page.") +
     '</label>' +
     '<select class="mdn-input" id="sim-cutoff-sim"><option value="">Auto</option>';
-  for (let w = 1; w <= 18; w++) {
+  for (let w = 1; w <= (status.season_weeks || 18); w++) {
     html += '<option value="' + w + '"' + (savedCutoffLS == w ? ' selected' : '') + '>Week ' + w + '</option>';
   }
   html += '</select></div>';
 
   html += '<div class="mdn-field" style="width:92px">' +
     '<label for="sim-noise-sim">Noise' +
-    _infoIcon("Per-game strength noise: adds random variance to each simulated game outcome, modeling the unpredictability of real NFL games.") +
+    _infoIcon("Per-game strength noise: adds random variance to each simulated game outcome, modeling the unpredictability of real NFL games ('Any given Sunday').") +
     '</label>' +
     '<input type="range" class="mdn-input" id="sim-noise-sim" min="0" max="100" value="' + savedNoise + '">' +
     '<div class="mdn-hint" id="sim-noise-label-sim">' + noiseVal + ' — ' + noiseLabel + '</div></div>';
@@ -344,7 +344,7 @@ function _wireSimulationHeaderCard(status) {
 
   function updateTotal() {
     const iters = parseInt(iterInput.value, 10) || 10000;
-    const cutoff = cutoffSel.value ? parseInt(cutoffSel.value, 10) : 18;
+    const cutoff = cutoffSel.value ? parseInt(cutoffSel.value, 10) : ((status && status.season_weeks) || 18);
     let gamesToSim = 0;
     for (const [wk, cnt] of Object.entries(gamesPerWeek)) {
       if (parseInt(wk, 10) > cutoff) gamesToSim += cnt;
@@ -958,7 +958,7 @@ function _showTeamDetail(teamName, results) {
       if (!est.available) {
         clinchBtn.disabled = true;
         clinchBtn.title = est.reason || "Not available";
-        estEl.textContent = est.reason || "Not available before week 14";
+        estEl.textContent = est.reason || "Not available";
       } else {
         relevantGames = est.relevant_games;
         teamRecordCombos = est.team_record_combos || 1;

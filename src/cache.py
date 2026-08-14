@@ -15,6 +15,8 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from typing import Any, TYPE_CHECKING
 
+from src.nfl_teams import expected_total_games
+
 if TYPE_CHECKING:
     from src.cp_solver import CPSolverResult
     from src.data_client import Game
@@ -457,9 +459,15 @@ class Cache:
     def get_seasons_summary(self) -> list[dict[str, Any]]:
         """Return per-season data completeness, most recent season first.
 
+        `season_weeks`/`expected_games` are derived per season from the
+        highest cached week number for that season (see
+        `src.server._derive_season_weeks`), not a single shared constant —
+        different cached seasons can have different real lengths (16g/17w
+        pre-2021 vs. 17g/18w from 2021 on).
+
         Returns:
             List of dicts with keys: year, games_cached, completed_games,
-            weeks_with_data, last_fetch_time.
+            weeks_with_data, season_weeks, expected_games, last_fetch_time.
         """
         years = [
             row["year"]
@@ -478,16 +486,21 @@ class Cache:
                 (year,),
             ).fetchone()
             weeks_row = self._conn.execute(
-                "SELECT COUNT(DISTINCT week) as cnt FROM games WHERE year = ?", (year,)
+                "SELECT COUNT(DISTINCT week) as cnt, MAX(week) as max_week "
+                "FROM games WHERE year = ?",
+                (year,),
             ).fetchone()
             last_fetch_row = self._conn.execute(
                 "SELECT MAX(fetched_at) as last_fetch FROM games WHERE year = ?", (year,)
             ).fetchone()
+            season_weeks = weeks_row["max_week"] if weeks_row else None
             summary.append({
                 "year": year,
                 "games_cached": total_row["cnt"] if total_row else 0,
                 "completed_games": completed_row["cnt"] if completed_row else 0,
                 "weeks_with_data": weeks_row["cnt"] if weeks_row else 0,
+                "season_weeks": season_weeks,
+                "expected_games": expected_total_games(season_weeks),
                 "last_fetch_time": last_fetch_row["last_fetch"] if last_fetch_row else None,
             })
         return summary

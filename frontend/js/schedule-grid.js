@@ -2,7 +2,8 @@
  * Schedule Grid view for the NFL Monte Carlo Playoff Simulator.
  *
  * "Ledger" design (Modernist system): league-wide schedule grid with all 32
- * teams as rows and weeks 1–18 as columns, reusing the same `.mdn-led-table`
+ * teams as rows and the season's weeks as columns (1–18, or 1–17 for a
+ * pre-2021 season), reusing the same `.mdn-led-table`
  * component as Standings/Team Detail/Results/Statistics — see
  * design_handoff_standings_redesign/ for the design system this view now
  * matches (the handoff itself scoped Schedule Grid out as "close enough";
@@ -43,6 +44,7 @@ function renderGrid(contentEl, data) {
   contentEl.innerHTML = "";
 
   const teams = data.teams || [];
+  const seasonWeeks = data.season_weeks || (teams[0] && teams[0].weeks && teams[0].weeks.length) || 18;
 
   // Reverse lookup (abbreviation -> full team name), used to link each
   // opponent cell to that opponent's own Team Detail page — the row's own
@@ -65,7 +67,7 @@ function renderGrid(contentEl, data) {
   const subtitle = document.createElement("p");
   subtitle.className = "mdn-hint";
   subtitle.style.margin = "0 0 20px";
-  subtitle.textContent = "All 32 teams · weeks 1–18";
+  subtitle.textContent = "All 32 teams · weeks 1–" + seasonWeeks;
   root.appendChild(subtitle);
 
   // Sort teams alphabetically by abbreviation
@@ -92,7 +94,7 @@ function renderGrid(contentEl, data) {
   teamTh.textContent = "TEAM";
   headerRow.appendChild(teamTh);
 
-  for (let week = 1; week <= 18; week++) {
+  for (let week = 1; week <= seasonWeeks; week++) {
     const th = document.createElement("th");
     th.setAttribute("scope", "col");
     th.textContent = String(week);
@@ -137,7 +139,7 @@ function renderGrid(contentEl, data) {
 
     // Week cells
     const weeks = entry.weeks || [];
-    for (let w = 0; w < 18; w++) {
+    for (let w = 0; w < seasonWeeks; w++) {
       const weekEntry = weeks[w] || null;
       const cell = document.createElement("td");
 
