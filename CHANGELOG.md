@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-08-14
+
+### Fixed
+- Pre-2021 seasons (16 games/17 weeks) were assumed to be 17 games/18 weeks throughout: `expected_total`/`expected_games_per_season` (`GET /api/status`, `GET /api/system-info`), the Cutoff Week dropdowns (`standings.js`, `simulation.js`), and the Schedule Grid's column layout (`_build_schedule_grid`, `schedule-grid.js`) all hardcoded the modern season shape instead of deriving it from the loaded schedule — a fully-loaded, fully-completed 2020 season showed "17 / 18 weeks loaded", "256 / 272 games (94%)", and a false league-wide "BYE" column for the nonexistent week 18. Also affected several `cutoff_week` validation bounds (`POST /api/simulate`, `GET /api/cp-clinch`, `GET /api/cp-clinch-all`, `POST /api/clinching-scenarios`, `GET /api/standings`, and the CP solver's own `solve_clinch`), which silently accepted an out-of-range `cutoff_week` like 18 for a 17-week season, and the Settings page's per-season completeness table (`GET /api/system-info`'s `database.seasons`), which applied one global expected-games constant across every cached season regardless of each one's real shape. Fixed by deriving season length from the highest week number present in the cached schedule (`derive_season_weeks`) rather than a hardcoded or year-keyed constant — self-correcting for any future season-length change, since ESPN's schedule fetch already returns the full season's game "hull" (including future scheduled games) on first fetch
+- Clinching scenarios' "only available after week 14" gate (`POST /api/clinching-scenarios`, `GET /api/clinch-estimate`, `compute_clinching_scenarios`) was a fixed absolute week rather than "N weeks remaining before the season ends" — for a pre-2021 17-week season, this incorrectly blocked clinching scenarios through week 13 (which should already be available) and left a nonsensical week-18 upper bound. Now expressed as `season_weeks - MIN_WEEKS_REMAINING_FOR_CLINCHING` (`min_cutoff_week_for_clinching`), gating at week 13 for a 17-week season and scaling automatically if the NFL ever changes season length again
+
 ## [1.0.1] - 2026-08-13
 
 ### Fixed
@@ -386,7 +392,8 @@ Full "Modernist" redesign of every page (flat red-on-white style, Bootstrap remo
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.4...v1.0.0
 [0.7.4]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v0.7.3...v0.7.4

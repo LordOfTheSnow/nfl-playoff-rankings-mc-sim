@@ -15,7 +15,10 @@ Algorithm (hybrid):
 6. Reduce to strictly minimal condition sets (capped at 200 universes)
 7. Sort by fewest conditions first
 
-Available after week 14 only (hard gate).
+Available once MIN_WEEKS_REMAINING_FOR_CLINCHING weeks remain before the
+season ends (hard gate) — week 14 for the modern 18-week season, but this
+scales with actual season length (e.g. week 13 for a pre-2021 17-week
+season) rather than a fixed absolute week.
 
 IMPORTANT: All functions use cutoff_week purely by week number. Games in
 weeks <= cutoff are "fixed" (their results count). Games in weeks > cutoff
@@ -35,7 +38,7 @@ from dataclasses import dataclass, field
 from multiprocessing import Pool
 from typing import Any, TYPE_CHECKING
 
-from src.data_client import Game, GameStatus
+from src.data_client import Game, GameStatus, derive_season_weeks
 from src.nfl_teams import NFL_TEAMS, get_team_conference
 from src.simulator import SimulationConfig, _simulate_game_standalone
 from src.standings import compute_standings, determine_playoff_bracket
@@ -62,6 +65,18 @@ MAX_QUALIFYING_FOR_MINIMALITY = 200
 # Monte Carlo simulator's values.
 TIE_PROBABILITY = SimulationConfig.tie_probability
 SAMPLING_NOISE = SimulationConfig.noise
+
+# Clinching scenarios need few enough remaining weeks to be tractable — the
+# gate is expressed as "weeks remaining before the season ends", not an
+# absolute week number, so it holds regardless of season length (14 for the
+# modern 18-week season, 13 for a pre-2021 17-week season, etc.).
+MIN_WEEKS_REMAINING_FOR_CLINCHING = 4
+
+
+def min_cutoff_week_for_clinching(season_weeks: int) -> int:
+    """Earliest cutoff_week at which clinching scenarios become available
+    for a season of this length — see MIN_WEEKS_REMAINING_FOR_CLINCHING."""
+    return season_weeks - MIN_WEEKS_REMAINING_FOR_CLINCHING
 
 
 @dataclass
@@ -837,10 +852,11 @@ def compute_clinching_scenarios(
     """
     sampling_noise = noise if noise is not None else SAMPLING_NOISE
     sampling_tie_probability = tie_probability if tie_probability is not None else TIE_PROBABILITY
-    if cutoff_week < 14:
+    min_cutoff = min_cutoff_week_for_clinching(derive_season_weeks(all_games) or 18)
+    if cutoff_week < min_cutoff:
         return ClinchingResult(
             team=team,
-            error="Clinching scenarios are only available after week 14.",
+            error=f"Clinching scenarios are only available after week {min_cutoff}.",
         )
 
     team_conf = get_team_conference(team)
@@ -1128,11 +1144,12 @@ def estimate_clinching(
         Dict with keys: team, relevant_games, team_games, method,
         estimated_seconds, available (bool), reason (if not available).
     """
-    if cutoff_week < 14:
+    min_cutoff = min_cutoff_week_for_clinching(derive_season_weeks(all_games) or 18)
+    if cutoff_week < min_cutoff:
         return {
             "team": team,
             "available": False,
-            "reason": "Clinching scenarios are only available after week 14.",
+            "reason": f"Clinching scenarios are only available after week {min_cutoff}.",
         }
 
     team_conf = get_team_conference(team)

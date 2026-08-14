@@ -110,7 +110,10 @@ def server_with_cache():
 def server_with_games(server_with_cache):
     """Create a server with cached game data."""
     server = server_with_cache
-    # Create a mix of completed and scheduled games
+    # Create a mix of completed and scheduled games. Includes a week-18
+    # placeholder (as a real fetch would cache the full season's scheduled
+    # "hull" up front) so the endpoint's derived season_weeks is 18, not
+    # just the latest week with real results — see derive_season_weeks.
     games = [
         _make_completed_game("g1", 1, "Bills", "Jets", 24, 10),
         _make_completed_game("g2", 1, "Dolphins", "Patriots", 20, 17),
@@ -118,6 +121,7 @@ def server_with_games(server_with_cache):
         _make_completed_game("g4", 2, "Jets", "Patriots", 14, 13),
         _make_scheduled_game("g5", 3, "Bills", "Patriots"),
         _make_scheduled_game("g6", 3, "Dolphins", "Jets"),
+        _make_scheduled_game("g7", 18, "Bills", "Jets"),
     ]
     server.cache.store_games(games, 2024)
     return server

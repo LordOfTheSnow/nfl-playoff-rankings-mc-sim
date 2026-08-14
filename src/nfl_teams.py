@@ -4,6 +4,18 @@ Maps conferences (AFC, NFC) to divisions (East, North, South, West) to lists
 of team abbreviations. Contains all 32 NFL teams.
 """
 
+
+def expected_total_games(season_weeks: int | None) -> int | None:
+    """Total regular-season games across the league for a given season length.
+
+    Every team gets exactly one bye regardless of era, so
+    games_per_team == season_weeks - 1 for both the pre-2021 16-game and the
+    modern 17-game format; 32 teams share each game, hence the factor of 16.
+    """
+    if season_weeks is None:
+        return None
+    return 16 * (season_weeks - 1)
+
 NFL_TEAMS: dict[str, dict[str, list[str]]] = {
     "AFC": {
         "East": ["Bills", "Dolphins", "Patriots", "Jets"],

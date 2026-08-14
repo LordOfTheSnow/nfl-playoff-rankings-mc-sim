@@ -26,8 +26,8 @@ from urllib.parse import unquote
 
 from src.cache import Cache
 from src.cp_solver import ORTOOLS_AVAILABLE, CPSolverConfig, solve_clinch, solve_clinch_all
-from src.data_client import DataClient, FetchResult, Game, GameStatus
-from src.nfl_teams import ALL_TEAMS, get_team_abbreviation, get_team_conference
+from src.data_client import DataClient, FetchResult, Game, GameStatus, derive_season_weeks
+from src.nfl_teams import ALL_TEAMS, expected_total_games, get_team_abbreviation, get_team_conference
 from src.simulator import (
     SimulationConfig,
     Simulator,
@@ -157,8 +157,9 @@ def _build_schedule_grid(games: list[Game], all_teams: list[str]) -> list[dict[s
         List of 32 team entries, each containing:
         - team: full team name (e.g., "Bills")
         - abbreviation: short ID (e.g., "BUF")
-        - weeks: list of 18 entries (index 0 = week 1), each null for a true
-          bye (no game scheduled that week) or:
+        - weeks: list of `season_weeks` entries (index 0 = week 1, see
+          `derive_season_weeks`), each null for a true bye (no game
+          scheduled that week) or:
           - opponent: abbreviation of opponent
           - home: boolean (true = home game)
           - status: "scheduled" | "in-progress" | "completed" | "postponed" | "cancelled"
@@ -181,20 +182,25 @@ def _build_schedule_grid(games: list[Game], all_teams: list[str]) -> list[dict[s
     # Statuses that carry a meaningful score
     _SCORED_STATUSES = {GameStatus.COMPLETED, GameStatus.IN_PROGRESS}
 
-    # Initialize 32 team entries with 18-element weeks arrays (all null)
+    # Season length derived from the schedule itself (falls back to 18, the
+    # modern max, only when games is empty — callers normally guard against
+    # that upstream, e.g. _handle_get_schedule_grid's 404).
+    season_weeks = derive_season_weeks(games) or 18
+
+    # Initialize 32 team entries with season_weeks-element weeks arrays (all null)
     grid: dict[str, dict[str, Any]] = {}
     for team in all_teams:
         abbr = get_team_abbreviation(team)
         grid[team] = {
             "team": team,
             "abbreviation": abbr,
-            "weeks": [None] * 18,
+            "weeks": [None] * season_weeks,
         }
 
     # Populate grid from games
     for game in games:
-        # Validate week is in range 1-18
-        if game.week < 1 or game.week > 18:
+        # Validate week is in range 1-season_weeks
+        if game.week < 1 or game.week > season_weeks:
             continue
 
         week_index = game.week - 1
@@ -382,9 +388,12 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 if completed_per_week.get(w, 0) == total_per_week[w]
             )
 
-            # Total expected games in a full NFL season: 272 (16 games per week × 17 weeks, but actually varies)
-            # Use 272 as the standard regular season total
-            expected_total = 272
+            # Season length and total expected games, derived from the cached
+            # schedule itself (None until data has been fetched — see
+            # derive_season_weeks) so this stays correct for pre-2021
+            # (16g/17w) seasons without a hardcoded rule.
+            season_weeks = derive_season_weeks(games)
+            expected_total = expected_total_games(season_weeks)
 
             # Default tie probability the frontend should seed its slider
             # with (empirical estimate if enough data exists, else the
@@ -406,6 +415,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 "scheduled": scheduled,
                 "total_games": total,
                 "expected_total": expected_total,
+                "season_weeks": season_weeks,
                 "weeks_fetched": len(weeks_with_games),
                 "weeks_completed": weeks_completed,
                 "weeks_with_games": weeks_with_games,
@@ -509,6 +519,16 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             })
             return
 
+        # Check game data exists (before cutoff_week validation, since the
+        # valid cutoff_week range is derived from the loaded schedule)
+        games = server.cache.get_games(server.season_year)
+        if not games:
+            self._send_json_response(409, {
+                "error": "No game data available. Fetch data first using POST /api/fetch-data",
+            })
+            return
+        season_weeks = derive_season_weeks(games)
+
         # Parse optional cutoff_week
         cutoff_week: int | None = None
         cutoff_list = params.get("cutoff_week", [])
@@ -518,13 +538,13 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             except (ValueError, TypeError):
                 self._send_json_response(400, {
                     "error": "Invalid cutoff_week parameter",
-                    "details": "cutoff_week must be an integer between 1 and 18",
+                    "details": f"cutoff_week must be an integer between 1 and {season_weeks}",
                 })
                 return
-            if cutoff_week < 1 or cutoff_week > 18:
+            if cutoff_week < 1 or cutoff_week > season_weeks:
                 self._send_json_response(400, {
                     "error": "Invalid cutoff_week parameter",
-                    "details": "cutoff_week must be an integer between 1 and 18",
+                    "details": f"cutoff_week must be an integer between 1 and {season_weeks}",
                 })
                 return
 
@@ -551,14 +571,6 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
         if not ORTOOLS_AVAILABLE:
             self._send_json_response(503, {
                 "error": "OR-Tools is required for CP solver. Install with: pip install ortools>=9.9",
-            })
-            return
-
-        # Check game data exists
-        games = server.cache.get_games(server.season_year)
-        if not games:
-            self._send_json_response(409, {
-                "error": "No game data available. Fetch data first using POST /api/fetch-data",
             })
             return
 
@@ -638,6 +650,16 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
         parsed = urlparse(path)
         params = parse_qs(parsed.query)
 
+        # Check game data exists (before cutoff_week validation, since the
+        # valid cutoff_week range is derived from the loaded schedule)
+        games = server.cache.get_games(server.season_year)
+        if not games:
+            self._send_json_response(409, {
+                "error": "No game data available. Fetch data first using POST /api/fetch-data",
+            })
+            return
+        season_weeks = derive_season_weeks(games)
+
         # Parse optional cutoff_week
         cutoff_week: int | None = None
         cutoff_list = params.get("cutoff_week", [])
@@ -647,13 +669,13 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             except (ValueError, TypeError):
                 self._send_json_response(400, {
                     "error": "Invalid cutoff_week parameter",
-                    "details": "cutoff_week must be an integer between 1 and 18",
+                    "details": f"cutoff_week must be an integer between 1 and {season_weeks}",
                 })
                 return
-            if cutoff_week < 1 or cutoff_week > 18:
+            if cutoff_week < 1 or cutoff_week > season_weeks:
                 self._send_json_response(400, {
                     "error": "Invalid cutoff_week parameter",
-                    "details": "cutoff_week must be an integer between 1 and 18",
+                    "details": f"cutoff_week must be an integer between 1 and {season_weeks}",
                 })
                 return
 
@@ -680,14 +702,6 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
         if not ORTOOLS_AVAILABLE:
             self._send_json_response(503, {
                 "error": "OR-Tools is required for CP solver. Install with: pip install ortools>=9.9",
-            })
-            return
-
-        # Check game data exists
-        games = server.cache.get_games(server.season_year)
-        if not games:
-            self._send_json_response(409, {
-                "error": "No game data available. Fetch data first using POST /api/fetch-data",
             })
             return
 
@@ -889,7 +903,6 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 "database": {
                     "path": db_path,
                     "size_bytes": db_size_bytes,
-                    "expected_games_per_season": 272,
                     "seasons": server.cache.get_seasons_summary(),
                     "recent_fetches": server.cache.get_fetch_log(limit=20),
                 },
@@ -961,16 +974,19 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                     completed_weeks.add(w)
             cutoff_week = max(completed_weeks) if completed_weeks else 0
 
-        if not isinstance(cutoff_week, int) or cutoff_week < 14 or cutoff_week > 18:
+        from src.clinching import compute_clinching_scenarios, min_cutoff_week_for_clinching
+
+        season_weeks = derive_season_weeks(games)
+        min_cutoff = min_cutoff_week_for_clinching(season_weeks)
+        if not isinstance(cutoff_week, int) or cutoff_week < min_cutoff or cutoff_week > season_weeks:
             self._send_error_response(
                 400,
-                "Clinching scenarios are only available after week 14.",
-                f"cutoff_week must be 14-18, got: {cutoff_week}",
+                f"Clinching scenarios are only available after week {min_cutoff}.",
+                f"cutoff_week must be {min_cutoff}-{season_weeks}, got: {cutoff_week}",
             )
             return
 
         try:
-            from src.clinching import compute_clinching_scenarios
             enum_threshold = body.get("enumeration_threshold")
             if enum_threshold is not None:
                 enum_threshold = int(enum_threshold)
@@ -1167,13 +1183,25 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        # Check if cached data exists (before cutoff_week validation, since
+        # the valid cutoff_week range is derived from the loaded schedule)
+        games = server.cache.get_games(server.season_year)
+        if not games:
+            self._send_error_response(
+                409,
+                "No cached data available",
+                "Data must be fetched first using POST /api/fetch-data",
+            )
+            return
+        season_weeks = derive_season_weeks(games)
+
         # Validate cutoff_week
         if cutoff_week is not None:
-            if not isinstance(cutoff_week, int) or cutoff_week < 1 or cutoff_week > 18:
+            if not isinstance(cutoff_week, int) or cutoff_week < 1 or cutoff_week > season_weeks:
                 self._send_error_response(
                     400,
                     "Invalid cutoff_week parameter",
-                    "cutoff_week must be an integer between 1 and 18",
+                    f"cutoff_week must be an integer between 1 and {season_weeks}",
                 )
                 return
 
@@ -1205,16 +1233,6 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                     "tie_probability must be a number between 0.0 and 1.0",
                 )
                 return
-
-        # Check if cached data exists
-        games = server.cache.get_games(server.season_year)
-        if not games:
-            self._send_error_response(
-                409,
-                "No cached data available",
-                "Data must be fetched first using POST /api/fetch-data",
-            )
-            return
 
         # Resolve effective tie probability: explicit override, else the
         # empirical estimate (persisted prior-seasons pool + this season's
@@ -1271,14 +1289,25 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
         """Handle GET /api/standings — compute and return current standings.
 
         Accepts optional query parameter:
-            cutoff_week (int, 1-18): Only include games from weeks <= cutoff_week.
-                If omitted, all games are included.
+            cutoff_week (int): Only include games from weeks <= cutoff_week,
+                within the loaded season's actual week range. If omitted or
+                out of range, all games are included.
         """
         from urllib.parse import urlparse, parse_qs
 
         server: NFLSimulatorServer = self.server  # type: ignore[assignment]
 
         try:
+            games = server.cache.get_games(server.season_year)
+            if not games:
+                self._send_error_response(
+                    409,
+                    "No cached data available",
+                    "Data must be fetched first using POST /api/fetch-data",
+                )
+                return
+            season_weeks = derive_season_weeks(games)
+
             # Parse optional cutoff_week query param
             parsed = urlparse(path)
             params = parse_qs(parsed.query)
@@ -1290,17 +1319,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 except (ValueError, TypeError):
                     pass
                 else:
-                    if cutoff_week < 1 or cutoff_week > 18:
+                    if cutoff_week < 1 or cutoff_week > season_weeks:
                         cutoff_week = None
-
-            games = server.cache.get_games(server.season_year)
-            if not games:
-                self._send_error_response(
-                    409,
-                    "No cached data available",
-                    "Data must be fetched first using POST /api/fetch-data",
-                )
-                return
 
             # Filter games to cutoff_week if provided
             if cutoff_week is not None:
@@ -1579,7 +1599,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 return
 
             grid = _build_schedule_grid(games, list(ALL_TEAMS))
-            self._send_json_response(200, {"teams": grid})
+            season_weeks = derive_season_weeks(games)
+            self._send_json_response(200, {"teams": grid, "season_weeks": season_weeks})
         except Exception as e:
             logger.exception("Error building schedule grid")
             self._send_error_response(500, "Internal server error", str(e))

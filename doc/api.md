@@ -23,6 +23,7 @@ Returns the current cache status.
   "scheduled": 32,
   "total_games": 272,
   "expected_total": 272,
+  "season_weeks": 18,
   "weeks_fetched": 18,
   "weeks_completed": 15,
   "weeks_with_games": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
@@ -31,6 +32,8 @@ Returns the current cache status.
   "default_tie_probability": 0.0043
 }
 ```
+
+`season_weeks` and `expected_total` are derived from the loaded schedule's highest cached week number, not a hardcoded constant — pre-2021 seasons (16 games/17 weeks) report `season_weeks: 17`/`expected_total: 256` rather than the modern 18/272. Both are `null` if no data has been fetched yet for the active season (the shape genuinely can't be known before then).
 
 `default_tie_probability` is the tie probability `/api/simulate`/`/api/clinching-scenarios` would use if the request omits `tie_probability` — an empirical estimate (ties ÷ games pooled across every complete prior season plus the active season's own completed games through its auto-detected cutoff) once at least 2 complete prior seasons are cached, otherwise the hardcoded 0.005 default. The frontend seeds the Tie Probability slider from this value. See "Tie probability estimation" under [Algorithms](algorithms.md).
 
@@ -83,7 +86,7 @@ Computes and returns current standings grouped by conference and division, inclu
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `cutoff_week` | int (1-18) | all weeks | Only include games from weeks <= this value |
+| `cutoff_week` | int (within the loaded season's week range) | all weeks | Only include games from weeks <= this value. Out of range is treated as omitted. |
 
 **Response:**
 
@@ -131,12 +134,13 @@ Computes and returns current standings grouped by conference and division, inclu
 
 ### `GET /api/schedule-grid`
 
-Returns the league-wide schedule grid: all 32 teams with their 18-week matchup arrays.
+Returns the league-wide schedule grid: all 32 teams with their season-length matchup arrays.
 
 **Response:**
 
 ```json
 {
+  "season_weeks": 18,
   "teams": [
     {
       "team": "Bills",
@@ -163,7 +167,7 @@ Returns the league-wide schedule grid: all 32 teams with their 18-week matchup a
 }
 ```
 
-Week entries are `null` only for a true bye (no game scheduled that week). Status values: `"scheduled"`, `"in-progress"`, `"completed"`, `"postponed"`, `"cancelled"` — a postponed/cancelled game still gets its own week entry (not collapsed into `null`) so it isn't mistaken for a second bye; `team_score`/`opponent_score` are always `null` for those two statuses. Example: the 2022 season's Week 17 Bills @ Bengals game, suspended after Damar Hamlin's on-field collapse and never resumed, is reported by ESPN as `STATUS_CANCELED` and appears here with `"status": "cancelled"`.
+`season_weeks` and each team's `weeks` array length are derived from the loaded schedule (17 for a pre-2021 season, 18 for 2021+). Week entries are `null` only for a true bye (no game scheduled that week). Status values: `"scheduled"`, `"in-progress"`, `"completed"`, `"postponed"`, `"cancelled"` — a postponed/cancelled game still gets its own week entry (not collapsed into `null`) so it isn't mistaken for a second bye; `team_score`/`opponent_score` are always `null` for those two statuses. Example: the 2022 season's Week 17 Bills @ Bengals game, suspended after Damar Hamlin's on-field collapse and never resumed, is reported by ESPN as `STATUS_CANCELED` and appears here with `"status": "cancelled"`.
 
 ---
 
@@ -270,7 +274,7 @@ Runs a Monte Carlo simulation with the given parameters.
 | Field | Type | Default | Constraints |
 |---|---|---|---|
 | `iterations` | int | 10000 | 100 - 1,000,000 |
-| `cutoff_week` | int | auto | 1 - 18 |
+| `cutoff_week` | int | auto | 1 - the loaded season's last week (17 pre-2021, 18 from 2021 on) |
 | `noise` | float | 0.34 | 0.0 - 1.0 |
 | `tie_probability` | float | empirical estimate, or 0.005 | 0.0 - 1.0; per-game tie probability. When omitted, resolved from historical data — see `default_tie_probability` on `GET /api/status` above and "Tie probability estimation" in [Algorithms](algorithms.md). |
 | `num_workers` | int | CPU count | >= 1 |
@@ -323,7 +327,7 @@ CP-SAT solver: determines whether a team has mathematically clinched or been eli
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `cutoff_week` | int (1-18) | auto | Evaluate standings at this week |
+| `cutoff_week` | int (within the loaded season's week range) | auto | Evaluate standings at this week |
 | `time_limit` | int | 30 | Solver time limit in seconds |
 
 **Response:**
@@ -359,7 +363,7 @@ Runs the CP solver for all 32 teams, grouped by conference.
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `cutoff_week` | int (1-18) | auto | Evaluate standings at this week |
+| `cutoff_week` | int (within the loaded season's week range) | auto | Evaluate standings at this week |
 
 **Response:**
 
@@ -391,14 +395,14 @@ Runs the CP solver for all 32 teams, grouped by conference.
 
 ### `GET /api/clinch-estimate`
 
-Preflight estimate for clinching scenarios — returns the problem size without running the full solver. Used for progress indicators.
+Preflight estimate for clinching scenarios — returns the problem size without running the full solver. Used for progress indicators. Subject to the same "4 weeks remaining" gate as `POST /api/clinching-scenarios` below — before that, returns `{"team": ..., "available": false, "reason": "..."}` instead of an estimate.
 
 **Query parameters:**
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `team` | string | yes | Team name (e.g., `Bills`) |
-| `cutoff_week` | int (1-18) | no | Defaults to latest completed week |
+| `cutoff_week` | int | no | Defaults to latest completed week |
 
 **Response:**
 
@@ -437,7 +441,7 @@ Computes all minimal game-outcome sets that guarantee a team a playoff spot.
 | Field | Type | Default | Constraints |
 |---|---|---|---|
 | `team` | string | — | Required, valid team name |
-| `cutoff_week` | int | auto | 14 - 18 (not available before week 14) |
+| `cutoff_week` | int | auto | Available once 4 weeks remain before the season ends (week 14 for an 18-week season, week 13 for a 17-week one) through the loaded season's last week |
 | `num_workers` | int | auto | 1 - CPU count |
 | `enumeration_threshold` | int | 13 | 1 - 18; games above this use sampling |
 | `num_samples` | int | 10000 | 100 - 100,000 |
@@ -543,6 +547,8 @@ Returns SQLite cache database metadata (which seasons are stored and how complet
 
 `lifetime_counters` are persisted in the `run_counters` table: `games_simulated_total` sums the individual game outcomes rolled across every successful `POST /api/simulate` call against this database (`iterations_run × simulated_games_count` per call); `clinching_resolver_evals_total` sums `total_evals` (the number of game-outcome universes evaluated) of every successful `POST /api/clinching-scenarios` call. Both can be zeroed via `POST /api/reset-counters`.
 
+`database.seasons[].season_weeks`/`expected_games` are derived per season from that season's own cached schedule (see `GET /api/status` above) — a pre-2021 season cached alongside a modern one reports its own 17/256 rather than sharing a single global 18/272.
+
 `database.recent_fetches` is the 20 most recent rows from the `fetch_log` table (one row per week per fetch attempt), most recent first. `success: false` rows are ESPN fetches that failed (timeout, HTTP error, network error, or a schema error) — `games_count` is 0 for those.
 
 `runtime.simulation_mp_method` and `runtime.clinching_resolver_mp_method` can differ: simulation always uses a fixed context (`fork` on Unix, `spawn` on Windows), while the clinching resolver uses Python's platform-default multiprocessing start method, which varies by Python version (e.g. `forkserver` became the Linux default starting in Python 3.14).
@@ -556,13 +562,14 @@ Returns SQLite cache database metadata (which seasons are stored and how complet
   "database": {
     "path": "nfl_cache.db",
     "size_bytes": 2457600,
-    "expected_games_per_season": 272,
     "seasons": [
       {
         "year": 2025,
         "games_cached": 272,
         "completed_games": 240,
         "weeks_with_data": 18,
+        "season_weeks": 18,
+        "expected_games": 272,
         "last_fetch_time": "2025-12-20T10:30:00+00:00"
       }
     ],

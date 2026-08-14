@@ -25,14 +25,18 @@ class TestBuildScheduleGridStructuralGuarantees:
 
     @given(games=schedule_game_list)
     @settings(max_examples=100)
-    def test_exactly_32_entries_with_18_week_slots(self, games: list[Game]) -> None:
-        """Grid always has exactly 32 team entries, each with exactly 18 week slots."""
+    def test_exactly_32_entries_with_derived_week_slots(self, games: list[Game]) -> None:
+        """Grid always has exactly 32 team entries, each sized to the season's
+        derived week count (the highest week number present in the games
+        list, or 18 when there are no games to derive it from)."""
         result = _build_schedule_grid(games, ALL_TEAMS)
+        expected_weeks = max((g.week for g in games), default=18)
 
         assert len(result) == 32, f"Expected 32 entries, got {len(result)}"
         for entry in result:
-            assert len(entry["weeks"]) == 18, (
-                f"Team {entry['team']} has {len(entry['weeks'])} weeks, expected 18"
+            assert len(entry["weeks"]) == expected_weeks, (
+                f"Team {entry['team']} has {len(entry['weeks'])} weeks, "
+                f"expected {expected_weeks}"
             )
 
     @given(games=schedule_game_list)

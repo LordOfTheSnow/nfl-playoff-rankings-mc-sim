@@ -116,6 +116,22 @@ class Game:
     clock: str | None = None  # Game clock for in-progress games (e.g., "5:32")
 
 
+def derive_season_weeks(games: list[Game]) -> int | None:
+    """Number of weeks in the season, derived from the highest week number
+    present in the cached schedule.
+
+    fetch_season_schedule always probes weeks 1-18 and simply returns no
+    games for weeks beyond a season's actual length (e.g. week 18 for a
+    pre-2021, 17-week season), so the highest cached week number is the
+    real season length — no year-keyed rule table needed. None means no
+    games are cached yet, so the length is genuinely unknown; callers
+    should not default to 18 in that case.
+    """
+    if not games:
+        return None
+    return max(g.week for g in games)
+
+
 @dataclass
 class FetchResult:
     """Result of a data fetch operation.

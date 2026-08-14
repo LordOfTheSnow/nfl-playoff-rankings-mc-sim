@@ -23,7 +23,7 @@ from enum import Enum
 from multiprocessing import Pool
 from typing import Any
 
-from src.data_client import Game, GameStatus
+from src.data_client import Game, GameStatus, derive_season_weeks
 from src.nfl_teams import ALL_TEAMS, get_team_conference, get_team_division
 from src.standings import compute_standings, determine_playoff_bracket
 
@@ -933,7 +933,8 @@ def solve_clinch(
     Args:
         team: Team name to analyze (must be a valid NFL team name).
         all_games: All season games (list of Game objects).
-        cutoff_week: Games in weeks <= cutoff are fixed. Must be 1-18.
+        cutoff_week: Games in weeks <= cutoff are fixed. Must be within the
+            season's actual week range, derived from all_games.
         config: Solver configuration (uses defaults if None).
 
     Returns:
@@ -959,10 +960,11 @@ def solve_clinch(
             error=f"Unknown team: '{team}'. Valid teams: {sorted(_VALID_TEAMS)}",
         )
 
-    if not isinstance(cutoff_week, int) or cutoff_week < 1 or cutoff_week > 18:
+    season_weeks = derive_season_weeks(all_games) or 18
+    if not isinstance(cutoff_week, int) or cutoff_week < 1 or cutoff_week > season_weeks:
         return CPSolverResult(
             team=team, status=ClinchStatus.ALIVE,
-            error=f"cutoff_week must be between 1 and 18, got: {cutoff_week}",
+            error=f"cutoff_week must be between 1 and {season_weeks}, got: {cutoff_week}",
         )
 
     if (
@@ -1469,7 +1471,9 @@ def solve_clinch_all(
 
     Args:
         all_games: All season games.
-        cutoff_week: Games in weeks <= cutoff are fixed. Must be 1-18.
+        cutoff_week: Games in weeks <= cutoff are fixed. Must be within the
+            season's actual week range, derived from all_games (validated
+            per-team by solve_clinch).
         config: Solver configuration (uses defaults if None).
 
     Returns:

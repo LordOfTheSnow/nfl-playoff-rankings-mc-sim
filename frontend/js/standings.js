@@ -513,7 +513,9 @@ function buildLegend() {
  * @returns {string} HTML string for the cell's contents (no wrapping element).
  */
 function buildSeasonDataCell(status, savedCutoffLS) {
-  const pctCompleted = status.expected_total > 0 ? Math.round(((status.completed || 0) / status.expected_total) * 100) : 0;
+  const seasonWeeks = status.season_weeks ?? "—";
+  const expectedTotal = status.expected_total;
+  const pctCompleted = expectedTotal ? Math.round(((status.completed || 0) / expectedTotal) * 100) : 0;
   const cutoffTitle = savedCutoffLS
     ? "Week " + savedCutoffLS + " cutoff"
     : "Auto cutoff — week " + (status.weeks_completed || status.weeks_fetched || 0);
@@ -521,10 +523,10 @@ function buildSeasonDataCell(status, savedCutoffLS) {
   let html = '<div class="mdn-card-kicker">Season data</div>';
   html += '<div class="mdn-card-title">' + status.season_year + ' · ' + cutoffTitle + '</div>';
   html += '<div style="display:flex;gap:28px;margin-top:12px;flex-wrap:wrap">';
-  html += '<div><div class="mdn-stat-lbl">Weeks loaded</div><div class="mdn-stat-val">' + status.weeks_fetched + ' / 18</div></div>';
-  html += '<div><div class="mdn-stat-lbl">Weeks completed</div><div class="mdn-stat-val">' + (status.weeks_completed || 0) + ' / 18</div></div>';
-  html += '<div><div class="mdn-stat-lbl">Games loaded</div><div class="mdn-stat-val">' + status.total_games + ' / ' + status.expected_total + '</div></div>';
-  html += '<div><div class="mdn-stat-lbl">Games completed</div><div class="mdn-stat-val">' + (status.completed || 0) + ' / ' + status.expected_total + ' (' + pctCompleted + '%)</div></div>';
+  html += '<div><div class="mdn-stat-lbl">Weeks loaded</div><div class="mdn-stat-val">' + status.weeks_fetched + ' / ' + seasonWeeks + '</div></div>';
+  html += '<div><div class="mdn-stat-lbl">Weeks completed</div><div class="mdn-stat-val">' + (status.weeks_completed || 0) + ' / ' + seasonWeeks + '</div></div>';
+  html += '<div><div class="mdn-stat-lbl">Games loaded</div><div class="mdn-stat-val">' + status.total_games + ' / ' + (expectedTotal ?? "—") + '</div></div>';
+  html += '<div><div class="mdn-stat-lbl">Games completed</div><div class="mdn-stat-val">' + (status.completed || 0) + ' / ' + (expectedTotal ?? "—") + ' (' + pctCompleted + '%)</div></div>';
   html += '</div>';
   if (status.last_fetch_time) {
     const fetchDate = new Date(status.last_fetch_time);
@@ -577,7 +579,7 @@ function buildStatusPanel(status) {
     _infoIcon("Games up to and including this week use real results. Games after this week are simulated. Synced with the Simulations page.") +
     '</label>' +
     '<select class="mdn-input" id="sim-cutoff-st"><option value="">Auto</option>';
-  for (let w = 1; w <= 18; w++) {
+  for (let w = 1; w <= (status.season_weeks || 18); w++) {
     html += '<option value="' + w + '"' + (savedCutoffLS == w ? ' selected' : '') + '>Week ' + w + '</option>';
   }
   html += '</select></div>';
