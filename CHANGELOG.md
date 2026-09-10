@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Division standings could rank a team that had played and lost every game (e.g. 0-1) ahead of teams that hadn't played yet (0-0) in the same division — including marking it division champion and giving it a playoff seed — because both compute to the same 0.0% win percentage, and the early-season strength-of-schedule tiebreaker step treated that as a real, resolvable tie based on a single game. `standings.py`'s tiebreaker grouping (`_sort_with_tiebreakers`) and its `games_behind` leader selection (`_compute_games_behind`) now treat "hasn't played" separately from "played and winless" instead of running the full tiebreaker cascade across both; the same fix was applied to `server.py`'s separate display-only tiebreaker sort (`_division_tiebreak_sort`) used by `GET /api/standings`
+- Standings legend and tiebreaker-badge tooltip described the "Alpha" (alphabetical) fallback as if it were an official NFL tiebreaker rule; it's actually a display-only fallback used when `server.py`'s reimplementation can't resolve a tie — the real final NFL tiebreaker is a coin toss, already implemented correctly in `standings.py`'s `_step_coin_toss`. Wording now makes clear "Alpha" isn't an official rule
+
+### Added
+- Standings legend now explains the `TIEBREAKER` column and lists all tiebreaker codes (H2H, Div, Conf, SoV, SoS, Pts, Alpha) with their meaning, rather than only being explained via a per-badge hover tooltip
+
 ## [1.0.2] - 2026-08-14
 
 ### Fixed

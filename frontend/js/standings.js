@@ -68,7 +68,7 @@ const TIEBREAKER_RULE_NAMES = {
   SoV: "strength of victory",
   SoS: "strength of schedule",
   Pts: "net points",
-  Alpha: "alphabetical order (final tiebreaker)",
+  Alpha: "no other rule differentiated them — shown alphabetically (not an official NFL tiebreaker; the real final tiebreaker is a coin toss)",
 };
 
 /**
@@ -82,6 +82,7 @@ const COLUMN_DEFS = [
   ["CONF", "Conference record"],
   ["GB", "Games behind the division leader"],
   ["STR", "Team strength rating (1.000 = league average)"],
+  ["TIEBREAKER", "Rule that ranked this team among others tied on record — see codes below"],
 ];
 
 /**
@@ -500,6 +501,27 @@ function buildLegend() {
   }
   colsTable.appendChild(colsBody);
   card.appendChild(colsTable);
+
+  const codesHeading = document.createElement("div");
+  codesHeading.innerHTML = "<strong>Tiebreaker codes</strong>";
+  codesHeading.style.cssText = "margin-top:12px;margin-bottom:4px";
+  card.appendChild(codesHeading);
+
+  const codesTable = document.createElement("table");
+  codesTable.className = "mdn-legend-table";
+  const codesBody = document.createElement("tbody");
+  for (const [code, meaning] of Object.entries(TIEBREAKER_RULE_NAMES)) {
+    const row = document.createElement("tr");
+    const codeCell = document.createElement("td");
+    codeCell.textContent = code.toUpperCase();
+    const meaningCell = document.createElement("td");
+    meaningCell.textContent = meaning;
+    row.appendChild(codeCell);
+    row.appendChild(meaningCell);
+    codesBody.appendChild(row);
+  }
+  codesTable.appendChild(codesBody);
+  card.appendChild(codesTable);
 
   return card;
 }

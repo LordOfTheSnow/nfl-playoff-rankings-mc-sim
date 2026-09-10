@@ -75,6 +75,39 @@ class TestGamesBehind:
         # Leader always has 0 GB
         assert _calculate_games_behind(10, 3, 10, 3) == 0.0
 
+    def test_unplayed_team_is_the_leader_not_winless_played_team(self) -> None:
+        """A 0-0 team, not a 0-1 team, should be picked as the division
+        "leader" for games_behind purposes — both have win_percentage 0.0,
+        but the 0-1 team has strictly more losses. Regression test for a
+        bug where max(key=win_percentage) picked whichever team happened to
+        come first in the input list on a tie, sometimes giving the actual
+        leader a nonzero games_behind relative to itself.
+        """
+        games = [
+            Game(
+                game_id="g1", week=1, date=date(2024, 9, 5),
+                home_team="Cowboys", away_team="Patriots",
+                status=GameStatus.COMPLETED,
+                home_score=24, away_score=10,
+                home_points=24, away_points=10,
+                quarter=None, clock=None,
+            ),
+        ]
+        standings = compute_standings(games)
+
+        patriots = next(s for s in standings if s.team == "Patriots")
+        others = [
+            s for s in standings
+            if s.conference == patriots.conference
+            and s.division == patriots.division
+            and s.team != "Patriots"
+        ]
+
+        assert patriots.wins == 0 and patriots.losses == 1
+        assert patriots.games_behind > 0.0
+        for team in others:
+            assert team.games_behind == 0.0
+
 
 class TestComputeStandings:
     """Tests for the main compute_standings function."""
@@ -541,6 +574,33 @@ class TestDeterminePlayoffBracket:
 
         for i in range(4, 7):
             assert bracket.afc_seeds[i].is_division_champion is False
+
+    def test_unplayed_teams_outrank_winless_played_team(self) -> None:
+        """A 0-0 team should rank ahead of a 0-1 team in the same division.
+
+        Both compute to win_percentage 0.0, but they aren't a real tie: the
+        0-1 team has an actual loss. Regression test for a bug where the
+        0-1 team's strength-of-schedule (derived from its single game)
+        differentiated it from the untied 0.0 group and let it become
+        division champion ahead of three teams that hadn't played yet.
+        """
+        records = {
+            "Patriots": (0, 1, 0),
+            # Bills, Dolphins, Jets default to 0-0-0 via the helper
+        }
+        standings = _make_standings_with_records(records)
+        determine_playoff_bracket(standings)
+
+        patriots = next(s for s in standings if s.team == "Patriots")
+        assert patriots.is_division_champion is False
+        assert patriots.seed is None
+
+        afc_east = [
+            s for s in standings
+            if s.conference == Conference.AFC and s.division == Division.EAST
+        ]
+        champion = next(s for s in afc_east if s.is_division_champion)
+        assert champion.team in {"Bills", "Dolphins", "Jets"}
 
     def test_wild_card_seeded_5_to_7(self) -> None:
         """Wild card teams should be seeded 5-7 by win percentage."""

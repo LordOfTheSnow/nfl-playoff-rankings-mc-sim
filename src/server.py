@@ -1375,7 +1375,11 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 4. SoV - Strength of victory (win% of teams beaten)
                 5. SoS - Strength of schedule (win% of all opponents)
                 6. Pts - Net points (points for minus points against)
-                7. Alpha - Alphabetical (final fallback)
+                7. Alpha - display-only fallback when none of the above
+                   differentiate; NOT an official NFL rule (the real NFL
+                   procedure ends in a coin toss — see standings.py's
+                   _step_coin_toss, the source of truth for who actually
+                   becomes division champion/seed).
                 """
                 from src.data_client import GameStatus as GS
 
@@ -1397,6 +1401,32 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                     if len(group) == 1:
                         result.append(group[0])
                     else:
+                        # A team with 0 games played and a team that's played
+                        # and lost every game both round to win_percentage 0.0,
+                        # but they aren't really tied — the played team has
+                        # strictly more losses, and running H2H/SoS/etc. across
+                        # them produces meaningless results (e.g. SoS keyed off
+                        # a single early-season opponent). Rank not-yet-played
+                        # teams ahead of played-and-winless teams instead of
+                        # feeding both into the tiebreaker cascade together.
+                        unplayed = [
+                            t for t in group
+                            if (t["wins"] + t["losses"] + t["ties"]) == 0
+                        ]
+                        played = [
+                            t for t in group
+                            if (t["wins"] + t["losses"] + t["ties"]) > 0
+                        ]
+                        if unplayed and played:
+                            for t in unplayed:
+                                t["tiebreaker"] = "Alpha"
+                            unplayed.sort(key=lambda t: t["team"])
+                            result.extend(unplayed)
+                            group = played
+                            if len(group) == 1:
+                                result.append(group[0])
+                                continue
+
                         # Compute tiebreaker metrics for each tied team
                         team_names = [t["team"] for t in group]
 
