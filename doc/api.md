@@ -225,18 +225,22 @@ Returns season-wide statistics computed from completed games.
   "overtime_pct": 5.0,
   "one_score_games": 110,
   "one_score_pct": 45.8,
-  "longest_win_streak": {
-    "team": "Lions",
-    "streak": 11,
-    "from_week": 3,
-    "to_week": 13
-  },
-  "longest_lose_streak": {
-    "team": "Titans",
-    "streak": 8,
-    "from_week": 2,
-    "to_week": 9
-  },
+  "longest_win_streak": [
+    {
+      "team": "Lions",
+      "streak": 11,
+      "from_week": 3,
+      "to_week": 13
+    }
+  ],
+  "longest_lose_streak": [
+    {
+      "team": "Titans",
+      "streak": 8,
+      "from_week": 2,
+      "to_week": 9
+    }
+  ],
   "margin_distribution": [
     { "label": "Tie", "count": 5, "pct": 2.1 },
     { "label": "1–3", "count": 38, "pct": 15.8 },
@@ -250,6 +254,8 @@ Returns season-wide statistics computed from completed games.
 ```
 
 `margin_distribution` buckets every completed game by point differential (`Tie` = 0, then 1–3, 4–8, 9–13, 14–20, 21–27, 28+), each entry's `pct` relative to `total_games`.
+
+`longest_win_streak`/`longest_lose_streak` are arrays rather than a single object because multiple teams can be tied for the longest streak (e.g. early in the season, when several teams share a 1-game streak) — each entry keeps its own `from_week`/`to_week` since tied teams don't necessarily share the same week range. Both are empty arrays when no completed games exist.
 
 ---
 

@@ -1418,9 +1418,10 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                             if (t["wins"] + t["losses"] + t["ties"]) > 0
                         ]
                         if unplayed and played:
-                            for t in unplayed:
-                                t["tiebreaker"] = "Alpha"
-                            unplayed.sort(key=lambda t: t["team"])
+                            if len(unplayed) > 1:
+                                for t in unplayed:
+                                    t["tiebreaker"] = "Alpha"
+                                unplayed.sort(key=lambda t: t["team"])
                             result.extend(unplayed)
                             group = played
                             if len(group) == 1:
@@ -1710,8 +1711,10 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             # Compute streaks per team
             from src.nfl_teams import ALL_TEAMS
 
-            longest_win_streak = {"team": "", "streak": 0, "from_week": 0, "to_week": 0}
-            longest_lose_streak = {"team": "", "streak": 0, "from_week": 0, "to_week": 0}
+            longest_win_streak: list[dict[str, Any]] = []
+            longest_lose_streak: list[dict[str, Any]] = []
+            best_win_streak = 0
+            best_lose_streak = 0
 
             for team in ALL_TEAMS:
                 team_games = sorted(
@@ -1761,10 +1764,20 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                         win_streak = 0
                         lose_streak = 0
 
-                if max_win > longest_win_streak["streak"]:
-                    longest_win_streak = {"team": team, "streak": max_win, "from_week": win_start_week, "to_week": win_end_week}
-                if max_lose > longest_lose_streak["streak"]:
-                    longest_lose_streak = {"team": team, "streak": max_lose, "from_week": lose_start_week, "to_week": lose_end_week}
+                if max_win > 0:
+                    entry = {"team": team, "streak": max_win, "from_week": win_start_week, "to_week": win_end_week}
+                    if max_win > best_win_streak:
+                        best_win_streak = max_win
+                        longest_win_streak = [entry]
+                    elif max_win == best_win_streak:
+                        longest_win_streak.append(entry)
+                if max_lose > 0:
+                    entry = {"team": team, "streak": max_lose, "from_week": lose_start_week, "to_week": lose_end_week}
+                    if max_lose > best_lose_streak:
+                        best_lose_streak = max_lose
+                        longest_lose_streak = [entry]
+                    elif max_lose == best_lose_streak:
+                        longest_lose_streak.append(entry)
 
             response = {
                 "total_games": total_games,

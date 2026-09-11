@@ -540,7 +540,7 @@ function buildSeasonDataCell(status, savedCutoffLS) {
   const pctCompleted = expectedTotal ? Math.round(((status.completed || 0) / expectedTotal) * 100) : 0;
   const cutoffTitle = savedCutoffLS
     ? "Week " + savedCutoffLS + " cutoff"
-    : "Auto cutoff — week " + (status.weeks_completed || status.weeks_fetched || 0);
+    : "Auto cutoff — week " + (status.weeks_completed ?? 0);
 
   let html = '<div class="mdn-card-kicker">Season data</div>';
   html += '<div class="mdn-card-title">' + status.season_year + ' · ' + cutoffTitle + '</div>';
