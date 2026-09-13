@@ -11,6 +11,6 @@
     "fast-check": "3.22.0",
     "jsdom": "25.0.1",
     "playwright": "^1.62.1",
-    "vitest": "3.2.6"
+    "vitest": "5.0.0"
   }
 }
