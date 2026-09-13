@@ -306,12 +306,13 @@ function _buildSimulationHeaderCard(status) {
 
   html += '<div style="display:flex;gap:10px;margin-top:23px">' +
     '<button id="btn-run-sim" class="mdn-btn mdn-btn-primary" type="button">Simulate</button>' +
+    '<button id="btn-cancel-sim" class="mdn-btn mdn-btn-secondary" type="button" style="display:none">Cancel</button>' +
     '<button id="btn-fetch-data-sim" class="mdn-btn mdn-btn-secondary" type="button">Fetch data</button>' +
     '</div>';
   html += '</div>';
   html += '<p class="mdn-hint" id="sim-total-sim" style="margin-top:10px"></p>';
   html += '<div id="sim-progress-sim" style="margin-top:0.75rem;display:none;align-items:center;gap:0.6rem">' +
-    '<span class="mdn-spinner"></span><span class="mdn-hint">Running simulation…</span></div>';
+    '<span class="mdn-spinner"></span><span class="mdn-hint" id="sim-progress-text-sim">Starting…</span></div>';
   html += '</div>';
 
   html += `</div>`;
@@ -412,6 +413,78 @@ function _wireSimulationHeaderCard(status) {
     });
   }
 
+  const cancelBtn = document.getElementById("btn-cancel-sim");
+  const progressEl = document.getElementById("sim-progress-sim");
+  const progressTextEl = document.getElementById("sim-progress-text-sim");
+  const controls = [iterInput, cutoffSel, noiseSl, tieProbSl, tieProbResetBtn, workersSl, runBtn, fetchBtn].filter(Boolean);
+
+  // Simulations can take minutes (see CHANGELOG) — /api/simulate starts a
+  // background job and returns immediately; this polls its status so the
+  // page shows real progress and can request cancellation, rather than
+  // just sitting behind a static "Running simulation…" spinner for however
+  // long the job actually takes.
+  const SIM_POLL_INTERVAL_MS = 600;
+  let activeJobId = null;
+  let pollTimeoutId = null;
+
+  function _stopPolling() {
+    if (pollTimeoutId != null) {
+      clearTimeout(pollTimeoutId);
+      pollTimeoutId = null;
+    }
+    activeJobId = null;
+  }
+
+  function _resetRunUI() {
+    controls.forEach((el) => { el.disabled = false; });
+    if (cancelBtn) { cancelBtn.style.display = "none"; cancelBtn.disabled = false; }
+    if (progressEl) progressEl.style.display = "none";
+  }
+
+  function _updateProgressText(phase, done, total) {
+    if (!progressTextEl) return;
+    progressTextEl.textContent = total > 0 ? `${phase}… (${done}/${total})` : `${phase}…`;
+  }
+
+  async function _pollJob(jobId) {
+    let status;
+    try {
+      status = await API.getSimulationStatus(jobId);
+    } catch (err) {
+      _stopPolling();
+      App.showError(err.message || "Lost track of the running simulation.");
+      _resetRunUI();
+      return;
+    }
+
+    if (activeJobId !== jobId) return; // superseded (e.g. a fresh render re-wired the page)
+
+    if (status.status === "running") {
+      _updateProgressText(status.phase || "Running", status.progress_done || 0, status.progress_total || 0);
+      pollTimeoutId = setTimeout(() => _pollJob(jobId), SIM_POLL_INTERVAL_MS);
+      return;
+    }
+
+    _stopPolling();
+
+    if (status.status === "completed") {
+      const results = status.result;
+      results._ranAt = new Date();
+      window._simulationResults = results;
+      App.showInfo("Simulation complete.");
+      const contentEl = document.getElementById("content");
+      if (contentEl) await renderSimulations(contentEl);
+      return; // re-render replaces this card entirely
+    }
+
+    if (status.status === "cancelled") {
+      App.showInfo("Simulation cancelled.");
+    } else {
+      App.showError(status.error || "Simulation failed.");
+    }
+    _resetRunUI();
+  }
+
   if (runBtn) runBtn.addEventListener("click", async () => {
     const iterations = parseInt(iterInput.value, 10) || 10000;
     const cutoffWeek = cutoffSel.value ? parseInt(cutoffSel.value, 10) : null;
@@ -424,23 +497,33 @@ function _wireSimulationHeaderCard(status) {
       return;
     }
 
-    const controls = [iterInput, cutoffSel, noiseSl, tieProbSl, tieProbResetBtn, workersSl, runBtn, fetchBtn].filter(Boolean);
     controls.forEach((el) => { el.disabled = true; });
-    const progressEl = document.getElementById("sim-progress-sim");
+    if (cancelBtn) cancelBtn.style.display = "inline-block";
     if (progressEl) progressEl.style.display = "flex";
+    _updateProgressText("Starting", 0, 0);
 
     try {
-      const results = await API.runSimulation(iterations, cutoffWeek, noise, numWorkers, tieProbability);
-      results._ranAt = new Date();
-      window._simulationResults = results;
-      App.showInfo("Simulation complete.");
-      const contentEl = document.getElementById("content");
-      if (contentEl) await renderSimulations(contentEl);
+      const { job_id } = await API.startSimulation(iterations, cutoffWeek, noise, numWorkers, tieProbability);
+      activeJobId = job_id;
+      _pollJob(job_id);
     } catch (err) {
       App.showError(err.message || "Simulation failed.");
-      controls.forEach((el) => { el.disabled = false; });
-      if (progressEl) progressEl.style.display = "none";
+      _resetRunUI();
     }
+  });
+
+  if (cancelBtn) cancelBtn.addEventListener("click", async () => {
+    if (!activeJobId) return;
+    cancelBtn.disabled = true;
+    _updateProgressText("Cancelling", 0, 0);
+    try {
+      await API.cancelSimulation(activeJobId);
+    } catch (err) {
+      App.showError(err.message || "Failed to cancel simulation.");
+      cancelBtn.disabled = false;
+    }
+    // The next poll tick picks up the resulting status ("cancelled", or
+    // "completed"/"running" if the job finished before the cancel landed).
   });
 
   if (fetchBtn) fetchBtn.addEventListener("click", _handleFetchFromSimulations);

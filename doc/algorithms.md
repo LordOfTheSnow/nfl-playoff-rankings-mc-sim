@@ -92,6 +92,24 @@ This is the single shared implementation used everywhere a cutoff needs to be au
 
 ---
 
+## Impact Games & Background Jobs
+
+After the main Monte Carlo run, `Simulator._compute_all_impact_games` (`src/simulator.py`) ranks each team's top 5 remaining games by how much forcing a win vs. a loss in that game would move the team's playoff probability — this is what powers the per-team "impact games" list in the Simulations results panel. For every team with games left, it runs a small forced-outcome mini-simulation (`impact_iterations` trials) for both outcomes of every one of that team's remaining games, each trial resolving the *full* standings/tiebreaker engine — a cost of roughly `teams x games-per-team x 2 x impact_iterations` standings computations. Early in the season, with every team still alive and a long schedule left, this dwarfs the main simulation's own cost by orders of magnitude (it dominates total wall time in practice — see the CHANGELOG for a measured example).
+
+Three things keep this bounded without pre-filtering which games get analyzed (an accuracy/speed trade-off this codebase currently avoids, in favor of always evaluating every remaining game):
+
+1. **Skip mathematically-decided teams** — a team whose main-simulation playoff probability is already exactly 0% or 100% across all `iterations` trials is skipped entirely; forcing one more game's outcome isn't going to move a unanimous result.
+2. **A low, mostly-fixed `impact_iterations` cap** (`min(50, iterations)`) — this ranking is already an approximation used only to order a team's top 5 games, not to report precise probabilities, so a small sample is enough.
+3. **Per-(team, game) work dispatch, not per-team** — parallel workers process a flat list of individual (team, game) pairs rather than one team's entire remaining schedule as a single unit, so load balances evenly across `num_workers` even when some teams have far more games left than others (the common case early in a season, before anyone is eliminated or has a bye).
+
+### Progress and cancellation
+
+Because a run can still take anywhere from well under a second to several minutes depending on how many teams/games are in play, `POST /api/simulate` runs in a background thread rather than blocking the request — see `POST /api/simulate` in [API Reference](api.md). `Simulator.run()` accepts an optional `progress_callback(phase, done, total)` and `cancel_check()`, threaded down through both the main simulation phase (reported per completed worker batch) and the impact-games phase (reported per completed (team, game) pair, the phase with by far the most individual work units and therefore the finest-grained progress signal). `cancel_check()` is checked at each of these completion points and raises `SimulationCancelled` when honored; cancellation is best-effort and cooperative — already-dispatched worker batches or in-flight impact-game pairs finish rather than being killed outright (a `ProcessPoolExecutor.shutdown(wait=False, cancel_futures=True)` call drops only the *not-yet-started* work), so a cancel request typically lands within a second or two rather than instantly.
+
+Running in a background thread means a simulation's `ProcessPoolExecutor` pools are now created while other request-handling threads (status polls arriving mid-run, among others) are concurrently active — forking a multi-threaded process is a well-known way to deadlock the child (a lock another thread held at the moment of `fork()` can come over into the child already-locked, with no thread left alive there to ever release it), which surfaces as progress silently freezing mid-run and Cancel then unable to do anything either, since the stuck thread never reaches its `cancel_check()`. `_mp_context` (`src/simulator.py`) therefore uses `forkserver` rather than plain `fork` on Unix: children are always forked from a dedicated, single-threaded template process instead of from the (multi-threaded) server process itself, at effectively no measured cost to run time.
+
+---
+
 ## Tie Probability Estimation
 
 Each simulated game is a strength-weighted win/loss draw (see `_simulate_game_standalone` in `src/simulator.py`) — the model has no notion of a score margin, so a tie can't fall out of it on its own. A small slice of the random roll is reserved for "tie" before the win/loss split is computed, controlled by `tie_probability`.

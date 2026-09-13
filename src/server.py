@@ -16,7 +16,9 @@ import json
 import logging
 import mimetypes
 import os
+import threading
 import time
+import uuid
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
@@ -29,6 +31,7 @@ from src.cp_solver import ORTOOLS_AVAILABLE, CPSolverConfig, solve_clinch, solve
 from src.data_client import DataClient, FetchResult, Game, GameStatus, derive_season_weeks
 from src.nfl_teams import ALL_TEAMS, expected_total_games, get_team_abbreviation, get_team_conference
 from src.simulator import (
+    SimulationCancelled,
     SimulationConfig,
     Simulator,
     SimulationResult,
@@ -43,6 +46,50 @@ logger = logging.getLogger(__name__)
 # Names of lifetime run counters persisted via Cache.increment_counter().
 COUNTER_GAMES_SIMULATED = "games_simulated_total"
 COUNTER_CLINCHING_RESOLVER_EVALS = "clinching_resolver_evals_total"
+
+# How long a finished (completed/cancelled/failed) simulation job stays in
+# the registry before being pruned on the next job's creation -- long enough
+# for a client to poll once more and see the terminal state, short enough
+# that repeated Simulate clicks don't leak memory over a long-running server.
+SIMULATION_JOB_RETENTION_SECONDS = 600
+
+
+class SimulationJob:
+    """Tracks one background POST /api/simulate run.
+
+    Created by _handle_post_simulate and mutated from the background thread
+    that actually runs the simulation; polled via GET
+    /api/simulate/status/{job_id} and stopped (best-effort) via POST
+    /api/simulate/cancel/{job_id}. Held in NFLSimulatorServer.simulation_jobs,
+    guarded by NFLSimulatorServer.jobs_lock.
+    """
+
+    def __init__(self, job_id: str) -> None:
+        self.job_id = job_id
+        self.status = "running"  # running | completed | cancelled | failed
+        self.phase = "Starting…"
+        self.progress_done = 0
+        self.progress_total = 0
+        self.result: dict[str, Any] | None = None
+        self.error: str | None = None
+        self.created_at = time.time()
+        self.cancel_event = threading.Event()
+
+
+def _prune_finished_jobs(jobs: dict[str, SimulationJob]) -> None:
+    """Drop completed/cancelled/failed jobs older than the retention window.
+
+    Called (under NFLSimulatorServer.jobs_lock) whenever a new job is
+    created, so the registry doesn't grow unbounded over a long-running
+    server -- a still-running job is never pruned regardless of age.
+    """
+    cutoff = time.time() - SIMULATION_JOB_RETENTION_SECONDS
+    stale = [
+        job_id for job_id, job in jobs.items()
+        if job.status != "running" and job.created_at < cutoff
+    ]
+    for job_id in stale:
+        del jobs[job_id]
 
 
 def _json_error(code: int, message: str, details: str = "") -> tuple[int, dict[str, Any]]:
@@ -250,7 +297,15 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
 
     # Suppress default access logging to stderr
     def log_message(self, format: str, *args: Any) -> None:
-        """Log HTTP requests using the logging module instead of stderr."""
+        """Log HTTP requests using the logging module instead of stderr.
+
+        Skips GET /api/simulate/status/{job_id} specifically -- the frontend
+        polls it every ~600ms while a simulation runs (see CHANGELOG), which
+        would otherwise flood the log with an identical, uninformative line
+        every poll tick for however long the run takes.
+        """
+        if self.path.startswith("/api/simulate/status/"):
+            return
         logger.info(format, *args)
 
     def _send_json_response(self, status_code: int, data: dict[str, Any]) -> None:
@@ -322,6 +377,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             self._handle_get_cp_clinch(path)
         elif path.startswith("/api/clinch-estimate"):
             self._handle_get_clinch_estimate()
+        elif path.startswith("/api/simulate/status/"):
+            self._handle_get_simulate_status(path)
         elif path == "/api/solver-timings":
             self._handle_get_solver_timings()
         elif path == "/api/export-solver-performance":
@@ -344,6 +401,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             self._handle_post_fetch_data()
         elif path == "/api/simulate":
             self._handle_post_simulate()
+        elif path.startswith("/api/simulate/cancel/"):
+            self._handle_post_simulate_cancel(path)
         elif path == "/api/clinching-scenarios":
             self._handle_post_clinching_scenarios()
         elif path == "/api/set-season":
@@ -1211,7 +1270,11 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             )
         )
 
-        # Run simulation
+        # Build the config and simulator up front, still in the request
+        # thread — so a bad config value like an invalid iterations/cutoff
+        # combination is reported synchronously as a 400, and so tests (and
+        # any other caller) can observe how the Simulator was constructed
+        # without racing the background thread below.
         try:
             config = SimulationConfig(
                 iterations=iterations,
@@ -1221,35 +1284,112 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 num_workers=num_workers,
             )
             simulator = Simulator(config)
-
-            import time
-            t0 = time.perf_counter()
-            result = simulator.run(games)
-            elapsed = time.perf_counter() - t0
-            logger.info(
-                "Simulation completed: %d iterations, %d workers, %.2fs (%.1f iter/s)",
-                iterations,
-                num_workers or os.cpu_count() or 1,
-                elapsed,
-                iterations / elapsed if elapsed > 0 else 0,
-            )
-
-            response = _serialize_simulation_result(result, games=games)
-            try:
-                self._send_json_response(200, response)
-            except BrokenPipeError:
-                # User cancelled — do NOT count this run
-                return
-
-            server.cache.increment_counter(
-                COUNTER_GAMES_SIMULATED,
-                result.iterations_run * result.simulated_games_count,
-            )
         except ValueError as e:
             self._send_error_response(400, "Invalid simulation parameters", str(e))
-        except Exception as e:
-            logger.exception("Error running simulation")
-            self._send_error_response(500, "Simulation error", str(e))
+            return
+
+        # Run the simulation in a background thread and hand back a job_id
+        # immediately -- this is what makes real progress reporting and
+        # cancellation possible (see GET /api/simulate/status/{job_id} and
+        # POST /api/simulate/cancel/{job_id}). A large run can take minutes
+        # (see CHANGELOG); blocking the request for that long left no way to
+        # show progress or stop early.
+        job_id = uuid.uuid4().hex
+        job = SimulationJob(job_id)
+        with server.jobs_lock:
+            _prune_finished_jobs(server.simulation_jobs)
+            server.simulation_jobs[job_id] = job
+
+        def _run_job() -> None:
+            def progress_cb(phase: str, done: int, total: int) -> None:
+                job.phase = phase
+                job.progress_done = done
+                job.progress_total = total
+
+            def cancel_check() -> bool:
+                return job.cancel_event.is_set()
+
+            try:
+                t0 = time.perf_counter()
+                result = simulator.run(games, progress_callback=progress_cb, cancel_check=cancel_check)
+                elapsed = time.perf_counter() - t0
+                logger.info(
+                    "Simulation completed: %d iterations, %d workers, %.2fs (%.1f iter/s)",
+                    iterations,
+                    num_workers or os.cpu_count() or 1,
+                    elapsed,
+                    iterations / elapsed if elapsed > 0 else 0,
+                )
+                job.result = _serialize_simulation_result(result, games=games)
+                # Touch shared resources (the cache) before flipping status
+                # to "completed" -- a poller must never observe "completed"
+                # while this thread still has work left to do.
+                server.cache.increment_counter(
+                    COUNTER_GAMES_SIMULATED,
+                    result.iterations_run * result.simulated_games_count,
+                )
+                job.status = "completed"
+            except SimulationCancelled:
+                job.status = "cancelled"
+            except ValueError as e:
+                job.status = "failed"
+                job.error = str(e)
+            except Exception as e:
+                logger.exception("Error running simulation (job %s)", job_id)
+                job.status = "failed"
+                job.error = str(e)
+
+        threading.Thread(target=_run_job, daemon=True).start()
+        # Always "running" here by construction (the job was just created
+        # with that status) -- reading job.status now would race the thread
+        # we just started, which for a very fast/mocked run can already
+        # have moved on to a terminal state before this line executes.
+        self._send_json_response(202, {"job_id": job_id, "status": "running"})
+
+    def _handle_get_simulate_status(self, path: str) -> None:
+        """Handle GET /api/simulate/status/{job_id} — poll a background
+        simulation job's progress, and its result once complete."""
+        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
+        job_id = path[len("/api/simulate/status/"):]
+
+        with server.jobs_lock:
+            job = server.simulation_jobs.get(job_id)
+
+        if job is None:
+            self._send_error_response(404, "Job not found", f"No simulation job with id {job_id!r} (it may have finished and been cleaned up)")
+            return
+
+        response: dict[str, Any] = {
+            "job_id": job.job_id,
+            "status": job.status,
+            "phase": job.phase,
+            "progress_done": job.progress_done,
+            "progress_total": job.progress_total,
+        }
+        if job.status == "completed":
+            response["result"] = job.result
+        elif job.status == "failed":
+            response["error"] = job.error
+        self._send_json_response(200, response)
+
+    def _handle_post_simulate_cancel(self, path: str) -> None:
+        """Handle POST /api/simulate/cancel/{job_id} — request a running
+        simulation job stop. Best-effort: already-dispatched worker batches
+        finish rather than being killed, so status may stay "running" for a
+        moment after this returns."""
+        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
+        job_id = path[len("/api/simulate/cancel/"):]
+
+        with server.jobs_lock:
+            job = server.simulation_jobs.get(job_id)
+
+        if job is None:
+            self._send_error_response(404, "Job not found", f"No simulation job with id {job_id!r} (it may have finished and been cleaned up)")
+            return
+
+        if job.status == "running":
+            job.cancel_event.set()
+        self._send_json_response(200, {"job_id": job.job_id, "status": job.status})
 
     def _handle_get_standings(self, path: str = "/api/standings") -> None:
         """Handle GET /api/standings — compute and return current standings.
@@ -1995,6 +2135,8 @@ class NFLSimulatorServer(ThreadingMixIn, HTTPServer):
         self.perf_export_path: str | None = perf_export_path
         self.cache: Cache = Cache(db_path=db_path)
         self.data_client: DataClient = DataClient(self.cache)
+        self.simulation_jobs: dict[str, SimulationJob] = {}
+        self.jobs_lock: threading.Lock = threading.Lock()
 
         # Read version from package metadata
         try:

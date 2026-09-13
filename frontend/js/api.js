@@ -69,8 +69,13 @@ const API = (() => {
   }
 
   /**
-   * Run a Monte Carlo simulation.
+   * Start a Monte Carlo simulation as a background job.
    * POST /api/simulate
+   *
+   * A simulation can take minutes (see CHANGELOG), so it doesn't run
+   * synchronously — this returns a job_id immediately. Poll
+   * getSimulationStatus(jobId) for progress and the eventual result, and
+   * use cancelSimulation(jobId) to request a best-effort stop.
    *
    * @param {number} iterations - Number of simulation trials (100–1,000,000).
    * @param {number|null} cutoffWeek - Cutoff week (1–18) or null for auto-detect.
@@ -78,9 +83,9 @@ const API = (() => {
    * @param {number|null} numWorkers - Number of parallel workers or null for auto-detect.
    * @param {number|null} [tieProbability] - Per-game tie probability (0.0–1.0) or null
    *   for the server's empirical estimate (see GET /api/status's default_tie_probability).
-   * @returns {Promise<Object>} Simulation results (team_results, scenarios, etc.).
+   * @returns {Promise<{job_id: string, status: string}>}
    */
-  function runSimulation(iterations, cutoffWeek, noise, numWorkers, tieProbability) {
+  function startSimulation(iterations, cutoffWeek, noise, numWorkers, tieProbability) {
     const body = { iterations };
     if (cutoffWeek != null) {
       body.cutoff_week = cutoffWeek;
@@ -98,6 +103,34 @@ const API = (() => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+    });
+  }
+
+  /**
+   * Poll a background simulation job's progress and (once complete) result.
+   * GET /api/simulate/status/{jobId}
+   *
+   * @param {string} jobId
+   * @returns {Promise<{status: string, phase: string, progress_done: number,
+   *   progress_total: number, result?: Object, error?: string}>}
+   */
+  function getSimulationStatus(jobId) {
+    return request(`/api/simulate/status/${encodeURIComponent(jobId)}`);
+  }
+
+  /**
+   * Request a best-effort stop of a running simulation job. Already-
+   * dispatched worker batches finish rather than being killed outright, so
+   * the job's status may stay "running" for a moment after this resolves —
+   * keep polling getSimulationStatus until it settles.
+   * POST /api/simulate/cancel/{jobId}
+   *
+   * @param {string} jobId
+   * @returns {Promise<{job_id: string, status: string}>}
+   */
+  function cancelSimulation(jobId) {
+    return request(`/api/simulate/cancel/${encodeURIComponent(jobId)}`, {
+      method: "POST",
     });
   }
 
@@ -257,7 +290,9 @@ const API = (() => {
   return {
     fetchStatus,
     fetchData,
-    runSimulation,
+    startSimulation,
+    getSimulationStatus,
+    cancelSimulation,
     getStandings,
     getTeamSchedule,
     getStatistics,

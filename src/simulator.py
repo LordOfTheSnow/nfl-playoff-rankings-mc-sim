@@ -18,9 +18,9 @@ import logging
 import multiprocessing
 import os
 import random
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING
+from typing import Any, Callable, TYPE_CHECKING
 
 from src.data_client import Game, GameStatus
 from src.nfl_teams import NFL_TEAMS, get_team_conference, get_team_division
@@ -47,14 +47,28 @@ DEFAULT_TIE_PROBABILITY = 0.005
 # NFL ties are rare (~0.5%), so fewer seasons produce too noisy an estimate.
 MIN_SEASONS_FOR_TIE_ESTIMATE = 2
 
-# Use 'fork' start method on Unix for efficiency (child inherits parent memory
-# via copy-on-write, no re-import overhead). On Windows, 'fork' is unavailable
-# so we fall back to the default start method ('spawn').
+# Use 'forkserver' on Unix: children are forked from a dedicated, always-
+# single-threaded template process, avoiding the classic "fork() of a
+# multi-threaded process can deadlock a child" hazard that plain 'fork'
+# carries here -- the HTTP server is multi-threaded (ThreadingMixIn), and
+# each simulation now also runs in its own background thread (see
+# server.py's SimulationJob) to support progress polling and cancellation,
+# so a ProcessPoolExecutor pool can be created while other request-handling
+# threads are concurrently active. forkserver keeps most of plain fork's
+# speed advantage over 'spawn' (children still fork from a warm template
+# process rather than reimporting everything from scratch) while being safe
+# under that concurrency. On Windows, 'fork'/'forkserver' are unavailable so
+# we fall back to the default start method ('spawn').
 import sys
 if sys.platform == "win32":
     _mp_context = multiprocessing.get_context("spawn")
 else:
-    _mp_context = multiprocessing.get_context("fork")
+    _mp_context = multiprocessing.get_context("forkserver")
+
+
+class SimulationCancelled(Exception):
+    """Raised from Simulator.run() when a caller-supplied cancel_check()
+    reports a cancellation request at one of its checkpoints."""
 
 
 # ---------------------------------------------------------------------------
@@ -502,46 +516,34 @@ def _run_trial_batch_wrapper(args: tuple) -> dict:
     )
 
 
-def _compute_team_impact_worker(args: tuple) -> list[tuple[str, float]]:
-    """Worker function for parallel impact games computation.
+def _compute_game_impact_worker(args: tuple) -> tuple[str, str, float]:
+    """Worker function for one (team, game) impact pair.
 
-    Computes the top 5 impact games for a single team by running
-    mini-simulations with forced outcomes.
+    Dispatching per-game rather than per-team (see _compute_all_impact_games)
+    keeps parallel workers evenly loaded regardless of how many remaining
+    games a given team has compared to others.
 
     Args:
-        args: Tuple of (team, all_games, games_to_simulate, strengths,
+        args: Tuple of (team, game, all_games, games_to_simulate, strengths,
               impact_iterations, tie_probability, noise).
 
     Returns:
-        Top 5 (game_id, impact) tuples sorted by impact descending.
+        (team, game_id, impact) tuple.
     """
-    (team, all_games, games_to_simulate, strengths,
+    (team, game, all_games, games_to_simulate, strengths,
      impact_iterations, tie_probability, noise) = args
 
-    relevant_games = [
-        g for g in games_to_simulate
-        if g.home_team == team or g.away_team == team
-    ]
-
     rng = random.Random()
-    impact_scores: list[tuple[str, float]] = []
 
-    for game in relevant_games:
-        # Estimate probability with forced win
-        prob_if_win = _estimate_prob_forced(
-            team, game, "win", all_games, games_to_simulate,
-            strengths, impact_iterations, tie_probability, noise, rng,
-        )
-        # Estimate probability with forced loss
-        prob_if_lose = _estimate_prob_forced(
-            team, game, "lose", all_games, games_to_simulate,
-            strengths, impact_iterations, tie_probability, noise, rng,
-        )
-        impact = abs(prob_if_win - prob_if_lose)
-        impact_scores.append((game.game_id, impact))
-
-    impact_scores.sort(key=lambda x: x[1], reverse=True)
-    return impact_scores[:5]
+    prob_if_win = _estimate_prob_forced(
+        team, game, "win", all_games, games_to_simulate,
+        strengths, impact_iterations, tie_probability, noise, rng,
+    )
+    prob_if_lose = _estimate_prob_forced(
+        team, game, "lose", all_games, games_to_simulate,
+        strengths, impact_iterations, tie_probability, noise, rng,
+    )
+    return (team, game.game_id, abs(prob_if_win - prob_if_lose))
 
 
 def _estimate_prob_forced(
@@ -670,7 +672,12 @@ class Simulator:
         self._config = config or SimulationConfig()
         self._strength_calculator = TeamStrengthCalculator()
 
-    def run(self, all_games: list[Game]) -> SimulationResult:
+    def run(
+        self,
+        all_games: list[Game],
+        progress_callback: Callable[[str, int, int], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> SimulationResult:
         """Run the Monte Carlo simulation.
 
         Partitions games by cutoff_week:
@@ -686,10 +693,35 @@ class Simulator:
 
         Args:
             all_games: Complete list of games for the season.
+            progress_callback: Optional callback(phase, done, total) invoked
+                as work completes, for callers that want to surface progress
+                (e.g. a background job polled over HTTP). Best-effort: phases
+                with little internal parallelism (single-worker runs) may
+                only report once at completion.
+            cancel_check: Optional callback returning True once the caller
+                wants the run stopped. Checked at a handful of safe points
+                between units of work (never mid-batch) — cooperative and
+                best-effort, not instant: already-dispatched worker batches
+                are allowed to finish rather than being killed outright.
+                Raises SimulationCancelled when honored.
 
         Returns:
             SimulationResult with probabilities and scenario data.
+
+        Raises:
+            SimulationCancelled: If cancel_check() reports cancellation at
+                one of the checkpoints.
         """
+        def _check_cancel() -> None:
+            if cancel_check is not None and cancel_check():
+                raise SimulationCancelled()
+
+        def _report(phase: str, done: int, total: int) -> None:
+            if progress_callback is not None:
+                progress_callback(phase, done, total)
+
+        _check_cancel()
+
         # Determine cutoff week
         cutoff_week = self._determine_cutoff_week(all_games)
 
@@ -705,6 +737,8 @@ class Simulator:
             if team not in strengths:
                 strengths[team] = 1.0
 
+        _check_cancel()
+
         iterations = self._config.iterations
 
         # Determine number of workers
@@ -715,6 +749,7 @@ class Simulator:
 
         if num_workers <= 1:
             # Single-process execution (no multiprocessing overhead)
+            _report("Simulating games", 0, 1)
             batch_result = _run_trial_batch(
                 all_games=all_games,
                 games_to_simulate=games_to_simulate,
@@ -728,6 +763,7 @@ class Simulator:
             seed_counts = batch_result["seed_counts"]
             division_champion_counts = batch_result["division_champion_counts"]
             scenario_tracker = batch_result["scenario_tracker"]
+            _report("Simulating games", 1, 1)
         else:
             # Parallel execution across multiple worker processes
             logger.info(
@@ -745,14 +781,26 @@ class Simulator:
                 for batch_size, seed in zip(batch_sizes, seeds)
             ]
 
+            cancelled = False
             try:
                 with ProcessPoolExecutor(max_workers=num_workers, mp_context=_mp_context) as pool:
-                    batch_results = list(pool.map(_run_trial_batch_wrapper, batch_args))
+                    futures = [pool.submit(_run_trial_batch_wrapper, args) for args in batch_args]
+                    batch_results = []
+                    _report("Simulating games", 0, len(futures))
+                    for future in as_completed(futures):
+                        batch_results.append(future.result())
+                        _report("Simulating games", len(batch_results), len(futures))
+                        if cancel_check is not None and cancel_check():
+                            pool.shutdown(wait=False, cancel_futures=True)
+                            cancelled = True
+                            break
             except Exception as e:
                 raise RuntimeError(
                     f"Parallel simulation failed: {e}. "
                     f"Try running with num_workers=1 to disable parallelism."
                 ) from e
+            if cancelled:
+                raise SimulationCancelled()
 
             # Merge results from all workers
             playoff_counts, seed_counts, division_champion_counts, scenario_tracker = (
@@ -776,6 +824,8 @@ class Simulator:
         if num_workers is None:
             num_workers = os.cpu_count() or 1
 
+        _check_cancel()
+
         self._compute_all_impact_games(
             team_results,
             all_games,
@@ -784,6 +834,8 @@ class Simulator:
             strengths,
             iterations,
             num_workers,
+            progress_callback=progress_callback,
+            cancel_check=cancel_check,
         )
         t_impact_elapsed = _time.perf_counter() - t_impact_start
         logger.info("Impact games computation took %.2fs", t_impact_elapsed)
@@ -1104,6 +1156,8 @@ class Simulator:
         strengths: dict[str, float],
         iterations: int,
         num_workers: int = 1,
+        progress_callback: Callable[[str, int, int], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> None:
         """Compute impact games for each team.
 
@@ -1112,7 +1166,10 @@ class Simulator:
         "team wins" and "team loses" scenarios.
 
         This is an approximation using a smaller sample size for efficiency.
-        When num_workers > 1, teams are processed in parallel.
+        Work is dispatched per (team, game) pair rather than per team, so
+        parallel workers stay evenly loaded even when some teams have far
+        more remaining games than others (e.g. early season, before any
+        team is eliminated or has a bye).
 
         Args:
             team_results: Current team results (modified in place).
@@ -1122,47 +1179,96 @@ class Simulator:
             strengths: Team strength ratings.
             iterations: Total iterations for the main simulation.
             num_workers: Number of parallel workers to use.
+            progress_callback: See Simulator.run().
+            cancel_check: See Simulator.run(). Checked after each (team,
+                game) pair completes (parallel) or each team completes
+                (sequential fallback); raises SimulationCancelled when
+                honored.
+
+        Raises:
+            SimulationCancelled: If cancel_check() reports cancellation.
         """
         from src.nfl_teams import ALL_TEAMS
 
-        # Use a reduced iteration count for impact analysis (for performance)
-        impact_iterations = min(200, iterations)
+        def _report(done: int, total: int) -> None:
+            if progress_callback is not None:
+                progress_callback("Ranking impact games", done, total)
 
-        # Collect teams that have relevant games
-        teams_with_games = []
+        # Reduced iteration count for impact analysis. This is already an
+        # approximation used only to rank a team's top 5 games, not to
+        # report precise probabilities, and its cost multiplies by (teams
+        # with games remaining) x (games per team) x 2 forced outcomes --
+        # capping it low matters far more here than for the main
+        # simulation's own iteration count.
+        impact_iterations = min(50, iterations)
+
+        # Collect teams that still have relevant games AND aren't already
+        # a unanimous result in the main simulation -- forcing any one
+        # remaining game's outcome isn't going to move a probability that
+        # was exactly 0% or 100% across `iterations` real trials.
+        teams_with_games: list[tuple[str, list[Game]]] = []
         for team in ALL_TEAMS:
+            if team_results[team].playoff_probability in (0.0, 1.0):
+                continue
             relevant_games = [
                 g for g in games_to_simulate
                 if g.home_team == team or g.away_team == team
             ]
             if relevant_games:
-                teams_with_games.append(team)
+                teams_with_games.append((team, relevant_games))
 
         if not teams_with_games:
             return
 
-        if num_workers <= 1 or len(teams_with_games) < 2:
-            # Single-process: compute sequentially
-            for team in teams_with_games:
+        total_pairs = sum(len(games) for _, games in teams_with_games)
+
+        if num_workers <= 1 or total_pairs < 2:
+            # Single-process: compute sequentially, one team at a time
+            done = 0
+            _report(done, len(teams_with_games))
+            for team, _ in teams_with_games:
                 impact_scores = self._compute_team_impact(
                     team, all_games, games_to_simulate, strengths, impact_iterations
                 )
                 team_results[team].impact_games = impact_scores
+                done += 1
+                _report(done, len(teams_with_games))
+                if cancel_check is not None and cancel_check():
+                    raise SimulationCancelled()
         else:
-            # Parallel: distribute teams across workers
-            args_list = [
-                (team, all_games, games_to_simulate, strengths, impact_iterations,
-                 self._config.tie_probability, self._config.noise)
-                for team in teams_with_games
+            # Parallel: flat (team, game) work units, not one unit per team
+            pair_args = [
+                (team, game, all_games, games_to_simulate, strengths,
+                 impact_iterations, self._config.tie_probability, self._config.noise)
+                for team, relevant_games in teams_with_games
+                for game in relevant_games
             ]
+            cancelled = False
             try:
                 with ProcessPoolExecutor(max_workers=num_workers, mp_context=_mp_context) as pool:
-                    results = list(pool.map(_compute_team_impact_worker, args_list))
-                for team, impact_scores in zip(teams_with_games, results):
-                    team_results[team].impact_games = impact_scores
+                    futures = [pool.submit(_compute_game_impact_worker, args) for args in pair_args]
+                    impact_by_team: dict[str, list[tuple[str, float]]] = {}
+                    done = 0
+                    _report(done, len(futures))
+                    for future in as_completed(futures):
+                        team, game_id, impact = future.result()
+                        impact_by_team.setdefault(team, []).append((game_id, impact))
+                        done += 1
+                        _report(done, len(futures))
+                        if cancel_check is not None and cancel_check():
+                            pool.shutdown(wait=False, cancel_futures=True)
+                            cancelled = True
+                            break
+                if cancelled:
+                    raise SimulationCancelled()
+                for team, scores in impact_by_team.items():
+                    scores.sort(key=lambda x: x[1], reverse=True)
+                    team_results[team].impact_games = scores[:5]
+            except SimulationCancelled:
+                raise
             except Exception as e:
                 logger.warning("Parallel impact computation failed (%s), falling back to sequential", e)
-                for team in teams_with_games:
+                for team, _ in teams_with_games:
                     impact_scores = self._compute_team_impact(
                         team, all_games, games_to_simulate, strengths, impact_iterations
                     )

@@ -267,7 +267,7 @@ Returns season-wide statistics computed from completed games.
 
 ### `POST /api/simulate`
 
-Runs a Monte Carlo simulation with the given parameters.
+Starts a Monte Carlo simulation as a background job and returns immediately — a run can take from well under a second up to several minutes (dominated by the "impact games" ranking step; see "Cutoff Week" and the CHANGELOG for why), so it doesn't block the request. Poll `GET /api/simulate/status/{job_id}` for progress and the eventual result, and use `POST /api/simulate/cancel/{job_id}` to request a best-effort stop.
 
 **Request body:**
 
@@ -289,38 +289,85 @@ Runs a Monte Carlo simulation with the given parameters.
 | `tie_probability` | float | empirical estimate, or 0.005 | 0.0 - 1.0; per-game tie probability. When omitted, resolved from historical data — see `default_tie_probability` on `GET /api/status` above and "Tie probability estimation" in [Algorithms](algorithms.md). |
 | `num_workers` | int | CPU count | >= 1 |
 
-**Prerequisite:** Data must be fetched first (`POST /api/fetch-data`), otherwise returns `409`.
+**Prerequisite:** Data must be fetched first (`POST /api/fetch-data`), otherwise returns `409`. Invalid parameters (out-of-range `iterations`/`cutoff_week`/`noise`/`num_workers`/`tie_probability`) are still rejected synchronously with `400` — no job is created.
+
+**Response** (`202 Accepted`):
+
+```json
+{ "job_id": "620725018fa640d5896fe1e1660c7222", "status": "running" }
+```
+
+---
+
+### `GET /api/simulate/status/{job_id}`
+
+Polls a background simulation job started by `POST /api/simulate`.
+
+**Response while running:**
+
+```json
+{
+  "job_id": "620725018fa640d5896fe1e1660c7222",
+  "status": "running",
+  "phase": "Ranking impact games",
+  "progress_done": 15,
+  "progress_total": 540
+}
+```
+
+`phase` is one of `"Simulating games"` or `"Ranking impact games"` (the two internal stages of a run — see "Cutoff Week" / impact-games in [Algorithms](algorithms.md)); `progress_done`/`progress_total` count completed work units within the current phase (worker batches for the first phase, individual (team, game) impact pairs for the second) and reset across phases.
+
+**Response once terminal** — `status` is `"completed"`, `"cancelled"`, or `"failed"`:
+
+```json
+{
+  "job_id": "620725018fa640d5896fe1e1660c7222",
+  "status": "completed",
+  "phase": "Ranking impact games",
+  "progress_done": 540,
+  "progress_total": 540,
+  "result": {
+    "team_results": [
+      {
+        "team": "Bills",
+        "conference": "AFC",
+        "division": "East",
+        "record": "13-3-0",
+        "playoff_probability": 99.8,
+        "seed_probabilities": { "1": 15.2, "2": 52.1, "3": 20.3, "4": 8.1, "5": 3.0, "6": 1.1, "7": 0.0 },
+        "strength_rating": 1.4213
+      }
+    ],
+    "top_scenarios": [
+      {
+        "afc_seeds": ["Chiefs", "Bills", "Ravens", "Texans", "Steelers", "Chargers", "Broncos"],
+        "nfc_seeds": ["Lions", "Eagles", "Falcons", "Packers", "Vikings", "Commanders", "Buccaneers"],
+        "probability": 2.34
+      }
+    ],
+    "iterations_run": 10000,
+    "cutoff_week_used": 16,
+    "low_confidence": false,
+    "convergence_achieved": true,
+    "team_strengths": { "Bills": 1.4213, "Chiefs": 1.3891, "...": "..." },
+    "fixed_games": 240,
+    "simulated_games": 32
+  }
+}
+```
+
+`status: "failed"` carries an `error` string (same message a synchronous `400`/`500` would have used) instead of `result`. `status: "cancelled"` carries neither. A `job_id` that never existed or has aged out of the server's in-memory job registry (jobs are pruned 10 minutes after finishing; still-running jobs are never pruned) returns `404`.
+
+---
+
+### `POST /api/simulate/cancel/{job_id}`
+
+Requests a best-effort stop of a running simulation job. Already-dispatched worker batches (main simulation) or in-flight impact-game calculations finish rather than being killed outright, so the job's `status` may still read `"running"` for a moment after this call returns — keep polling `GET /api/simulate/status/{job_id}` until it settles to `"cancelled"`. A no-op (still returns `200`) if the job has already reached a terminal state.
 
 **Response:**
 
 ```json
-{
-  "team_results": [
-    {
-      "team": "Bills",
-      "conference": "AFC",
-      "division": "East",
-      "record": "13-3-0",
-      "playoff_probability": 99.8,
-      "seed_probabilities": { "1": 15.2, "2": 52.1, "3": 20.3, "4": 8.1, "5": 3.0, "6": 1.1, "7": 0.0 },
-      "strength_rating": 1.4213
-    }
-  ],
-  "top_scenarios": [
-    {
-      "afc_seeds": ["Chiefs", "Bills", "Ravens", "Texans", "Steelers", "Chargers", "Broncos"],
-      "nfc_seeds": ["Lions", "Eagles", "Falcons", "Packers", "Vikings", "Commanders", "Buccaneers"],
-      "probability": 2.34
-    }
-  ],
-  "iterations_run": 10000,
-  "cutoff_week_used": 16,
-  "low_confidence": false,
-  "convergence_achieved": true,
-  "team_strengths": { "Bills": 1.4213, "Chiefs": 1.3891, "...": "..." },
-  "fixed_games": 240,
-  "simulated_games": 32
-}
+{ "job_id": "620725018fa640d5896fe1e1660c7222", "status": "running" }
 ```
 
 ---
