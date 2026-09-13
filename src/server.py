@@ -395,6 +395,12 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             season_weeks = derive_season_weeks(games)
             expected_total = expected_total_games(season_weeks)
 
+            # Auto-detected cutoff week (highest week with >=1 completed
+            # game) — what an omitted cutoff_week on /api/simulate would
+            # actually resolve to; distinct from weeks_completed (count of
+            # *fully* completed weeks), which is a separate stat.
+            auto_cutoff_week = _auto_detect_cutoff_week(games)
+
             # Default tie probability the frontend should seed its slider
             # with (empirical estimate if enough data exists, else the
             # hardcoded default) — mirrors what an omitted tie_probability
@@ -402,7 +408,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             default_tie_probability = resolve_tie_probability(
                 self._resolve_prior_ties_pool(server),
                 games,
-                _auto_detect_cutoff_week(games),
+                auto_cutoff_week,
             )
 
             response = {
@@ -420,6 +426,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 "weeks_completed": weeks_completed,
                 "weeks_with_games": weeks_with_games,
                 "games_per_week": games_per_week,
+                "completed_per_week": completed_per_week,
+                "auto_cutoff_week": auto_cutoff_week,
                 "cpu_count": os.cpu_count() or 1,
                 "default_tie_probability": default_tie_probability,
             }
@@ -576,17 +584,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
 
         # Auto-detect cutoff_week if omitted
         if cutoff_week is None:
-            week_counts: dict[int, int] = {}
-            week_completed: dict[int, int] = {}
-            for g in games:
-                week_counts[g.week] = week_counts.get(g.week, 0) + 1
-                if g.status == GameStatus.COMPLETED:
-                    week_completed[g.week] = week_completed.get(g.week, 0) + 1
-            completed_weeks = set()
-            for w in week_counts:
-                if week_completed.get(w, 0) == week_counts[w]:
-                    completed_weeks.add(w)
-            cutoff_week = max(completed_weeks) if completed_weeks else 1
+            cutoff_week = _auto_detect_cutoff_week(games)
 
         # Check cache
         cached_result = server.cache.get_cp_result(team, cutoff_week, server.season_year)
@@ -707,17 +705,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
 
         # Auto-detect cutoff_week if omitted
         if cutoff_week is None:
-            week_counts: dict[int, int] = {}
-            week_completed: dict[int, int] = {}
-            for g in games:
-                week_counts[g.week] = week_counts.get(g.week, 0) + 1
-                if g.status == GameStatus.COMPLETED:
-                    week_completed[g.week] = week_completed.get(g.week, 0) + 1
-            completed_weeks = set()
-            for w in week_counts:
-                if week_completed.get(w, 0) == week_counts[w]:
-                    completed_weeks.add(w)
-            cutoff_week = max(completed_weeks) if completed_weeks else 1
+            cutoff_week = _auto_detect_cutoff_week(games)
 
         # Check cache first — only solve teams without cached results
         try:
@@ -815,18 +803,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             except ValueError:
                 cutoff_week = 0
         else:
-            # Auto-detect: latest fully completed week
-            completed_weeks = set()
-            week_counts: dict[int, int] = {}
-            week_completed: dict[int, int] = {}
-            for g in games:
-                week_counts[g.week] = week_counts.get(g.week, 0) + 1
-                if g.status == GameStatus.COMPLETED:
-                    week_completed[g.week] = week_completed.get(g.week, 0) + 1
-            for w in week_counts:
-                if week_completed.get(w, 0) == week_counts[w]:
-                    completed_weeks.add(w)
-            cutoff_week = max(completed_weeks) if completed_weeks else 0
+            cutoff_week = _auto_detect_cutoff_week(games)
 
         from src.clinching import estimate_clinching
         result = estimate_clinching(team, games, cutoff_week, cache=server.cache)
@@ -961,18 +938,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
         # Use cutoff_week from body if provided, otherwise auto-detect
         cutoff_week = body.get("cutoff_week")
         if cutoff_week is None:
-            # Auto-detect: latest fully completed week
-            week_counts: dict[int, int] = {}
-            week_completed: dict[int, int] = {}
-            for g in games:
-                week_counts[g.week] = week_counts.get(g.week, 0) + 1
-                if g.status == GameStatus.COMPLETED:
-                    week_completed[g.week] = week_completed.get(g.week, 0) + 1
-            completed_weeks = set()
-            for w in week_counts:
-                if week_completed.get(w, 0) == week_counts[w]:
-                    completed_weeks.add(w)
-            cutoff_week = max(completed_weeks) if completed_weeks else 0
+            cutoff_week = _auto_detect_cutoff_week(games)
 
         from src.clinching import compute_clinching_scenarios, min_cutoff_week_for_clinching
 

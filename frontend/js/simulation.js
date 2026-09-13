@@ -341,13 +341,19 @@ function _wireSimulationHeaderCard(status) {
   }
 
   const gamesPerWeek = (status && status.games_per_week) || {};
+  const completedPerWeek = (status && status.completed_per_week) || {};
 
   function updateTotal() {
     const iters = parseInt(iterInput.value, 10) || 10000;
-    const cutoff = cutoffSel.value ? parseInt(cutoffSel.value, 10) : ((status && status.season_weeks) || 18);
+    const cutoff = cutoffSel.value ? parseInt(cutoffSel.value, 10) : ((status && status.auto_cutoff_week) || 0);
     let gamesToSim = 0;
     for (const [wk, cnt] of Object.entries(gamesPerWeek)) {
-      if (parseInt(wk, 10) > cutoff) gamesToSim += cnt;
+      const week = parseInt(wk, 10);
+      if (week > cutoff) {
+        gamesToSim += cnt;
+      } else {
+        gamesToSim += cnt - (completedPerWeek[wk] || 0);
+      }
     }
     if (gamesToSim > 0) {
       totalEl.textContent = gamesToSim + ' games × ' + iters.toLocaleString() + ' iterations = ' + (gamesToSim * iters).toLocaleString() + ' game simulations';

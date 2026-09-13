@@ -78,6 +78,20 @@ Ratings are normalized so the average across all teams is 1.0. A rating of 1.5 m
 
 ---
 
+## Cutoff Week
+
+`cutoff_week` is the boundary between "real results" and "simulated outcomes": for a given request, `_partition_games` (`src/simulator.py`) fixes every game in week 1..`cutoff_week` whose status is `COMPLETED` to its real result, and simulates everything else — games not yet decided within those weeks, plus every game in a week beyond `cutoff_week` regardless of status. This is a per-game check, not a per-week one: a cutoff week can be (and usually is) only partially played, and the games in it that already happened are still used as real results.
+
+### Auto-detection
+
+When a request omits `cutoff_week`, `_auto_detect_cutoff_week` (`src/simulator.py`) resolves it to **the highest week number containing at least one `COMPLETED` game** (0 if none has completed yet). It doesn't require the whole week to be finished — the per-game partitioning above already handles a mixed week correctly, so auto-detection just needs to reach that week at all. This is what lets a single already-decided week-1 game feed into that week's simulation immediately, rather than being ignored until all of that week's games are final.
+
+This is the single shared implementation used everywhere a cutoff needs to be auto-detected: the simulator itself, and the `GET /api/cp-clinch/{team}`, `GET /api/cp-clinch-all`, `GET /api/clinch-estimate`, and `POST /api/clinching-scenarios` endpoints when they're called without an explicit `cutoff_week`.
+
+`GET /api/status` exposes this resolved value as `auto_cutoff_week`, plus a `completed_per_week` breakdown (completed-game count per week) — together these let the frontend show what "Auto" will actually simulate at, and preview exactly how many games that implies, without duplicating the auto-detection logic itself. This is distinct from `weeks_completed` (a count of weeks that are *entirely* finished), which is a separate, coarser stat.
+
+---
+
 ## Tie Probability Estimation
 
 Each simulated game is a strength-weighted win/loss draw (see `_simulate_game_standalone` in `src/simulator.py`) — the model has no notion of a score margin, so a tie can't fall out of it on its own. A small slice of the random roll is reserved for "tie" before the win/loss split is computed, controlled by `tie_probability`.

@@ -134,7 +134,14 @@ class SimulationConfig:
 
 
 def _auto_detect_cutoff_week(games: list[Game]) -> int:
-    """Find the latest week where ALL games are completed.
+    """Find the latest week that has at least one completed game.
+
+    A week doesn't need to be *fully* complete to anchor the cutoff —
+    _partition_games already fixes completed games and simulates the rest on
+    a per-game basis, so once any game in a week is decided, that week (and
+    everything before it) is fair game for the cutoff. This is what lets a
+    single already-played week-1 game feed into the very next simulation
+    instead of being ignored until the entire week finishes.
 
     Shared by Simulator._determine_cutoff_week and by server.py, which needs
     the same resolved cutoff_week (before a Simulator exists) to compute the
@@ -145,13 +152,10 @@ def _auto_detect_cutoff_week(games: list[Game]) -> int:
         games: All games in the season.
 
     Returns:
-        The cutoff week number (0-18). 0 if no week is fully complete.
+        The cutoff week number (0-18). 0 if no game has completed yet.
     """
-    for week in range(18, 0, -1):
-        week_games = [g for g in games if g.week == week]
-        if week_games and all(g.status == GameStatus.COMPLETED for g in week_games):
-            return week
-    return 0
+    completed_weeks = [g.week for g in games if g.status == GameStatus.COMPLETED]
+    return max(completed_weeks, default=0)
 
 
 def compute_prior_seasons_tie_pool(cache: Cache, exclude_season: int) -> tuple[int, int, int]:

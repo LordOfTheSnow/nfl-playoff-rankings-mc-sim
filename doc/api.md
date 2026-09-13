@@ -28,12 +28,16 @@ Returns the current cache status.
   "weeks_completed": 15,
   "weeks_with_games": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
   "games_per_week": {"1": 16, "2": 16, "...": "..."},
+  "completed_per_week": {"1": 16, "2": 16, "...": "..."},
+  "auto_cutoff_week": 15,
   "cpu_count": 12,
   "default_tie_probability": 0.0043
 }
 ```
 
 `season_weeks` and `expected_total` are derived from the loaded schedule's highest cached week number, not a hardcoded constant — pre-2021 seasons (16 games/17 weeks) report `season_weeks: 17`/`expected_total: 256` rather than the modern 18/272. Both are `null` if no data has been fetched yet for the active season (the shape genuinely can't be known before then).
+
+`auto_cutoff_week` is what a request that omits `cutoff_week` would actually resolve it to — the highest week with at least one completed game (0 if none yet). This is *not* the same as `weeks_completed` (a count of weeks that are entirely finished): a week can be the auto-detected cutoff while only partially played, since fixed/simulated status is resolved per game, not per week. See "Cutoff Week" under [Algorithms](algorithms.md). `completed_per_week` (completed-game count per week, alongside `games_per_week`'s totals) lets a caller compute exactly how many games would be simulated at any candidate cutoff, including a partially-played one.
 
 `default_tie_probability` is the tie probability `/api/simulate`/`/api/clinching-scenarios` would use if the request omits `tie_probability` — an empirical estimate (ties ÷ games pooled across every complete prior season plus the active season's own completed games through its auto-detected cutoff) once at least 2 complete prior seasons are cached, otherwise the hardcoded 0.005 default. The frontend seeds the Tie Probability slider from this value. See "Tie probability estimation" under [Algorithms](algorithms.md).
 
@@ -408,7 +412,7 @@ Preflight estimate for clinching scenarios — returns the problem size without 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `team` | string | yes | Team name (e.g., `Bills`) |
-| `cutoff_week` | int | no | Defaults to latest completed week |
+| `cutoff_week` | int | no | Defaults to the auto-detected cutoff — see "Cutoff Week" in [Algorithms](algorithms.md) |
 
 **Response:**
 
