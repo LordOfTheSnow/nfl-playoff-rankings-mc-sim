@@ -11,6 +11,7 @@
  *   #simulate       — Redirects to #simulations (legacy alias)
  *   #results        — Redirects to #simulations (legacy alias)
  *   #simulations    — Simulation setup + results (owns the sim controls)
+ *   #export         — Export current data to standalone HTML
  *   #settings       — Settings / Info (database & runtime environment)
  *
  * Requirements: 11.3, 11.4, 11.6
@@ -129,7 +130,7 @@ const App = (() => {
     }
 
     // Known routes
-    const knownRoutes = ["standings", "simulate", "results", "simulations", "statistics", "schedule-grid", "settings"];
+    const knownRoutes = ["standings", "simulate", "results", "simulations", "statistics", "schedule-grid", "export", "settings"];
     if (knownRoutes.includes(hash)) {
       return { view: hash, param: null };
     }
@@ -211,6 +212,12 @@ const App = (() => {
         case "simulations":
           if (typeof renderSimulations === "function") {
             await renderSimulations(contentEl);
+          }
+          break;
+
+        case "export":
+          if (typeof renderExport === "function") {
+            await renderExport(contentEl);
           }
           break;
 

@@ -2,7 +2,7 @@
 
 [← Back to README](../README.md)
 
-All endpoints are served from a single HTTP server (default port 8080). Responses are JSON.
+All endpoints are served from a single HTTP server (default port 8080). Responses are JSON, except the HTML Export endpoints below, which return HTML or a ZIP file.
 
 ---
 
@@ -551,6 +551,62 @@ Computes all minimal game-outcome sets that guarantee a team a playoff spot.
   "contenders": ["Lions", "Vikings", "Packers", "Bears", "Commanders"]
 }
 ```
+
+---
+
+## HTML Export
+
+Generates standalone HTML (no server or JavaScript required to view) of the
+current Standings, Statistics, Schedule Grid, and Simulation results, in the
+same "Modernist" design system as the live app. Simulation results only live
+in server memory for a few minutes per job (see `POST /api/simulate` /
+`GET /api/simulate/status/{job_id}`), so both endpoints take the
+already-fetched simulation result as part of the request body instead of
+looking one up server-side — if omitted, the Simulation section is left out
+of the export (this is not an error).
+
+### `POST /api/export/page`
+
+Renders a single, self-contained HTML page (inline CSS) with Standings,
+Statistics, Schedule Grid, and Simulation (if supplied). Team names are
+plain text — this mode has no per-team pages/links, to keep the page a
+manageable size.
+
+**Request body:**
+
+```json
+{
+  "simulation_result": { "...": "the result object from GET /api/simulate/status/{job_id}, or null" },
+  "cutoff_week": 10
+}
+```
+
+| Field | Type | Default | Constraints |
+|---|---|---|---|
+| `simulation_result` | object \| null | null | The `result` object from a completed simulation job. Validated defensively; a malformed value is treated the same as `null` (Simulation section omitted) rather than causing an error. |
+| `cutoff_week` | int \| null | null (full season) | Applied to the Standings section, matching `GET /api/standings`'s `cutoff_week` query param, and shown as the "Week N cutoff" (vs. "Auto cutoff") title on the Simulation section's Season data card. |
+
+**Response:** `200 text/html; charset=utf-8` — the full HTML document.
+
+If `simulation_result` was supplied, the Simulation section also includes the same "Season data" card and "N games × M iterations = total game simulations" line shown on the live Simulations page header (from `GET /api/status`, fetched fresh at export time — not part of the request body).
+
+**Errors:** `400` invalid JSON body; `409` no cached data for the active season (fetch data first).
+
+### `POST /api/export/bundle`
+
+Same request body as `POST /api/export/page`. Renders a ZIP archive containing:
+
+- `index.html` — links to the section pages below plus a directory of all 32 teams.
+- `standings.html`, `statistics.html`, `schedule-grid.html` — one page per section.
+- `simulations.html` — included only when `simulation_result` was supplied.
+- `team-<slug>.html` — one per team (record, division/conference, standings row, full schedule, and simulation probabilities if available). `<slug>` is the team name lowercased (e.g. `team-chiefs.html`, `team-49ers.html`).
+- `styles.css` — shared by every page above.
+
+Every team name anywhere in the bundle links to that team's page.
+
+**Response:** `200 application/zip`, `Content-Disposition: attachment; filename="nfl-export-<season>.zip"`.
+
+**Errors:** `400` invalid JSON body; `409` no cached data for the active season (fetch data first).
 
 ---
 

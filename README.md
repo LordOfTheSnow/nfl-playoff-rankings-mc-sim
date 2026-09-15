@@ -25,6 +25,7 @@ A web application that predicts NFL playoff probabilities using Monte Carlo simu
 - League-wide schedule grid showing all 32 teams x the season's full week range with scores, bye weeks, and postponed/canceled games
 - Statistics page: game-outcome rates (home/away/tie/overtime/one-score), score margin distribution, and longest winning/losing streaks
 - Simulation results: playoff probabilities, seeding matrix, top scenarios
+- HTML export: save the current Standings, Statistics, Schedule Grid, and Simulation results as a standalone HTML page, or a ZIP bundle with an index and one page per team
 - Clinching scenarios solver: find all game-outcome combinations that guarantee a playoff spot (available once 4 weeks remain before the season ends — week 14 for an 18-week season)
 - CP-SAT constraint solver for mathematical clinching/elimination detection using Google OR-Tools (provably correct, available from week 1)
 - Solver performance export: one-click export of timing benchmarks to `doc/solver-performance.md`
