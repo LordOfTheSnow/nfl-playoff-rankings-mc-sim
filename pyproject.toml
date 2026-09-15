@@ -1,6 +1,6 @@
 [project]
 name = "nfl-monte-carlo-simulator"
-version = "1.0.2"
+version = "1.0.3"
 description = "Monte Carlo NFL Playoff Simulator"
 requires-python = ">=3.11"
 dependencies = [
