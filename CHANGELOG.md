@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.3] - 2026-09-15 — Standings/statistics fixes and background simulation jobs
+## [1.0.3] - 2026-09-15
 
 ### Fixed
 - Division standings could rank a team that had played and lost every game (e.g. 0-1) ahead of teams that hadn't played yet (0-0) in the same division — including marking it division champion and giving it a playoff seed — because both compute to the same 0.0% win percentage, and the early-season strength-of-schedule tiebreaker step treated that as a real, resolvable tie based on a single game. `standings.py`'s tiebreaker grouping (`_sort_with_tiebreakers`) and its `games_behind` leader selection (`_compute_games_behind`) now treat "hasn't played" separately from "played and winless" instead of running the full tiebreaker cascade across both; the same fix was applied to `server.py`'s separate display-only tiebreaker sort (`_division_tiebreak_sort`) used by `GET /api/standings`
