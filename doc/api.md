@@ -28,12 +28,16 @@ Returns the current cache status.
   "weeks_completed": 15,
   "weeks_with_games": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
   "games_per_week": {"1": 16, "2": 16, "...": "..."},
+  "completed_per_week": {"1": 16, "2": 16, "...": "..."},
+  "auto_cutoff_week": 15,
   "cpu_count": 12,
   "default_tie_probability": 0.0043
 }
 ```
 
 `season_weeks` and `expected_total` are derived from the loaded schedule's highest cached week number, not a hardcoded constant — pre-2021 seasons (16 games/17 weeks) report `season_weeks: 17`/`expected_total: 256` rather than the modern 18/272. Both are `null` if no data has been fetched yet for the active season (the shape genuinely can't be known before then).
+
+`auto_cutoff_week` is what a request that omits `cutoff_week` would actually resolve it to — the highest week with at least one completed game (0 if none yet). This is *not* the same as `weeks_completed` (a count of weeks that are entirely finished): a week can be the auto-detected cutoff while only partially played, since fixed/simulated status is resolved per game, not per week. See "Cutoff Week" under [Algorithms](algorithms.md). `completed_per_week` (completed-game count per week, alongside `games_per_week`'s totals) lets a caller compute exactly how many games would be simulated at any candidate cutoff, including a partially-played one.
 
 `default_tie_probability` is the tie probability `/api/simulate`/`/api/clinching-scenarios` would use if the request omits `tie_probability` — an empirical estimate (ties ÷ games pooled across every complete prior season plus the active season's own completed games through its auto-detected cutoff) once at least 2 complete prior seasons are cached, otherwise the hardcoded 0.005 default. The frontend seeds the Tie Probability slider from this value. See "Tie probability estimation" under [Algorithms](algorithms.md).
 
@@ -225,18 +229,22 @@ Returns season-wide statistics computed from completed games.
   "overtime_pct": 5.0,
   "one_score_games": 110,
   "one_score_pct": 45.8,
-  "longest_win_streak": {
-    "team": "Lions",
-    "streak": 11,
-    "from_week": 3,
-    "to_week": 13
-  },
-  "longest_lose_streak": {
-    "team": "Titans",
-    "streak": 8,
-    "from_week": 2,
-    "to_week": 9
-  },
+  "longest_win_streak": [
+    {
+      "team": "Lions",
+      "streak": 11,
+      "from_week": 3,
+      "to_week": 13
+    }
+  ],
+  "longest_lose_streak": [
+    {
+      "team": "Titans",
+      "streak": 8,
+      "from_week": 2,
+      "to_week": 9
+    }
+  ],
   "margin_distribution": [
     { "label": "Tie", "count": 5, "pct": 2.1 },
     { "label": "1–3", "count": 38, "pct": 15.8 },
@@ -251,13 +259,15 @@ Returns season-wide statistics computed from completed games.
 
 `margin_distribution` buckets every completed game by point differential (`Tie` = 0, then 1–3, 4–8, 9–13, 14–20, 21–27, 28+), each entry's `pct` relative to `total_games`.
 
+`longest_win_streak`/`longest_lose_streak` are arrays rather than a single object because multiple teams can be tied for the longest streak (e.g. early in the season, when several teams share a 1-game streak) — each entry keeps its own `from_week`/`to_week` since tied teams don't necessarily share the same week range. Both are empty arrays when no completed games exist.
+
 ---
 
 ## Simulation
 
 ### `POST /api/simulate`
 
-Runs a Monte Carlo simulation with the given parameters.
+Starts a Monte Carlo simulation as a background job and returns immediately — a run can take from well under a second up to several minutes (dominated by the "impact games" ranking step; see "Cutoff Week" and the CHANGELOG for why), so it doesn't block the request. Poll `GET /api/simulate/status/{job_id}` for progress and the eventual result, and use `POST /api/simulate/cancel/{job_id}` to request a best-effort stop.
 
 **Request body:**
 
@@ -279,38 +289,85 @@ Runs a Monte Carlo simulation with the given parameters.
 | `tie_probability` | float | empirical estimate, or 0.005 | 0.0 - 1.0; per-game tie probability. When omitted, resolved from historical data — see `default_tie_probability` on `GET /api/status` above and "Tie probability estimation" in [Algorithms](algorithms.md). |
 | `num_workers` | int | CPU count | >= 1 |
 
-**Prerequisite:** Data must be fetched first (`POST /api/fetch-data`), otherwise returns `409`.
+**Prerequisite:** Data must be fetched first (`POST /api/fetch-data`), otherwise returns `409`. Invalid parameters (out-of-range `iterations`/`cutoff_week`/`noise`/`num_workers`/`tie_probability`) are still rejected synchronously with `400` — no job is created.
+
+**Response** (`202 Accepted`):
+
+```json
+{ "job_id": "620725018fa640d5896fe1e1660c7222", "status": "running" }
+```
+
+---
+
+### `GET /api/simulate/status/{job_id}`
+
+Polls a background simulation job started by `POST /api/simulate`.
+
+**Response while running:**
+
+```json
+{
+  "job_id": "620725018fa640d5896fe1e1660c7222",
+  "status": "running",
+  "phase": "Ranking impact games",
+  "progress_done": 15,
+  "progress_total": 540
+}
+```
+
+`phase` is one of `"Simulating games"` or `"Ranking impact games"` (the two internal stages of a run — see "Cutoff Week" / impact-games in [Algorithms](algorithms.md)); `progress_done`/`progress_total` count completed work units within the current phase (worker batches for the first phase, individual (team, game) impact pairs for the second) and reset across phases.
+
+**Response once terminal** — `status` is `"completed"`, `"cancelled"`, or `"failed"`:
+
+```json
+{
+  "job_id": "620725018fa640d5896fe1e1660c7222",
+  "status": "completed",
+  "phase": "Ranking impact games",
+  "progress_done": 540,
+  "progress_total": 540,
+  "result": {
+    "team_results": [
+      {
+        "team": "Bills",
+        "conference": "AFC",
+        "division": "East",
+        "record": "13-3-0",
+        "playoff_probability": 99.8,
+        "seed_probabilities": { "1": 15.2, "2": 52.1, "3": 20.3, "4": 8.1, "5": 3.0, "6": 1.1, "7": 0.0 },
+        "strength_rating": 1.4213
+      }
+    ],
+    "top_scenarios": [
+      {
+        "afc_seeds": ["Chiefs", "Bills", "Ravens", "Texans", "Steelers", "Chargers", "Broncos"],
+        "nfc_seeds": ["Lions", "Eagles", "Falcons", "Packers", "Vikings", "Commanders", "Buccaneers"],
+        "probability": 2.34
+      }
+    ],
+    "iterations_run": 10000,
+    "cutoff_week_used": 16,
+    "low_confidence": false,
+    "convergence_achieved": true,
+    "team_strengths": { "Bills": 1.4213, "Chiefs": 1.3891, "...": "..." },
+    "fixed_games": 240,
+    "simulated_games": 32
+  }
+}
+```
+
+`status: "failed"` carries an `error` string (same message a synchronous `400`/`500` would have used) instead of `result`. `status: "cancelled"` carries neither. A `job_id` that never existed or has aged out of the server's in-memory job registry (jobs are pruned 10 minutes after finishing; still-running jobs are never pruned) returns `404`.
+
+---
+
+### `POST /api/simulate/cancel/{job_id}`
+
+Requests a best-effort stop of a running simulation job. Already-dispatched worker batches (main simulation) or in-flight impact-game calculations finish rather than being killed outright, so the job's `status` may still read `"running"` for a moment after this call returns — keep polling `GET /api/simulate/status/{job_id}` until it settles to `"cancelled"`. A no-op (still returns `200`) if the job has already reached a terminal state.
 
 **Response:**
 
 ```json
-{
-  "team_results": [
-    {
-      "team": "Bills",
-      "conference": "AFC",
-      "division": "East",
-      "record": "13-3-0",
-      "playoff_probability": 99.8,
-      "seed_probabilities": { "1": 15.2, "2": 52.1, "3": 20.3, "4": 8.1, "5": 3.0, "6": 1.1, "7": 0.0 },
-      "strength_rating": 1.4213
-    }
-  ],
-  "top_scenarios": [
-    {
-      "afc_seeds": ["Chiefs", "Bills", "Ravens", "Texans", "Steelers", "Chargers", "Broncos"],
-      "nfc_seeds": ["Lions", "Eagles", "Falcons", "Packers", "Vikings", "Commanders", "Buccaneers"],
-      "probability": 2.34
-    }
-  ],
-  "iterations_run": 10000,
-  "cutoff_week_used": 16,
-  "low_confidence": false,
-  "convergence_achieved": true,
-  "team_strengths": { "Bills": 1.4213, "Chiefs": 1.3891, "...": "..." },
-  "fixed_games": 240,
-  "simulated_games": 32
-}
+{ "job_id": "620725018fa640d5896fe1e1660c7222", "status": "running" }
 ```
 
 ---
@@ -402,7 +459,7 @@ Preflight estimate for clinching scenarios — returns the problem size without 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `team` | string | yes | Team name (e.g., `Bills`) |
-| `cutoff_week` | int | no | Defaults to latest completed week |
+| `cutoff_week` | int | no | Defaults to the auto-detected cutoff — see "Cutoff Week" in [Algorithms](algorithms.md) |
 
 **Response:**
 

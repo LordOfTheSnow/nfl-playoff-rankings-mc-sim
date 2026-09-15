@@ -475,13 +475,27 @@ def determine_playoff_bracket(
             if len(group) == 1:
                 result.append(group[0])
             else:
-                # Use break_tie to resolve this group
-                tied_names = [t.team for t in group]
-                ordered_names = break_tie(
-                    tied_names, all_games, simulated_game_ids, context
-                )
-                for name in ordered_names:
-                    result.append(team_lookup[name])
+                # A team that hasn't played yet (0 games) and a team that has
+                # played and lost every game both compute to a 0.0 win_percentage
+                # (see _calculate_win_percentage), but they aren't really tied:
+                # the winless-but-played team has strictly more losses. Comparing
+                # them via H2H/SoS/etc. is meaningless this early (those steps
+                # were designed for teams who've actually played), so rank
+                # not-yet-played teams ahead of played-and-winless teams instead
+                # of running the full tiebreaker cascade across both.
+                unplayed = [t for t in group if (t.wins + t.losses + t.ties) == 0]
+                played = [t for t in group if (t.wins + t.losses + t.ties) > 0]
+
+                for subgroup in (unplayed, played):
+                    if len(subgroup) == 1:
+                        result.append(subgroup[0])
+                    elif len(subgroup) > 1:
+                        tied_names = [t.team for t in subgroup]
+                        ordered_names = break_tie(
+                            tied_names, all_games, simulated_game_ids, context
+                        )
+                        for name in ordered_names:
+                            result.append(team_lookup[name])
 
         return result
 
@@ -593,8 +607,17 @@ def _compute_games_behind(standings: list[TeamStanding]) -> None:
 
     # For each division, find the leader and compute games behind
     for _div_key, div_standings in division_groups.items():
-        # Find the leader (highest win percentage)
-        leader = max(div_standings, key=lambda s: s.win_percentage)
+        # Find the leader: highest win percentage, breaking ties by fewest
+        # games played. This matters early in the season, where a team that
+        # hasn't played yet (0 games, 0.0%) and a team that has played and
+        # lost every game (also 0.0%) otherwise look tied to max() — which
+        # would arbitrarily pick whichever appears first in the input list,
+        # sometimes crowning the winless-but-played team as "leader" and
+        # giving it a nonzero games_behind relative to itself.
+        leader = min(
+            div_standings,
+            key=lambda s: (-s.win_percentage, s.wins + s.losses + s.ties),
+        )
 
         for standing in div_standings:
             standing.games_behind = _calculate_games_behind(

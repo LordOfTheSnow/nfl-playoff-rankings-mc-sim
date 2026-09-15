@@ -53,7 +53,9 @@ beforeAll(() => {
     fetchStatus: () => Promise.resolve({ version: "1.0.0", total_games: 0 }),
     getStandings: () => Promise.resolve({ conferences: {} }),
     fetchData: () => Promise.resolve({ games_fetched: 0 }),
-    runSimulation: () => Promise.resolve({}),
+    startSimulation: () => Promise.resolve({ job_id: "test-job", status: "running" }),
+    getSimulationStatus: () => Promise.resolve({ status: "completed", phase: "", progress_done: 0, progress_total: 0, result: {} }),
+    cancelSimulation: () => Promise.resolve({ job_id: "test-job", status: "cancelled" }),
     fetchCPClinchAll: () => Promise.resolve(null),
   };
 

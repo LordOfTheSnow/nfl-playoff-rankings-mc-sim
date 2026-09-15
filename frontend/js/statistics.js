@@ -127,25 +127,46 @@ function _plainRow(label, value, detail) {
 }
 
 /**
- * Build a ledger row showing a team's logo, name, and streak detail.
+ * Build a ledger row showing the team(s) tied for a streak, with logo,
+ * name, and detail for each — all tied teams share the same streak length,
+ * but each keeps its own week range.
  *
  * @param {string} label - Row label.
- * @param {Object} streak - {team, streak, from_week, to_week}.
+ * @param {Object[]} streaks - Array of {team, streak, from_week, to_week}, one per tied team.
  * @returns {string} HTML string for a single `<tr>`.
  */
-function _streakRow(label, streak) {
-  const logoId = TEAM_LOGO_IDS[streak.team] || "";
-  const logoHtml = logoId ? `<img src="img/logos/${logoId}.png" alt="" width="18" height="18">` : "";
-  const detail = `${streak.streak} games (week ${streak.from_week}–${streak.to_week})`;
-  return `
-    <tr>
-      <td>${_escapeHtml(label)}</td>
-      <td class="mdn-num">
+function _streakRow(label, streaks) {
+  if (!streaks || streaks.length === 0) {
+    return `
+      <tr>
+        <td>${_escapeHtml(label)}</td>
+        <td class="mdn-num"><span class="mdn-hint">No data</span></td>
+      </tr>
+    `;
+  }
+
+  const chips = streaks
+    .map((streak) => {
+      const logoId = TEAM_LOGO_IDS[streak.team] || "";
+      const logoHtml = logoId ? `<img src="img/logos/${logoId}.png" alt="" width="18" height="18">` : "";
+      const detail = `${streak.streak} games (week ${streak.from_week}–${streak.to_week})`;
+      return `
         <span style="display:inline-flex;align-items:center;gap:6px">
           ${logoHtml}
           <a href="#team/${encodeURIComponent(streak.team)}" class="mdn-team-link">${_escapeHtml(streak.team)}</a>
           <span class="mdn-hint">— ${_escapeHtml(detail)}</span>
         </span>
+      `;
+    })
+    .join("");
+
+  return `
+    <tr>
+      <td>${_escapeHtml(label)}</td>
+      <td class="mdn-num">
+        <div style="display:flex;flex-wrap:wrap;gap:6px 10px;justify-content:flex-end">
+          ${chips}
+        </div>
       </td>
     </tr>
   `;
