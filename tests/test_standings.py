@@ -108,6 +108,50 @@ class TestGamesBehind:
         for team in others:
             assert team.games_behind == 0.0
 
+    def test_better_record_is_leader_despite_fewer_games_played(self) -> None:
+        """A 2-0 team, not a 1-0 team, should be picked as the division
+        leader — both are at 1.000%, but the 1-0 team has played (and won)
+        fewer games. Regression test for a bug where the tiebreak used
+        fewest-games-played instead of most-wins, which crowned the team
+        with fewer games as "leader" and gave the actual better record a
+        nonzero (negative-looking) games_behind.
+        """
+        games = [
+            Game(
+                game_id="g1", week=1, date=date(2024, 9, 5),
+                home_team="Bills", away_team="Dolphins",
+                status=GameStatus.COMPLETED,
+                home_score=24, away_score=10,
+                home_points=24, away_points=10,
+                quarter=None, clock=None,
+            ),
+            Game(
+                game_id="g2", week=1, date=date(2024, 9, 8),
+                home_team="Patriots", away_team="Bills",
+                status=GameStatus.COMPLETED,
+                home_score=10, away_score=17,
+                home_points=10, away_points=17,
+                quarter=None, clock=None,
+            ),
+            Game(
+                game_id="g3", week=2, date=date(2024, 9, 15),
+                home_team="Jets", away_team="Dolphins",
+                status=GameStatus.COMPLETED,
+                home_score=20, away_score=13,
+                home_points=20, away_points=13,
+                quarter=None, clock=None,
+            ),
+        ]
+        standings = compute_standings(games)
+
+        bills = next(s for s in standings if s.team == "Bills")
+        jets = next(s for s in standings if s.team == "Jets")
+
+        assert bills.wins == 2 and bills.losses == 0
+        assert jets.wins == 1 and jets.losses == 0
+        assert bills.games_behind == 0.0
+        assert jets.games_behind == 0.5
+
 
 class TestComputeStandings:
     """Tests for the main compute_standings function."""

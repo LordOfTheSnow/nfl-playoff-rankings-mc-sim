@@ -35,12 +35,46 @@ import io
 import zipfile
 from datetime import datetime
 from html import escape
+from importlib.metadata import metadata as _package_metadata
 from typing import Any, Callable
 
 from src.nfl_teams import ALL_TEAMS, get_team_conference, get_team_division
 
 TeamLink = Callable[[str], "str | None"]
 LogoRenderer = Callable[[str, int, int], str]
+
+try:
+    _PROJECT_META = _package_metadata("nfl-monte-carlo-simulator")
+    _PROJECT_NAME = _PROJECT_META["Name"]
+    _PROJECT_VERSION = _PROJECT_META["Version"]
+except Exception:
+    _PROJECT_NAME = "nfl-monte-carlo-simulator"
+    _PROJECT_VERSION = "unknown"
+
+_GITHUB_REPO_URL = "https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim"
+
+# Primer Octicons "mark-github", inlined so the export stays fully
+# self-contained (no external icon fetch needed to render offline).
+_GITHUB_ICON_SVG = (
+    '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" '
+    'style="vertical-align:-2px" aria-hidden="true">'
+    '<path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 '
+    "0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 "
+    "1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 "
+    "0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 "
+    "1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 "
+    '1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>'
+)
+
+_EXPORT_FOOTER = (
+    '<div style="border-top:2px solid var(--mdn-divider);margin-top:32px"></div>'
+    '<p class="mdn-hint" style="margin-top:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
+    f"Created by {escape(_PROJECT_NAME)} v{escape(_PROJECT_VERSION)}. — "
+    f'<a href="{_GITHUB_REPO_URL}" target="_blank" rel="noopener noreferrer" '
+    'style="color:inherit;display:inline-flex;align-items:center;gap:4px">'
+    f"View on GitHub {_GITHUB_ICON_SVG}</a>"
+    "</p>"
+)
 
 _CONFERENCES = ["AFC", "NFC"]
 _DIVISIONS = ["East", "North", "South", "West"]
@@ -151,7 +185,7 @@ def _page_shell(
         f"<title>{escape(title)}</title>"
         f"{_GOOGLE_FONT_LINK}{style_tag}</head>"
         '<body><main class="mdn-container mdn-main"><div class="mdn-page">'
-        f"{body}</div></main></body></html>"
+        f"{body}{_EXPORT_FOOTER}</div></main></body></html>"
     )
 
 
@@ -339,19 +373,15 @@ def _grid_cell(slot: dict[str, Any] | None) -> str:
     at_vs = "@" if not slot["home"] else "vs"
     text = f'{at_vs} {escape(slot["opponent"])}'
     if slot["status"] == "postponed":
-        return f"{text} (PPD)"
+        return f'<div>{text}</div><div class="mdn-hint" style="font-size:10px;font-style:italic">Postponed</div>'
     if slot["status"] == "cancelled":
-        return f"{text} (CNC)"
+        return f'<div>{text}</div><div class="mdn-hint" style="font-size:10px;font-style:italic">Canceled</div>'
     if slot["team_score"] is not None and slot["opponent_score"] is not None:
         if slot["status"] == "completed":
-            if slot["team_score"] > slot["opponent_score"]:
-                result = "W"
-            elif slot["team_score"] < slot["opponent_score"]:
-                result = "L"
-            else:
-                result = "T"
-            return f'{result} {slot["team_score"]}–{slot["opponent_score"]} {text}'
-        return f'{slot["team_score"]}–{slot["opponent_score"]} {text} (live)'
+            sub_label = f'{slot["team_score"]}-{slot["opponent_score"]}'
+        else:
+            sub_label = f'{slot["team_score"]}-{slot["opponent_score"]} (r)'
+        return f'<div>{text}</div><div class="mdn-hint" style="font-size:10px">{sub_label}</div>'
     return text
 
 
@@ -375,11 +405,29 @@ def render_schedule_grid_content(
 # --- Simulation -----------------------------------------------------------
 # Mirrors simulation.js's _renderPlayoffProbabilityTables/_renderSeedingMatrix/
 # _renderTopScenarios: two SEPARATE per-conference tables (not merged), a
-# plain-color probability bar (a simple width% div, not a chart), and the
+# plain-color probability bar (a simple width% div, not a chart), the
 # scenarios list as a native <details> disclosure (works without JS in a
-# static export). The color-tinted seed heatmap (_seedTint) is the one part
-# left as plain percentages — that gradient-per-value coloring is the kind
-# of chart-like visualization the "plain tables only" decision excluded.
+# static export), and the seeding matrix's per-cell tint (_seed_tint mirrors
+# simulation.js's _seedTint exactly, including the mdn-seed-hi white-text
+# class at higher probabilities) so the exported heatmap matches the live one.
+
+def _seed_tint(pct: float) -> tuple[str, bool]:
+    """Background tint + whether text should render light, mirroring
+    simulation.js's _seedTint bucket-for-bucket."""
+    if pct <= 0:
+        return "transparent", False
+    if pct < 15:
+        return "oklch(91% 0.045 55)", False
+    if pct < 30:
+        return "oklch(82% 0.09 48)", False
+    if pct < 45:
+        return "oklch(71% 0.14 40)", False
+    if pct < 60:
+        return "oklch(60% 0.18 32)", True
+    if pct < 80:
+        return "oklch(48% 0.16 26)", True
+    return "oklch(34% 0.10 30)", True
+
 
 def _playoff_probability_bar(pct: float) -> str:
     if pct >= 99.95:
@@ -406,10 +454,18 @@ def _format_fetch_time(raw: str) -> str:
         return raw
 
 
-def _season_data_card(status: dict[str, Any], cutoff_week: int | None) -> str:
+def _season_data_card(
+    status: dict[str, Any], cutoff_week: int | None, sim_total_line: str | None = None
+) -> str:
     """The "Season data" card shared by the live Standings and Simulations
     pages (standings.js's buildSeasonDataCell) — season/cutoff title, the
-    four loaded/completed stat tiles, and the last-fetch timestamp."""
+    four loaded/completed stat tiles, and the last-fetch timestamp.
+
+    `sim_total_line` (export-only, Simulations section): the live app shows
+    the "N games x M iterations = X game simulations" line next to the
+    Iterations/Noise/Workers controls, which the export has no equivalent
+    of, so it's folded into this card as a fifth stat tile instead of being
+    left as an orphaned line with nothing to sit next to."""
     season_weeks = status.get("season_weeks") or "—"
     expected_total = status.get("expected_total")
     completed = status.get("completed") or 0
@@ -430,35 +486,57 @@ def _season_data_card(status: dict[str, Any], cutoff_week: int | None) -> str:
         f'<div><div class="mdn-stat-lbl">Weeks completed</div><div class="mdn-stat-val">{status.get("weeks_completed", 0)} / {season_weeks}</div></div>',
         f'<div><div class="mdn-stat-lbl">Games loaded</div><div class="mdn-stat-val">{status.get("total_games", 0)} / {expected_display}</div></div>',
         f'<div><div class="mdn-stat-lbl">Games completed</div><div class="mdn-stat-val">{completed} / {expected_display} ({pct_completed}%)</div></div>',
-        "</div>",
     ]
+    if sim_total_line is not None:
+        parts.append(
+            f'<div><div class="mdn-stat-lbl">Game simulations</div><div class="mdn-stat-val">{escape(sim_total_line)}</div></div>'
+        )
+    parts.append("</div>")
     if status.get("last_fetch_time"):
         parts.append(f'<p class="mdn-hint">Last fetched {escape(_format_fetch_time(status["last_fetch_time"]))}</p>')
     parts.append("</div>")
     return "".join(parts)
 
 
+def _sim_total_tile_line(sim_result: dict[str, Any] | None) -> str | None:
+    """The "games x iterations = total" figure for the Season Data card's
+    "Game simulations" tile. None if no simulation was exported, so the
+    caller can omit the tile entirely rather than showing a zeroed one."""
+    if sim_result is None:
+        return None
+    games_to_sim = sim_result.get("simulated_games") or 0
+    iterations = sim_result.get("iterations_run") or 0
+    suffix = " — low confidence" if sim_result.get("low_confidence") else ""
+    if games_to_sim and iterations:
+        total = games_to_sim * iterations
+        return f"{games_to_sim:,} × {iterations:,} = {total:,}{suffix}"
+    return f"No games to simulate at this cutoff{suffix}"
+
+
+def _export_header(
+    title: str,
+    subtitle: str,
+    status: dict[str, Any] | None,
+    cutoff_week: int | None,
+    sim_result: dict[str, Any] | None,
+) -> str:
+    """Page title + the Season Data card, used at the top of every export
+    page (single-page export and every page in the bundle) so season/cutoff
+    context is available everywhere, not just next to the Simulation
+    section. The "Game simulations" tile only appears when a simulation was
+    actually run and included in this export."""
+    html = _page_title(title, subtitle)
+    if status is not None:
+        html += _season_data_card(status, cutoff_week, sim_total_line=_sim_total_tile_line(sim_result))
+    return html
+
+
 def render_simulation_content(
     sim_result: dict[str, Any],
     team_link: TeamLink,
     logo: LogoRenderer,
-    status: dict[str, Any] | None = None,
-    cutoff_week: int | None = None,
 ) -> str:
     parts: list[str] = []
-    if status is not None:
-        parts.append(_season_data_card(status, cutoff_week))
-
-    games_to_sim = sim_result.get("simulated_games") or 0
-    iterations = sim_result.get("iterations_run") or 0
-    if games_to_sim and iterations:
-        total = games_to_sim * iterations
-        total_line = f"{games_to_sim:,} games × {iterations:,} iterations = {total:,} game simulations"
-    else:
-        total_line = "No games to simulate at this cutoff"
-    if sim_result.get("low_confidence"):
-        total_line += " — low confidence"
-    parts.append(f'<p class="mdn-hint" style="margin:10px 0 18px">{escape(total_line)}</p>')
 
     by_conference: dict[str, list[dict[str, Any]]] = {"AFC": [], "NFC": []}
     for t in sim_result.get("team_results", []):
@@ -483,10 +561,10 @@ def render_simulation_content(
             )
         parts.append(_conf_head(conf, logo, title=f"{conf} Playoff Probabilities"))
         parts.append(
-            '<table class="mdn-led-table" style="margin-bottom:32px">'
-            '<thead><tr><th style="width:36px" class="mdn-num">#</th><th>Team</th>'
-            '<th class="mdn-num">Record</th><th>Division</th>'
-            '<th style="width:220px">Playoff %</th><th class="mdn-num">Strength</th></tr></thead>'
+            '<table class="mdn-led-table" style="margin-bottom:32px;table-layout:fixed">'
+            '<thead><tr><th style="width:36px" class="mdn-num">#</th><th style="width:320px">Team</th>'
+            '<th style="width:180px" class="mdn-num">Record</th><th style="width:190px">Division</th>'
+            '<th style="width:220px">Playoff %</th><th style="width:270px" class="mdn-num">Strength</th></tr></thead>'
             f"<tbody>{''.join(rows)}</tbody></table>"
         )
 
@@ -495,18 +573,23 @@ def render_simulation_content(
         teams = sorted(by_conference[conf], key=lambda t: (-t["playoff_probability"], t["team"]))
         rows = []
         for t in teams:
-            seed_cells = "".join(
-                f'<td class="mdn-num">{t.get("seed_probabilities", {}).get(str(n), 0):.1f}%</td>'
-                for n in range(1, 8)
-            )
+            seed_cells = []
+            for n in range(1, 8):
+                prob = t.get("seed_probabilities", {}).get(str(n), 0)
+                tint, hi = _seed_tint(prob)
+                hi_cls = " mdn-seed-hi" if hi else ""
+                seed_cells.append(
+                    f'<td class="mdn-num{hi_cls}" style="background:{tint};font-weight:700">{prob:.1f}%</td>'
+                )
+            seed_cells = "".join(seed_cells)
             rows.append(
                 f'<tr><td class="mdn-tm"><div class="mdn-team-cell">{_team_ref(t["team"], team_link, logo)}</div></td>'
                 f"{seed_cells}</tr>"
             )
         parts.append(_conf_head(conf, logo, title=f"{conf} Seeding Probabilities"))
         parts.append(
-            '<table class="mdn-led-table" style="margin-bottom:32px">'
-            f"<thead><tr><th>Team</th>{seed_cols}</tr></thead>"
+            '<table class="mdn-led-table" style="margin-bottom:32px;table-layout:fixed">'
+            f'<thead><tr><th style="width:250px">Team</th>{seed_cols}</tr></thead>'
             f"<tbody>{''.join(rows)}</tbody></table>"
         )
 
@@ -549,6 +632,9 @@ def render_team_page_content(
     standings_row: dict[str, Any] | None,
     sim_row: dict[str, Any] | None,
     logo: LogoRenderer,
+    status: dict[str, Any] | None = None,
+    cutoff_week: int | None = None,
+    sim_result: dict[str, Any] | None = None,
 ) -> str:
     conf = get_team_conference(team_name) or ""
     division = get_team_division(team_name)
@@ -563,6 +649,8 @@ def render_team_page_content(
         f"{record['wins']}-{record['losses']}-{record['ties']} "
         f"({record['win_percentage']:.3f})</p>",
     ]
+    if status is not None:
+        body.append(_season_data_card(status, cutoff_week, sim_total_line=_sim_total_tile_line(sim_result)))
 
     if standings_row is not None:
         seed = standings_row.get("seed")
@@ -670,7 +758,10 @@ def render_combined_page(
     no_link: TeamLink = lambda _name: None  # noqa: E731
     logo = make_inline_logo_renderer()
     body = (
-        _page_title(f"NFL Playoff Export — {season_year}")
+        _export_header(
+            f"NFL MONTE CARLO PLAYOFF SIM Export — {season_year}",
+            "", status, cutoff_week, sim_result,
+        )
         + _section_divider("Standings")
         + render_standings_content(conferences, no_link, logo)
         + _section_divider("Statistics")
@@ -679,12 +770,16 @@ def render_combined_page(
         + render_schedule_grid_content(grid, season_weeks, no_link, logo)
     )
     if sim_result is not None:
-        body += _section_divider("Simulation") + render_simulation_content(
-            sim_result, no_link, logo, status=status, cutoff_week=cutoff_week
-        )
+        body += _section_divider("Simulation") + render_simulation_content(sim_result, no_link, logo)
     return _page_shell(
-        f"NFL Playoff Export {season_year}", body, inline_css=css_content, logo_css=_build_logo_css(logos)
+        f"NFL MONTE CARLO PLAYOFF SIM Export {season_year}",
+        body, inline_css=css_content, logo_css=_build_logo_css(logos),
     )
+
+
+_BUNDLE_ROOT = "export"
+
+_BACK_TO_INDEX_LINK = '<a href="index.html" class="mdn-back-link">← Back to index</a>'
 
 
 def build_bundle_zip(
@@ -705,7 +800,10 @@ def build_bundle_zip(
     simulation data was supplied) + one page per team, all linking to a
     shared styles.css, with every team name anywhere in the bundle linked
     to that team's page. Logo files are copied into img/logos/ so pages can
-    reference them the same way the live frontend does."""
+    reference them the same way the live frontend does. Every file lives
+    under an `export/` root inside the ZIP (all links are relative within
+    that folder, so nesting doesn't break anything) rather than at the
+    ZIP's top level, so extracting doesn't scatter files loose."""
     sim_by_team = {t["team"]: t for t in sim_result["team_results"]} if sim_result else {}
     standings_by_team = {
         t["team"]: t
@@ -717,53 +815,67 @@ def build_bundle_zip(
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("styles.css", css_content)
+        def write(path: str, content: str | bytes) -> None:
+            zf.writestr(f"{_BUNDLE_ROOT}/{path}", content)
+
+        write("styles.css", css_content)
         for logo_id, content in logos.items():
-            zf.writestr(f"img/logos/{logo_id}.png", content)
-        zf.writestr(
+            write(f"img/logos/{logo_id}.png", content)
+        write(
             "index.html",
             _page_shell(
-                f"NFL Playoff Export {season_year}",
-                _page_title(f"NFL Playoff Export — {season_year}")
+                f"NFL MONTE CARLO PLAYOFF SIM Export {season_year}",
+                _export_header(
+                    f"NFL MONTE CARLO PLAYOFF SIM Export — {season_year}",
+                    "", status, cutoff_week, sim_result,
+                )
                 + render_index_page(sim_result is not None, season_year, logo),
                 css_href="styles.css",
             ),
         )
-        zf.writestr(
+        write(
             "standings.html",
             _page_shell(
                 "Standings",
-                _page_title("Standings") + render_standings_content(conferences, bundle_team_link, logo),
+                _BACK_TO_INDEX_LINK
+                + _export_header("Standings", "", status, cutoff_week, sim_result)
+                + render_standings_content(conferences, bundle_team_link, logo),
                 css_href="styles.css",
             ),
         )
-        zf.writestr(
+        write(
             "statistics.html",
             _page_shell(
                 "Statistics",
-                _page_title("Season Statistics", f"Based on {stats['total_games']} completed games")
+                _BACK_TO_INDEX_LINK
+                + _export_header(
+                    "Season Statistics", f"Based on {stats['total_games']} completed games",
+                    status, cutoff_week, sim_result,
+                )
                 + render_statistics_content(stats, bundle_team_link, logo),
                 css_href="styles.css",
             ),
         )
-        zf.writestr(
+        write(
             "schedule-grid.html",
             _page_shell(
                 "Schedule Grid",
-                _page_title("Schedule Grid", f"All 32 teams · weeks 1–{season_weeks}")
+                _BACK_TO_INDEX_LINK
+                + _export_header(
+                    "Schedule Grid", f"All 32 teams · weeks 1–{season_weeks}", status, cutoff_week, sim_result,
+                )
                 + render_schedule_grid_content(grid, season_weeks, bundle_team_link, logo),
                 css_href="styles.css",
             ),
         )
         if sim_result is not None:
-            zf.writestr(
+            write(
                 "simulations.html",
                 _page_shell(
                     "Simulations",
-                    _page_title("Simulations")
-                    + render_simulation_content(
-                        sim_result, bundle_team_link, logo, status=status, cutoff_week=cutoff_week
-                    ),
+                    _BACK_TO_INDEX_LINK
+                    + _export_header("Simulations", "", status, cutoff_week, sim_result)
+                    + render_simulation_content(sim_result, bundle_team_link, logo),
                     css_href="styles.css",
                 ),
             )
@@ -775,8 +887,11 @@ def build_bundle_zip(
                 standings_by_team.get(team),
                 sim_by_team.get(team),
                 logo,
+                status=status,
+                cutoff_week=cutoff_week,
+                sim_result=sim_result,
             )
-            zf.writestr(f"team-{_slug(team)}.html", _page_shell(team, page, css_href="styles.css"))
+            write(f"team-{_slug(team)}.html", _page_shell(team, page, css_href="styles.css"))
 
     return buf.getvalue()
 

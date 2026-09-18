@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Division standings' `games_behind` leader selection (`_compute_games_behind`, `standings.py`) broke ties on win percentage by fewest games played, which is backwards for teams tied at 100% — e.g. a 1-0 team with a bye week could outrank a 2-0 team with the better actual record, showing the 2-0 team as `-0.5` games behind the 1-0 team instead of being the division leader itself. Tiebreak changed to most wins, then fewest losses, which still correctly handles the original edge case this logic exists for (a 0-0 bye-week team isn't outranked by a 0-1 team that's played and lost)
+- Standalone HTML export's Schedule Grid rendered each game as a single line (`W 26–14 @ LAC`), unlike the live app's two-line cell (opponent, then score, no W/L/T letter) — `export.py`'s `_grid_cell` now matches `schedule-grid.js` exactly
+- Standalone HTML export's Seeding Probabilities matrix had no per-cell color heatmap at all (plain white cells), where the live app tints each cell by probability (`simulation.js`'s `_seedTint`) — ported bucket-for-bucket as `_seed_tint` in `export.py`
+- Playoff Probabilities and Seeding Probabilities tables (both the live Simulations page and the export) rendered the AFC and NFC tables as two independent `<table>` elements with `table-layout: auto`, so each table's Team column auto-sized to that conference's own longest team name — e.g. NFC's "Buccaneers"/"Commanders" made its Team column wider than AFC's, shifting every column after it out of alignment between the two tables. Both tables now use `table-layout: fixed` with explicit per-column widths (`simulation.js`, mirrored in `export.py`), so AFC and NFC always render pixel-identical column positions regardless of team-name length
+
+### Added
+- Standalone HTML export (single page and every page of the ZIP bundle) now ends with a footer, divided from the page content by a horizontal rule: "Created by nfl-monte-carlo-simulator v{version}. — View on GitHub" linking to the project's repo (opens in a new tab), with an inlined GitHub icon so the export stays fully self-contained
+- ZIP bundle export: every page except `index.html` itself (the 4 section pages, previously missing one; team pages already had it) now has a "← Back to index" link
+- Export's "Season data" card (season/cutoff, weeks/games loaded) now appears at the top of every page in both export modes — single page and every page of the bundle, including team pages — instead of only being shown nested under the Simulation section (and therefore missing entirely whenever no simulation was included in the export). Its "N games × M iterations = X" figure is folded in as a fifth "Game simulations" stat tile (only shown when a simulation was actually included) instead of being left as an orphaned standalone line below the card
+
+### Changed
+- Standalone HTML export's title/heading renamed from generic "NFL Playoff Export" to "NFL MONTE CARLO PLAYOFF SIM Export", matching the live app's own branding
+- ZIP bundle export now nests every file under a single `export/` folder instead of scattering 38+ files loose at the ZIP's top level; all internal links are relative, so nothing else changed
+
 ## [1.0.3] - 2026-09-15
 
 ### Fixed

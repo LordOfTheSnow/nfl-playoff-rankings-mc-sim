@@ -641,15 +641,15 @@ function _renderPlayoffProbabilityTables(teamResults) {
       <img src="img/logos/${conf.toLowerCase()}.png" alt="${conf}" width="26" height="26">
       <h2>${conf} Playoff Probabilities</h2>
     </div>
-    <table class="mdn-led-table" style="margin-bottom:32px" aria-label="${conf} playoff probabilities">
+    <table class="mdn-led-table" style="margin-bottom:32px;table-layout:fixed" aria-label="${conf} playoff probabilities">
       <thead>
         <tr>
           <th style="width:36px" class="mdn-num">#</th>
-          <th>Team</th>
-          <th class="mdn-num">Record</th>
-          <th>Division</th>
+          <th style="width:320px">Team</th>
+          <th style="width:180px" class="mdn-num">Record</th>
+          <th style="width:190px">Division</th>
           <th style="width:220px">Playoff %${_infoIcon("Share of simulated seasons in which this team reaches the playoffs. Each trial plays out every remaining game using team strength plus noise, applies the NFL tiebreakers, then checks whether the team lands in the top 7 of its conference. 12,414 of 15,000 trials = 82.8%.")}</th>
-          <th class="mdn-num">Strength${_infoIcon("Relative team rating derived from results so far. Higher values win more simulated games; 1.000 is league average.")}</th>
+          <th style="width:270px" class="mdn-num">Strength${_infoIcon("Relative team rating derived from results so far. Higher values win more simulated games; 1.000 is league average.")}</th>
         </tr>
       </thead>
       <tbody>`;
@@ -736,10 +736,10 @@ function _renderSeedingMatrix(teamResults) {
       <img src="img/logos/${conf.toLowerCase()}.png" alt="${conf}" width="26" height="26">
       <h2>${conf} Seeding Probabilities</h2>
     </div>
-    <table class="mdn-led-table" style="margin-bottom:32px" aria-label="${conf} seeding probability matrix">
+    <table class="mdn-led-table" style="margin-bottom:32px;table-layout:fixed" aria-label="${conf} seeding probability matrix">
       <thead>
         <tr>
-          <th>Team</th>
+          <th style="width:250px">Team</th>
           ${Array.from({ length: 7 }, (_, i) => `<th class="mdn-num">Seed ${i + 1}</th>`).join("")}
         </tr>
       </thead>

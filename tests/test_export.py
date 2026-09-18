@@ -146,6 +146,142 @@ class TestTeamSlugs:
             assert export.bundle_team_link(team) == f"team-{export._slug(team)}.html"
 
 
+class TestGridCell:
+    """_grid_cell renders each week's slot the same way the frontend's
+    schedule-grid.js does: opponent on one line, a sub-label (score or
+    status) on the line below — no W/L/T letter, since the live app's
+    grid cells don't show one either.
+    """
+
+    def test_bye_week(self) -> None:
+        assert export._grid_cell(None) == '<span class="mdn-bye">BYE</span>'
+
+    def test_completed_home_game_has_no_win_loss_letter(self) -> None:
+        slot = {
+            "opponent": "SEA", "home": True, "status": "completed",
+            "team_score": 26, "opponent_score": 14,
+        }
+        html = export._grid_cell(slot)
+        assert "<div>vs SEA</div>" in html
+        assert '<div class="mdn-hint" style="font-size:10px">26-14</div>' in html
+        assert "W" not in html and "L" not in html
+
+    def test_completed_away_game_uses_at_prefix(self) -> None:
+        slot = {
+            "opponent": "LAC", "home": False, "status": "completed",
+            "team_score": 14, "opponent_score": 26,
+        }
+        html = export._grid_cell(slot)
+        assert "<div>@ LAC</div>" in html
+        assert '<div class="mdn-hint" style="font-size:10px">14-26</div>' in html
+
+    def test_in_progress_game_shows_r_suffix(self) -> None:
+        slot = {
+            "opponent": "SEA", "home": True, "status": "in-progress",
+            "team_score": 10, "opponent_score": 7,
+        }
+        html = export._grid_cell(slot)
+        assert '<div class="mdn-hint" style="font-size:10px">10-7 (r)</div>' in html
+
+    def test_postponed_game(self) -> None:
+        slot = {
+            "opponent": "SEA", "home": True, "status": "postponed",
+            "team_score": None, "opponent_score": None,
+        }
+        html = export._grid_cell(slot)
+        assert "<div>vs SEA</div>" in html
+        assert "Postponed" in html
+
+    def test_cancelled_game(self) -> None:
+        slot = {
+            "opponent": "SEA", "home": True, "status": "cancelled",
+            "team_score": None, "opponent_score": None,
+        }
+        html = export._grid_cell(slot)
+        assert "<div>vs SEA</div>" in html
+        assert "Canceled" in html
+
+    def test_scheduled_game_with_no_scores_shows_opponent_only(self) -> None:
+        slot = {
+            "opponent": "SEA", "home": True, "status": "scheduled",
+            "team_score": None, "opponent_score": None,
+        }
+        assert export._grid_cell(slot) == "vs SEA"
+
+
+class TestSeedTint:
+    """_seed_tint mirrors simulation.js's _seedTint bucket-for-bucket, so the
+    exported seeding matrix's heatmap matches the live one exactly.
+    """
+
+    def test_zero_is_transparent_and_not_hi(self) -> None:
+        assert export._seed_tint(0) == ("transparent", False)
+
+    def test_below_15_is_lightest_non_hi_bucket(self) -> None:
+        tint, hi = export._seed_tint(14.9)
+        assert tint == "oklch(91% 0.045 55)"
+        assert hi is False
+
+    def test_60_is_first_hi_bucket(self) -> None:
+        _, hi = export._seed_tint(60)
+        assert hi is True
+
+    def test_100_is_darkest_bucket(self) -> None:
+        tint, hi = export._seed_tint(100)
+        assert tint == "oklch(34% 0.10 30)"
+        assert hi is True
+
+
+class TestExportFooter:
+    """Every generated page (single-page export, and every page in the
+    bundle) gets a "Created by <project> <version>. — View on GitHub"
+    footer, divided from the page content by a horizontal rule -- wired in
+    once via _page_shell rather than at each call site, so it can't be
+    missed on any individual page.
+    """
+
+    def test_footer_has_divider_credit_and_github_link(self) -> None:
+        assert '<div style="border-top:2px solid var(--mdn-divider);margin-top:32px"></div>' in export._EXPORT_FOOTER
+        assert f"Created by {export._PROJECT_NAME} v{export._PROJECT_VERSION}." in export._EXPORT_FOOTER
+        assert f'href="{export._GITHUB_REPO_URL}"' in export._EXPORT_FOOTER
+        assert "View on GitHub" in export._EXPORT_FOOTER
+        assert "<svg" in export._EXPORT_FOOTER
+
+    def test_footer_github_link_opens_in_new_tab_safely(self) -> None:
+        assert 'target="_blank"' in export._EXPORT_FOOTER
+        # target="_blank" without rel="noopener" lets the opened page access
+        # window.opener and repoint it (a reverse tabnabbing risk).
+        assert 'rel="noopener noreferrer"' in export._EXPORT_FOOTER
+
+    def test_footer_dash_is_separated_from_the_link(self) -> None:
+        """The em dash sits as plain text before the anchor, with a space on
+        each side, rather than being glued to (or part of) the link itself."""
+        assert "— <a" in export._EXPORT_FOOTER
+        assert "—<a" not in export._EXPORT_FOOTER
+
+    def test_footer_present_on_single_page_export(self, server_with_games: NFLSimulatorServer) -> None:
+        handler = FakeHandler("/api/export/page", server_with_games, body={})
+        handler._handle_export_page()
+        html = handler.wfile.getvalue().decode("utf-8")
+        assert export._EXPORT_FOOTER in html
+        # Divider + footer come after the page content, right before the
+        # closing wrapper tags, not injected mid-page.
+        assert html.rstrip().endswith("</a></p></div></main></body></html>")
+
+    def test_footer_present_on_every_bundle_page(self, server_with_games: NFLSimulatorServer) -> None:
+        handler = FakeHandler("/api/export/bundle", server_with_games, body={"simulation_result": SAMPLE_SIM_RESULT})
+        handler._handle_export_bundle()
+        zf = zipfile.ZipFile(BytesIO(handler.wfile.getvalue()))
+        root = export._BUNDLE_ROOT
+
+        for filename in [
+            "index.html", "standings.html", "statistics.html",
+            "schedule-grid.html", "simulations.html", "team-bills.html",
+        ]:
+            html = zf.read(f"{root}/{filename}").decode("utf-8")
+            assert export._EXPORT_FOOTER in html, f"{filename} missing export footer"
+
+
 class TestExportPageEndpoint:
     def test_returns_html_with_all_sections_when_simulation_supplied(
         self, server_with_games: NFLSimulatorServer
@@ -163,12 +299,30 @@ class TestExportPageEndpoint:
         assert "Simulation" in html
         assert "Bills" in html
 
-    def test_simulation_section_includes_season_data_card_and_games_total(
+    def test_seeding_matrix_cells_are_tinted_like_the_live_app(
         self, server_with_games: NFLSimulatorServer
     ) -> None:
-        """The Simulation section should carry the same "Season data" card
-        and "N games x M iterations = X game simulations" line shown on the
-        live Simulations page header (buildSeasonDataCell / sim-total-sim)."""
+        """Regression test: the exported seeding matrix must carry the same
+        per-cell background tint + mdn-seed-hi class as simulation.js's
+        _seedTint, not plain untinted percentages."""
+        handler = FakeHandler("/api/export/page", server_with_games, body={"simulation_result": SAMPLE_SIM_RESULT})
+        handler._handle_export_page()
+
+        html = handler.wfile.getvalue().decode("utf-8")
+        # Bills' seed 3 probability is 15 -> oklch(82% 0.09 48), not hi
+        assert 'style="background:oklch(82% 0.09 48);font-weight:700">15.0%' in html
+        # Bills' seed 7 probability is 0.5 -> lightest bucket, not hi
+        assert 'style="background:oklch(91% 0.045 55);font-weight:700">0.5%' in html
+
+    def test_season_data_card_is_at_top_of_page_with_game_simulations_tile(
+        self, server_with_games: NFLSimulatorServer
+    ) -> None:
+        """The Season Data card sits at the very top of the page, before the
+        Standings section -- not down in the Simulation section -- so season
+        context is visible regardless of which sections the export includes.
+        When a simulation is exported, its games x iterations = total figure
+        is folded into that same card as a fifth "Game simulations" tile
+        instead of being left as an orphaned standalone line."""
         handler = FakeHandler(
             "/api/export/page",
             server_with_games,
@@ -182,8 +336,31 @@ class TestExportPageEndpoint:
         assert "Week 3 cutoff" in html
         assert "Weeks loaded" in html
         assert "Games completed" in html
-        expected_total = SAMPLE_SIM_RESULT["simulated_games"] * SAMPLE_SIM_RESULT["iterations_run"]
-        assert f"{expected_total:,} game simulations" in html
+        assert "Game simulations" in html
+        games_to_sim = SAMPLE_SIM_RESULT["simulated_games"]
+        iterations = SAMPLE_SIM_RESULT["iterations_run"]
+        expected_total = games_to_sim * iterations
+        assert f"{games_to_sim:,} × {iterations:,} = {expected_total:,}" in html
+
+        season_data_idx = html.index("Season data")
+        sim_tile_idx = html.index("Game simulations")
+        standings_idx = html.index(">Standings<")
+        assert season_data_idx < sim_tile_idx < standings_idx
+
+    def test_season_data_card_present_without_game_simulations_tile_when_no_simulation(
+        self, server_with_games: NFLSimulatorServer
+    ) -> None:
+        """The Season Data card is general season/cutoff context, not tied to
+        whether a simulation was run, so it still appears at the top of the
+        page with no simulation supplied -- just without the "Game
+        simulations" tile, which has nothing to report."""
+        handler = FakeHandler("/api/export/page", server_with_games, body={})
+        handler._handle_export_page()
+
+        assert handler._sent_code == 200
+        html = handler.wfile.getvalue().decode("utf-8")
+        assert "Season data" in html
+        assert "Game simulations" not in html
 
     def test_omits_simulation_section_when_not_supplied(
         self, server_with_games: NFLSimulatorServer
@@ -203,6 +380,17 @@ class TestExportPageEndpoint:
         html = handler.wfile.getvalue().decode("utf-8")
         assert "team-bills.html" not in html
         assert '<a class="mdn-team-link"' not in html
+
+    def test_shows_brand_name_in_title(self, server_with_games: NFLSimulatorServer) -> None:
+        """The single-page export's title/heading should show the full
+        brand name, not the generic "NFL Playoff Export" placeholder --
+        and without a version number cluttering the heading (that lives in
+        the footer instead, see TestExportFooter)."""
+        handler = FakeHandler("/api/export/page", server_with_games, body={})
+        handler._handle_export_page()
+        html = handler.wfile.getvalue().decode("utf-8")
+        assert "NFL MONTE CARLO PLAYOFF SIM Export" in html
+        assert "NFL Playoff Export" not in html
 
     def test_malformed_json_body_returns_400(self, server_with_games: NFLSimulatorServer) -> None:
         handler = FakeHandler("/api/export/page", server_with_games, body=None)
@@ -240,16 +428,20 @@ class TestExportBundleEndpoint:
 
         zf = zipfile.ZipFile(BytesIO(handler.wfile.getvalue()))
         names = set(zf.namelist())
-        assert "index.html" in names
-        assert "standings.html" in names
-        assert "statistics.html" in names
-        assert "schedule-grid.html" in names
-        assert "simulations.html" in names
-        assert "styles.css" in names
+        root = export._BUNDLE_ROOT
+        # Every file lives under a single top-level folder, not loose at
+        # the ZIP root, so extracting the archive doesn't scatter 38+ files.
+        assert all(name.startswith(f"{root}/") for name in names)
+        assert f"{root}/index.html" in names
+        assert f"{root}/standings.html" in names
+        assert f"{root}/statistics.html" in names
+        assert f"{root}/schedule-grid.html" in names
+        assert f"{root}/simulations.html" in names
+        assert f"{root}/styles.css" in names
         for team in ALL_TEAMS:
-            assert f"team-{export._slug(team)}.html" in names
+            assert f"{root}/team-{export._slug(team)}.html" in names
         for logo_id in export.ALL_LOGO_IDS:
-            assert f"img/logos/{logo_id}.png" in names
+            assert f"{root}/img/logos/{logo_id}.png" in names
         assert len(names) == 6 + 32 + len(export.ALL_LOGO_IDS)
 
     def test_omits_simulations_page_when_no_simulation_supplied(
@@ -258,7 +450,7 @@ class TestExportBundleEndpoint:
         handler = FakeHandler("/api/export/bundle", server_with_games, body={})
         handler._handle_export_bundle()
         zf = zipfile.ZipFile(BytesIO(handler.wfile.getvalue()))
-        assert "simulations.html" not in zf.namelist()
+        assert f"{export._BUNDLE_ROOT}/simulations.html" not in zf.namelist()
 
     def test_team_names_link_everywhere_in_the_bundle(
         self, server_with_games: NFLSimulatorServer
@@ -266,18 +458,89 @@ class TestExportBundleEndpoint:
         handler = FakeHandler("/api/export/bundle", server_with_games, body={"simulation_result": SAMPLE_SIM_RESULT})
         handler._handle_export_bundle()
         zf = zipfile.ZipFile(BytesIO(handler.wfile.getvalue()))
+        root = export._BUNDLE_ROOT
 
-        standings_html = zf.read("standings.html").decode("utf-8")
+        standings_html = zf.read(f"{root}/standings.html").decode("utf-8")
         assert "team-bills.html" in standings_html
 
-        schedule_html = zf.read("schedule-grid.html").decode("utf-8")
+        schedule_html = zf.read(f"{root}/schedule-grid.html").decode("utf-8")
         assert "team-bills.html" in schedule_html
 
-        sim_html = zf.read("simulations.html").decode("utf-8")
+        sim_html = zf.read(f"{root}/simulations.html").decode("utf-8")
         assert "team-bills.html" in sim_html
 
-        index_html = zf.read("index.html").decode("utf-8")
+        index_html = zf.read(f"{root}/index.html").decode("utf-8")
         assert "team-bills.html" in index_html
+
+    def test_back_to_index_link_on_every_page_except_index(
+        self, server_with_games: NFLSimulatorServer
+    ) -> None:
+        """Every page except index.html itself gets a back-link to it --
+        the 4 section pages (previously missing one) and every team page
+        (which already had one)."""
+        handler = FakeHandler("/api/export/bundle", server_with_games, body={"simulation_result": SAMPLE_SIM_RESULT})
+        handler._handle_export_bundle()
+        zf = zipfile.ZipFile(BytesIO(handler.wfile.getvalue()))
+        root = export._BUNDLE_ROOT
+
+        index_html = zf.read(f"{root}/index.html").decode("utf-8")
+        assert 'href="index.html" class="mdn-back-link"' not in index_html
+
+        for filename in [
+            "standings.html", "statistics.html", "schedule-grid.html",
+            "simulations.html", "team-bills.html",
+        ]:
+            html = zf.read(f"{root}/{filename}").decode("utf-8")
+            assert 'href="index.html" class="mdn-back-link"' in html, f"{filename} missing back-to-index link"
+
+    def test_season_data_card_on_every_page_including_team_pages(
+        self, server_with_games: NFLSimulatorServer
+    ) -> None:
+        """Every page in the bundle -- index, all 4 section pages, and every
+        team page -- gets the Season Data card at the top, with the "Game
+        simulations" tile included since a simulation was supplied."""
+        handler = FakeHandler("/api/export/bundle", server_with_games, body={"simulation_result": SAMPLE_SIM_RESULT})
+        handler._handle_export_bundle()
+        zf = zipfile.ZipFile(BytesIO(handler.wfile.getvalue()))
+        root = export._BUNDLE_ROOT
+
+        for filename in [
+            "index.html", "standings.html", "statistics.html",
+            "schedule-grid.html", "simulations.html", "team-bills.html",
+        ]:
+            html = zf.read(f"{root}/{filename}").decode("utf-8")
+            assert "Season data" in html, f"{filename} missing Season data card"
+            assert "Game simulations" in html, f"{filename} missing Game simulations tile"
+
+    def test_season_data_card_without_game_simulations_tile_when_no_simulation(
+        self, server_with_games: NFLSimulatorServer
+    ) -> None:
+        """Without a simulation supplied, every page still gets the Season
+        Data card (general season/cutoff context), just without the "Game
+        simulations" tile."""
+        handler = FakeHandler("/api/export/bundle", server_with_games, body={})
+        handler._handle_export_bundle()
+        zf = zipfile.ZipFile(BytesIO(handler.wfile.getvalue()))
+        root = export._BUNDLE_ROOT
+
+        for filename in ["index.html", "standings.html", "team-bills.html"]:
+            html = zf.read(f"{root}/{filename}").decode("utf-8")
+            assert "Season data" in html, f"{filename} missing Season data card"
+            assert "Game simulations" not in html
+
+    def test_index_shows_brand_name_in_title(
+        self, server_with_games: NFLSimulatorServer
+    ) -> None:
+        """The bundle's index page should show the full brand name, not the
+        generic "NFL Playoff Export" placeholder -- and without a version
+        number in the heading (that lives in the footer instead)."""
+        handler = FakeHandler("/api/export/bundle", server_with_games, body={"simulation_result": SAMPLE_SIM_RESULT})
+        handler._handle_export_bundle()
+        zf = zipfile.ZipFile(BytesIO(handler.wfile.getvalue()))
+        index_html = zf.read(f"{export._BUNDLE_ROOT}/index.html").decode("utf-8")
+
+        assert "NFL MONTE CARLO PLAYOFF SIM Export" in index_html
+        assert "NFL Playoff Export" not in index_html
 
     def test_malformed_json_body_returns_400(self, server_with_games: NFLSimulatorServer) -> None:
         handler = FakeHandler("/api/export/bundle", server_with_games, body=None)
