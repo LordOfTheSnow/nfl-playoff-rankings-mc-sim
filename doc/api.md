@@ -351,10 +351,14 @@ Polls a background simulation job started by `POST /api/simulate`.
     "convergence_achieved": true,
     "team_strengths": { "Bills": 1.4213, "Chiefs": 1.3891, "...": "..." },
     "fixed_games": 240,
-    "simulated_games": 32
+    "simulated_games": 32,
+    "data_driven_pct": 61.4,
+    "data_confidence": "Good"
   }
 }
 ```
+
+`data_driven_pct` / `data_confidence` are a reliability indicator, not a statistical confidence level: the share (0–100, one decimal) of the league's team ratings that is based on played games rather than the league-average prior — the mean over all 32 teams of the dampening weight `n / (n + K)` (see `doc/algorithms.md`, Bayesian Dampening) — and its label (`"Very low"` < 25%, `"Low"` < 40%, `"Moderate"` < 55%, else `"Good"`). It is shown under the "Results" line on the Simulations page and in the HTML export. Note that `low_confidence` is unrelated: it only flags a run with fewer than 1000 iterations.
 
 `status: "failed"` carries an `error` string (same message a synchronous `400`/`500` would have used) instead of `result`. `status: "cancelled"` carries neither. A `job_id` that never existed or has aged out of the server's in-memory job registry (jobs are pruned 10 minutes after finishing; still-running jobs are never pruned) returns `404`.
 
@@ -565,6 +569,11 @@ already-fetched simulation result as part of the request body instead of
 looking one up server-side — if omitted, the Simulation section is left out
 of the export (this is not an error).
 
+Every exported page (single page and every bundle page) opens with the live
+app's header — the NFL logo and "NFL PLAYOFF RANKINGS SIM" brand bar
+(without the interactive nav links/season selector) and the "not affiliated
+with the NFL" disclaimer strip. In the bundle, the brand links to `index.html`.
+
 ### `POST /api/export/page`
 
 Renders a single, self-contained HTML page (inline CSS) with Standings,
@@ -601,10 +610,11 @@ Same request body as `POST /api/export/page`. Renders a ZIP archive containing:
 - `simulations.html` — included only when `simulation_result` was supplied.
 - `team-<slug>.html` — one per team (record, division/conference, standings row, full schedule, and simulation probabilities if available). `<slug>` is the team name lowercased (e.g. `team-chiefs.html`, `team-49ers.html`).
 - `styles.css` — shared by every page above.
+- `img/logos/*.png` — the NFL, AFC/NFC, and 32 team logos referenced by the pages.
 
 Every team name anywhere in the bundle links to that team's page.
 
-**Response:** `200 application/zip`, `Content-Disposition: attachment; filename="nfl-export-<season>.zip"`.
+**Response:** `200 application/zip`, `Content-Disposition: attachment; filename="nfl-playoff-rankings-mc-sim-export-<season>.zip"`.
 
 **Errors:** `400` invalid JSON body; `409` no cached data for the active season (fetch data first).
 

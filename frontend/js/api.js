@@ -1,5 +1,5 @@
 /**
- * REST API client for the NFL Monte Carlo Playoff Simulator.
+ * REST API client for the NFL Playoff Rankings Monte Carlo Simulator.
  *
  * All functions use the Fetch API, return parsed JSON on success,
  * and throw an Error with the server's error message on failure.

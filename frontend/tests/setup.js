@@ -34,7 +34,7 @@ beforeAll(() => {
     <nav class="mdn-nav">
       <a class="mdn-brand" href="#standings">
         <img src="img/logos/nfl.png" alt="NFL" width="30" height="30">
-        <span>NFL MONTE CARLO PLAYOFF SIM</span>
+        <span>NFL PLAYOFF RANKINGS SIM</span>
         <span id="app-version" class="mdn-brand-version"></span>
       </a>
       <div class="mdn-nav-links">

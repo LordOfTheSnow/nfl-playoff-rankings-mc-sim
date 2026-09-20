@@ -1,1 +1,1 @@
-"""NFL Monte Carlo Playoff Simulator."""
+"""NFL Playoff Rankings Monte Carlo Simulator."""

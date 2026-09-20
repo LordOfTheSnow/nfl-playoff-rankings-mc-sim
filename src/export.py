@@ -34,6 +34,7 @@ import base64
 import io
 import zipfile
 from datetime import datetime
+from decimal import ROUND_HALF_UP, Decimal
 from html import escape
 from importlib.metadata import metadata as _package_metadata
 from typing import Any, Callable
@@ -44,11 +45,11 @@ TeamLink = Callable[[str], "str | None"]
 LogoRenderer = Callable[[str, int, int], str]
 
 try:
-    _PROJECT_META = _package_metadata("nfl-monte-carlo-simulator")
+    _PROJECT_META = _package_metadata("nfl-playoff-rankings-mc-sim")
     _PROJECT_NAME = _PROJECT_META["Name"]
     _PROJECT_VERSION = _PROJECT_META["Version"]
 except Exception:
-    _PROJECT_NAME = "nfl-monte-carlo-simulator"
+    _PROJECT_NAME = "nfl-playoff-rankings-mc-sim"
     _PROJECT_VERSION = "unknown"
 
 _GITHUB_REPO_URL = "https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim"
@@ -66,15 +67,36 @@ _GITHUB_ICON_SVG = (
     '1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>'
 )
 
-_EXPORT_FOOTER = (
-    '<div style="border-top:2px solid var(--mdn-divider);margin-top:32px"></div>'
-    '<p class="mdn-hint" style="margin-top:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
-    f"Created by {escape(_PROJECT_NAME)} v{escape(_PROJECT_VERSION)}. — "
-    f'<a href="{_GITHUB_REPO_URL}" target="_blank" rel="noopener noreferrer" '
-    'style="color:inherit;display:inline-flex;align-items:center;gap:4px">'
-    f"View on GitHub {_GITHUB_ICON_SVG}</a>"
-    "</p>"
-)
+def _format_export_time(exported_at: datetime) -> str:
+    """"2026-09-20 17:16 UTC+02:00" -- ISO date, minute precision, and the
+    numeric UTC offset rather than a tz abbreviation (strftime's %Z is
+    platform-dependent: "CEST" on Linux, "W. Europe Daylight Time" on
+    Windows, and abbreviations are ambiguous anyway)."""
+    offset = exported_at.utcoffset()
+    if offset is None:
+        raise ValueError("exported_at must be timezone-aware")
+    minutes = int(offset.total_seconds() // 60)
+    sign = "+" if minutes >= 0 else "-"
+    hours, mins = divmod(abs(minutes), 60)
+    return f"{exported_at:%Y-%m-%d %H:%M} UTC{sign}{hours:02d}:{mins:02d}"
+
+
+def _export_footer(exported_at: datetime | None = None) -> str:
+    """Divider + "Created by <project> v<version> on <date time tz>. — View
+    on GitHub" credit line. `exported_at` (timezone-aware; default: now in
+    the server's local zone) is resolved once per export by the callers so
+    every page of a bundle shows the identical timestamp."""
+    when = _format_export_time(exported_at or datetime.now().astimezone())
+    return (
+        '<div style="border-top:2px solid var(--mdn-divider);margin-top:32px"></div>'
+        '<p class="mdn-hint" style="margin-top:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
+        f"Created by {escape(_PROJECT_NAME)} v{escape(_PROJECT_VERSION)} on {when}. — "
+        f'<a href="{_GITHUB_REPO_URL}" target="_blank" rel="noopener noreferrer" '
+        'style="color:inherit;display:inline-flex;align-items:center;gap:4px">'
+        f"View on GitHub {_GITHUB_ICON_SVG}</a>"
+        "</p>"
+    )
+
 
 _CONFERENCES = ["AFC", "NFC"]
 _DIVISIONS = ["East", "North", "South", "West"]
@@ -99,9 +121,24 @@ TEAM_LOGO_IDS: dict[str, str] = {
     "Cardinals": "ari", "Rams": "lar", "49ers": "sf", "Seahawks": "sea",
 }
 
-# Every logo id an export might reference: all 32 team ids plus the two
-# conference marks (afc.png/nfc.png) shown in conference headers.
-ALL_LOGO_IDS: list[str] = sorted(set(TEAM_LOGO_IDS.values()) | {"afc", "nfc"})
+# Every logo id an export might reference: all 32 team ids, the two
+# conference marks (afc.png/nfc.png) shown in conference headers, and the
+# NFL shield (nfl.png) shown in the page header brand.
+ALL_LOGO_IDS: list[str] = sorted(set(TEAM_LOGO_IDS.values()) | {"afc", "nfc", "nfl"})
+
+_APP_FULL_NAME = "NFL Playoff Rankings Monte Carlo Simulator"
+
+
+def _export_title(season_year: int) -> str:
+    """Browser-tab title of the single-page export and the bundle's index."""
+    return f"{_APP_FULL_NAME} — {season_year} Export"
+
+
+# Same wording as the `.mdn-disclaimer` strip hard-coded in frontend/index.html.
+_DISCLAIMER_TEXT = (
+    "This is an independent project not affiliated with the NFL or any official NFL service. "
+    "All data is sourced from publicly available APIs."
+)
 
 
 def _slug(team_name: str) -> str:
@@ -166,13 +203,31 @@ def _team_ref(
     return f'<a class="{link_class}" href="{escape(href)}">{logo_html} {safe}</a>'
 
 
+def _page_header(logo: LogoRenderer, brand_href: str | None) -> str:
+    """The live app's nav bar (NFL logo + brand name) and disclaimer strip,
+    minus the nav links and season selector, which are interactive-only.
+    `brand_href` makes the brand a link (bundle: back to index.html)."""
+    brand_inner = f'{logo("nfl", 30, 30)}<span>NFL PLAYOFF RANKINGS SIM</span>'
+    if brand_href is None:
+        brand = f'<div class="mdn-brand">{brand_inner}</div>'
+    else:
+        brand = f'<a class="mdn-brand" href="{escape(brand_href)}">{brand_inner}</a>'
+    return (
+        f'<nav class="mdn-nav">{brand}</nav>'
+        f'<div class="mdn-disclaimer">{escape(_DISCLAIMER_TEXT)}</div>'
+    )
+
+
 def _page_shell(
     title: str,
     body: str,
     *,
+    logo: LogoRenderer,
+    brand_href: str | None = None,
     inline_css: str | None = None,
     css_href: str | None = None,
     logo_css: str = "",
+    exported_at: datetime | None = None,
 ) -> str:
     if inline_css is not None:
         style_tag = f"<style>{inline_css}{logo_css}</style>"
@@ -183,9 +238,12 @@ def _page_shell(
         '<html lang="en"><head><meta charset="UTF-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
         f"<title>{escape(title)}</title>"
-        f"{_GOOGLE_FONT_LINK}{style_tag}</head>"
-        '<body><main class="mdn-container mdn-main"><div class="mdn-page">'
-        f"{body}{_EXPORT_FOOTER}</div></main></body></html>"
+        f"{_GOOGLE_FONT_LINK}{style_tag}"
+        # Full-bleed nav bar/disclaimer strip need the browser's default 8px body margin gone.
+        "<style>body{margin:0}</style></head>"
+        f'<body>{_page_header(logo, brand_href)}'
+        '<main class="mdn-container mdn-main"><div class="mdn-page">'
+        f"{body}{_export_footer(exported_at)}</div></main></body></html>"
     )
 
 
@@ -193,6 +251,8 @@ def _page_title(text: str, subtitle: str = "") -> str:
     """The branded page-title treatment used by every live page's own <h1>
     (see e.g. schedule-grid.js's `font:800 34px var(--mdn-font-heading)`)."""
     sub = f'<p class="mdn-hint" style="margin:0 0 20px">{escape(subtitle)}</p>' if subtitle else ""
+    if not text:
+        return sub
     return (
         f'<h1 style="font:800 34px var(--mdn-font-heading);margin:0 0 6px">{escape(text)}</h1>'
         f"{sub}"
@@ -531,12 +591,38 @@ def _export_header(
     return html
 
 
+def _data_confidence_line(sim_result: dict[str, Any]) -> str:
+    """The "Data-driven ratings: N% — <label>" indicator shown under the
+    Results line (mirrors simulation.js's `_renderDataConfidence`). Empty
+    for results that predate the indicator or carry a malformed value --
+    the payload is client-supplied, so it is coerced defensively."""
+    pct = sim_result.get("data_driven_pct")
+    if isinstance(pct, bool) or not isinstance(pct, (int, float)):
+        return ""
+    label = sim_result.get("data_confidence")
+    label_html = f" — {escape(str(label))}" if label else ""
+    played = ""
+    fixed, simulated = sim_result.get("fixed_games"), sim_result.get("simulated_games")
+    if all(isinstance(v, int) and not isinstance(v, bool) for v in (fixed, simulated)) and fixed + simulated > 0:
+        total = fixed + simulated
+        # Exact-value half-up, matching JS toFixed(1) -- Python's own
+        # format() rounds exact ties half-to-even (6.25 -> "6.2", JS "6.3").
+        played_pct = Decimal(fixed / total * 100).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+        played = f" · {fixed:,} of {total:,} games played ({played_pct}%)"
+    return (
+        '<p class="mdn-hint" style="margin:0 0 16px">'
+        f"<strong>Data-driven ratings: {int(pct + 0.5)}%{label_html}</strong>{played}"
+        " · Share of each team's rating earned from its own results rather than "
+        "assumed to be league average.</p>"
+    )
+
+
 def render_simulation_content(
     sim_result: dict[str, Any],
     team_link: TeamLink,
     logo: LogoRenderer,
 ) -> str:
-    parts: list[str] = []
+    parts: list[str] = [_data_confidence_line(sim_result)]
 
     by_conference: dict[str, list[dict[str, Any]]] = {"AFC": [], "NFC": []}
     for t in sim_result.get("team_results", []):
@@ -726,7 +812,7 @@ def render_index_page(has_simulation: bool, season_year: int, logo: LogoRenderer
         for div in _DIVISIONS:
             teams = [t for t in ALL_TEAMS if get_team_division(t) == (conf, div)]
             items = "".join(
-                f'<li style="margin-bottom:4px">{_team_ref(team, bundle_team_link, logo, logo_size=18)}</li>'
+                f'<li style="margin-bottom:8px">{_team_ref(team, bundle_team_link, logo, logo_size=24, link_class="mdn-team-link mdn-index-team")}</li>'
                 for team in teams
             )
             body.append(f'<div><div class="mdn-div-lbl">{escape(div)}</div><ul style="list-style:none;padding:0;margin:8px 0 0">{items}</ul></div>')
@@ -748,6 +834,7 @@ def render_combined_page(
     logos: dict[str, bytes],
     status: dict[str, Any] | None = None,
     cutoff_week: int | None = None,
+    exported_at: datetime | None = None,
 ) -> str:
     """The single all-in-one export page. Team names are plain text (no
     links, no per-team sections) by explicit user decision -- a full
@@ -759,8 +846,7 @@ def render_combined_page(
     logo = make_inline_logo_renderer()
     body = (
         _export_header(
-            f"NFL MONTE CARLO PLAYOFF SIM Export — {season_year}",
-            "", status, cutoff_week, sim_result,
+            "", "", status, cutoff_week, sim_result,
         )
         + _section_divider("Standings")
         + render_standings_content(conferences, no_link, logo)
@@ -772,12 +858,21 @@ def render_combined_page(
     if sim_result is not None:
         body += _section_divider("Simulation") + render_simulation_content(sim_result, no_link, logo)
     return _page_shell(
-        f"NFL MONTE CARLO PLAYOFF SIM Export {season_year}",
-        body, inline_css=css_content, logo_css=_build_logo_css(logos),
+        _export_title(season_year),
+        body, logo=logo, inline_css=css_content, logo_css=_build_logo_css(logos),
+        exported_at=exported_at or datetime.now().astimezone(),
     )
 
 
 _BUNDLE_ROOT = "export"
+
+
+
+def export_filename(season_year: int, extension: str) -> str:
+    """Download name shared by both export artifacts, e.g.
+    "nfl-playoff-rankings-mc-sim-export-2026.zip" (mirrored client-side in
+    frontend/js/export.js, which names the single-page .html download)."""
+    return f"nfl-playoff-rankings-mc-sim-export-{season_year}.{extension}"
 
 _BACK_TO_INDEX_LINK = '<a href="index.html" class="mdn-back-link">← Back to index</a>'
 
@@ -795,6 +890,7 @@ def build_bundle_zip(
     logos: dict[str, bytes],
     status: dict[str, Any] | None = None,
     cutoff_week: int | None = None,
+    exported_at: datetime | None = None,
 ) -> bytes:
     """Build the multi-file ZIP bundle: index + 4 section pages (3 if no
     simulation data was supplied) + one page per team, all linking to a
@@ -804,6 +900,7 @@ def build_bundle_zip(
     under an `export/` root inside the ZIP (all links are relative within
     that folder, so nesting doesn't break anything) rather than at the
     ZIP's top level, so extracting doesn't scatter files loose."""
+    exported_at = exported_at or datetime.now().astimezone()
     sim_by_team = {t["team"]: t for t in sim_result["team_results"]} if sim_result else {}
     standings_by_team = {
         t["team"]: t
@@ -824,13 +921,12 @@ def build_bundle_zip(
         write(
             "index.html",
             _page_shell(
-                f"NFL MONTE CARLO PLAYOFF SIM Export {season_year}",
+                _export_title(season_year),
                 _export_header(
-                    f"NFL MONTE CARLO PLAYOFF SIM Export — {season_year}",
-                    "", status, cutoff_week, sim_result,
+                    "", "", status, cutoff_week, sim_result,
                 )
                 + render_index_page(sim_result is not None, season_year, logo),
-                css_href="styles.css",
+                logo=logo, brand_href="index.html", css_href="styles.css", exported_at=exported_at,
             ),
         )
         write(
@@ -840,7 +936,7 @@ def build_bundle_zip(
                 _BACK_TO_INDEX_LINK
                 + _export_header("Standings", "", status, cutoff_week, sim_result)
                 + render_standings_content(conferences, bundle_team_link, logo),
-                css_href="styles.css",
+                logo=logo, brand_href="index.html", css_href="styles.css", exported_at=exported_at,
             ),
         )
         write(
@@ -853,7 +949,7 @@ def build_bundle_zip(
                     status, cutoff_week, sim_result,
                 )
                 + render_statistics_content(stats, bundle_team_link, logo),
-                css_href="styles.css",
+                logo=logo, brand_href="index.html", css_href="styles.css", exported_at=exported_at,
             ),
         )
         write(
@@ -865,7 +961,7 @@ def build_bundle_zip(
                     "Schedule Grid", f"All 32 teams · weeks 1–{season_weeks}", status, cutoff_week, sim_result,
                 )
                 + render_schedule_grid_content(grid, season_weeks, bundle_team_link, logo),
-                css_href="styles.css",
+                logo=logo, brand_href="index.html", css_href="styles.css", exported_at=exported_at,
             ),
         )
         if sim_result is not None:
@@ -876,7 +972,7 @@ def build_bundle_zip(
                     _BACK_TO_INDEX_LINK
                     + _export_header("Simulations", "", status, cutoff_week, sim_result)
                     + render_simulation_content(sim_result, bundle_team_link, logo),
-                    css_href="styles.css",
+                    logo=logo, brand_href="index.html", css_href="styles.css", exported_at=exported_at,
                 ),
             )
         for team in ALL_TEAMS:
@@ -891,7 +987,10 @@ def build_bundle_zip(
                 cutoff_week=cutoff_week,
                 sim_result=sim_result,
             )
-            write(f"team-{_slug(team)}.html", _page_shell(team, page, css_href="styles.css"))
+            write(
+                f"team-{_slug(team)}.html",
+                _page_shell(team, page, logo=logo, brand_href="index.html", css_href="styles.css", exported_at=exported_at),
+            )
 
     return buf.getvalue()
 

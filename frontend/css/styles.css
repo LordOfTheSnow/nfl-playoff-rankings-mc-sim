@@ -1,5 +1,5 @@
 /* ==========================================================================
-   NFL Monte Carlo Playoff Simulator
+   NFL Playoff Rankings Monte Carlo Simulator
    Every view uses the Modernist design system below (--mdn-* tokens,
    `.mdn-*` classes) — there is no Bootstrap dependency and no separate
    legacy brand palette.
@@ -518,6 +518,14 @@ body {
     font: 700 13px var(--mdn-font-heading);
     color: var(--mdn-text);
     text-decoration: none;
+}
+
+/* Export bundle index: larger team list, logo vertically centred on the name. */
+.mdn-team-link.mdn-index-team {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 16px;
 }
 
 .mdn-team-link:hover {

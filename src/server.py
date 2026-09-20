@@ -1,4 +1,4 @@
-"""HTTP server and REST API for the NFL Monte Carlo Playoff Simulator.
+"""HTTP server and REST API for the NFL Playoff Rankings Monte Carlo Simulator.
 
 Provides a local web server that serves the frontend static files and
 exposes REST API endpoints for data fetching, simulation, standings,
@@ -41,6 +41,7 @@ from src.simulator import (
     resolve_tie_probability,
 )
 from src.standings import compute_standings, determine_playoff_bracket
+from src.team_strength import data_confidence_label
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +192,8 @@ def _serialize_simulation_result(
         "team_strengths": team_strengths,
         "fixed_games": result.fixed_games_count,
         "simulated_games": result.simulated_games_count,
+        "data_driven_pct": round(result.data_driven_share * 100, 1),
+        "data_confidence": data_confidence_label(result.data_driven_share),
     }
 
 
@@ -2177,7 +2180,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             status=status_data,
             cutoff_week=cutoff_week,
         )
-        filename = f"nfl-export-{server.season_year}.zip"
+        filename = export.export_filename(server.season_year, "zip")
         self._send_binary_response(200, zip_bytes, "application/zip", filename)
 
     @staticmethod
@@ -2292,7 +2295,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
 
 
 class NFLSimulatorServer(ThreadingMixIn, HTTPServer):
-    """HTTP server for the NFL Monte Carlo Playoff Simulator.
+    """HTTP server for the NFL Playoff Rankings Monte Carlo Simulator.
 
     Extends HTTPServer with ThreadingMixIn to handle requests concurrently,
     allowing the CP solver to run in the background while other requests
@@ -2332,7 +2335,7 @@ class NFLSimulatorServer(ThreadingMixIn, HTTPServer):
         # Read version from package metadata
         try:
             from importlib.metadata import version
-            self.version: str = version("nfl-monte-carlo-simulator")
+            self.version: str = version("nfl-playoff-rankings-mc-sim")
         except Exception:
             self.version = "unknown"
 
@@ -2368,7 +2371,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(
         prog="python -m src.server",
-        description="NFL Monte Carlo Playoff Simulator — local web server",
+        description="NFL Playoff Rankings Monte Carlo Simulator — local web server",
     )
     parser.add_argument(
         "--port",

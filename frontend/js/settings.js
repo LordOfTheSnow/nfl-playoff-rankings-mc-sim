@@ -1,5 +1,5 @@
 /**
- * Settings / Info view rendering for the NFL Monte Carlo Playoff Simulator.
+ * Settings / Info view rendering for the NFL Playoff Rankings Monte Carlo Simulator.
  *
  * Read-only diagnostics page (Modernist system): SQLite cache metadata
  * (which seasons are stored, how complete each one is, and recent ESPN

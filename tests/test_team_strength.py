@@ -207,3 +207,52 @@ class TestTeamStrengthCalculator:
         """Verify class constants are set correctly."""
         assert TeamStrengthCalculator.CONVERGENCE_THRESHOLD == 0.001
         assert TeamStrengthCalculator.MAX_ITERATIONS == 200
+
+
+class TestDataDrivenShare:
+    """data_driven_share(): mean over all 32 teams of n / (n + K)."""
+
+    def test_no_games_is_zero(self) -> None:
+        assert TeamStrengthCalculator().data_driven_share([]) == 0.0
+
+    def test_one_game_between_two_teams(self) -> None:
+        calc = TeamStrengthCalculator()
+        share = calc.data_driven_share([_make_game("Bills", "Jets", 24, 17)])
+        # Two teams with n=1 -> 1/9 each; the other 30 teams contribute 0.
+        assert share == pytest.approx(2 * (1 / 9) / 32)
+
+    def test_every_team_at_17_games_is_17_over_25(self) -> None:
+        from src.nfl_teams import ALL_TEAMS
+
+        # 16 fixed pairings, each pair playing 17 games -> n = 17 for all 32.
+        games = [
+            _make_game(ALL_TEAMS[i], ALL_TEAMS[i + 16], 20, 10, week=w)
+            for i in range(16)
+            for w in range(1, 18)
+        ]
+        assert TeamStrengthCalculator().data_driven_share(games) == pytest.approx(17 / 25)
+
+    def test_ignores_non_completed_games(self) -> None:
+        calc = TeamStrengthCalculator()
+        scheduled = Game(
+            game_id="x", week=1, date=date(2024, 9, 8), home_team="Bills",
+            away_team="Jets", status=GameStatus.SCHEDULED,
+            home_score=None, away_score=None, home_points=None, away_points=None,
+        )
+        assert calc.data_driven_share([scheduled]) == 0.0
+
+
+class TestDataConfidenceLabel:
+    @pytest.mark.parametrize(
+        ("share", "label"),
+        [
+            (0.0, "Very low"), (0.11, "Very low"), (0.2499, "Very low"),
+            (0.25, "Low"), (0.3999, "Low"),
+            (0.40, "Moderate"), (0.5499, "Moderate"),
+            (0.55, "Good"), (0.68, "Good"),
+        ],
+    )
+    def test_thresholds(self, share: float, label: str) -> None:
+        from src.team_strength import data_confidence_label
+
+        assert data_confidence_label(share) == label

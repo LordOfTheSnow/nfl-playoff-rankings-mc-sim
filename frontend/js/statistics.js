@@ -1,5 +1,5 @@
 /**
- * Statistics view for the NFL Monte Carlo Playoff Simulator.
+ * Statistics view for the NFL Playoff Rankings Monte Carlo Simulator.
  *
  * "Ledger" design (Modernist system): a Game Outcomes stats ledger and a
  * Score Margin Distribution card, side by side, reusing the same

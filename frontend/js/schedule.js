@@ -1,5 +1,5 @@
 /**
- * Team Schedule ("Team Detail") view for the NFL Monte Carlo Playoff Simulator.
+ * Team Schedule ("Team Detail") view for the NFL Playoff Rankings Monte Carlo Simulator.
  *
  * "Ledger" design (Modernist system): single-team schedule table reusing the
  * same `.mdn-led-table` component as Standings, with a team hero header and

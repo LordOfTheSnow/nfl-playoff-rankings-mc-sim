@@ -1,4 +1,4 @@
-"""Shared test fixtures for NFL Monte Carlo simulator tests."""
+"""Shared test fixtures for NFL Playoff Rankings Monte Carlo Simulator tests."""
 
 from datetime import date
 

@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import json
 import zipfile
-from datetime import date
+import re
+from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 
 import pytest
@@ -232,38 +233,129 @@ class TestSeedTint:
         assert hi is True
 
 
+class TestDataConfidenceLine:
+    """The "Data-driven ratings" indicator under the Results line."""
+
+    def _result(self, **overrides):
+        return {**SAMPLE_SIM_RESULT, "data_driven_pct": 11.1, "data_confidence": "Very low", **overrides}
+
+    def test_shows_pct_label_and_games_played(self) -> None:
+        line = export._data_confidence_line(self._result(fixed_games=1, simulated_games=271))
+        assert "Data-driven ratings: 11% — Very low" in line
+        assert "1 of 272 games played (0.4%)" in line
+
+    def test_rounds_half_up(self) -> None:
+        assert "Data-driven ratings: 13%" in export._data_confidence_line(self._result(data_driven_pct=12.5))
+
+    def test_games_played_pct_rounds_exact_ties_half_up_like_the_live_app(self) -> None:
+        # 17/272 = 6.25% exactly: JS toFixed(1) gives "6.3", Python's :.1f "6.2".
+        line = export._data_confidence_line(self._result(fixed_games=17, simulated_games=255))
+        assert "17 of 272 games played (6.3%)" in line
+
+    def test_omitted_for_results_without_the_field(self) -> None:
+        assert export._data_confidence_line(SAMPLE_SIM_RESULT) == ""
+
+    @pytest.mark.parametrize("bad", ["11", None, True, [1]])
+    def test_malformed_value_is_omitted(self, bad) -> None:
+        assert export._data_confidence_line(self._result(data_driven_pct=bad)) == ""
+
+    def test_label_is_escaped(self) -> None:
+        line = export._data_confidence_line(self._result(data_confidence="<script>x</script>"))
+        assert "<script>" not in line
+
+    def test_rendered_first_in_simulation_content(self) -> None:
+        html = export.render_simulation_content(self._result(), lambda _n: None, export.make_inline_logo_renderer())
+        assert html.startswith('<p class="mdn-hint" style="margin:0 0 16px"><strong>Data-driven ratings')
+
+
+class TestExportHeader:
+    """Every page opens with the live app's NFL logo brand bar and the
+    independence disclaimer, wired in once via _page_shell."""
+
+    def test_header_has_logo_brand_and_disclaimer(self) -> None:
+        html = export._page_shell("T", "<p>x</p>", logo=export.bundle_logo)
+        assert '<nav class="mdn-nav">' in html
+        assert 'src="img/logos/nfl.png"' in html
+        assert "NFL PLAYOFF RANKINGS SIM" in html
+        assert '<div class="mdn-disclaimer">' in html
+        assert "not affiliated with the NFL" in html
+        assert html.index("mdn-nav") < html.index("<main")
+
+    def test_brand_links_only_when_href_given(self) -> None:
+        plain = export._page_shell("T", "", logo=export.bundle_logo)
+        linked = export._page_shell("T", "", logo=export.bundle_logo, brand_href="index.html")
+        assert '<a class="mdn-brand" href="index.html">' in linked
+        assert '<div class="mdn-brand">' in plain
+
+    def test_inline_renderer_uses_nfl_logo_class(self) -> None:
+        html = export._page_shell("T", "", logo=export.make_inline_logo_renderer())
+        assert 'class="logo-nfl"' in html
+
+    def test_nfl_logo_is_exported(self) -> None:
+        assert "nfl" in export.ALL_LOGO_IDS
+
+
 class TestExportFooter:
     """Every generated page (single-page export, and every page in the
-    bundle) gets a "Created by <project> <version>. — View on GitHub"
+    bundle) gets a "Created by <project> v<version> on <date time tz>. — View on GitHub"
     footer, divided from the page content by a horizontal rule -- wired in
     once via _page_shell rather than at each call site, so it can't be
-    missed on any individual page.
+    missed on any individual page. The line also carries the export date.
     """
 
+    footer = export._export_footer(datetime(2026, 9, 20, 17, 5, tzinfo=timezone(timedelta(hours=2))))
+    # Every page's footer carries a stamp shaped like "2026-09-20 17:05 UTC+02:00".
+    footer_pattern = re.compile(r"on \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC[+-]\d{2}:\d{2}\. — ")
+
+    def test_footer_shows_date_time_and_utc_offset(self) -> None:
+        assert " on 2026-09-20 17:05 UTC+02:00. — " in self.footer
+
+    def test_footer_formats_negative_and_half_hour_offsets(self) -> None:
+        tz = timezone(timedelta(hours=-3, minutes=-30))
+        footer = export._export_footer(datetime(2026, 1, 2, 3, 4, tzinfo=tz))
+        assert " on 2026-01-02 03:04 UTC-03:30. — " in footer
+
+    def test_footer_defaults_to_now_with_local_offset(self) -> None:
+        assert self.footer_pattern.search(export._export_footer())
+
+    def test_footer_rejects_naive_datetime(self) -> None:
+        with pytest.raises(ValueError):
+            export._export_footer(datetime(2026, 9, 20, 17, 5))
+
+    def test_bundle_pages_share_one_timestamp(self, server_with_games: NFLSimulatorServer) -> None:
+        handler = FakeHandler("/api/export/bundle", server_with_games, body={})
+        handler._handle_export_bundle()
+        zf = zipfile.ZipFile(BytesIO(handler.wfile.getvalue()))
+        stamps = {
+            self.footer_pattern.search(zf.read(n).decode("utf-8")).group(0)
+            for n in zf.namelist() if n.endswith(".html")
+        }
+        assert len(stamps) == 1
+
     def test_footer_has_divider_credit_and_github_link(self) -> None:
-        assert '<div style="border-top:2px solid var(--mdn-divider);margin-top:32px"></div>' in export._EXPORT_FOOTER
-        assert f"Created by {export._PROJECT_NAME} v{export._PROJECT_VERSION}." in export._EXPORT_FOOTER
-        assert f'href="{export._GITHUB_REPO_URL}"' in export._EXPORT_FOOTER
-        assert "View on GitHub" in export._EXPORT_FOOTER
-        assert "<svg" in export._EXPORT_FOOTER
+        assert '<div style="border-top:2px solid var(--mdn-divider);margin-top:32px"></div>' in self.footer
+        assert f"Created by {export._PROJECT_NAME} v{export._PROJECT_VERSION} on 2026-09-20 17:05 UTC+02:00." in self.footer
+        assert f'href="{export._GITHUB_REPO_URL}"' in self.footer
+        assert "View on GitHub" in self.footer
+        assert "<svg" in self.footer
 
     def test_footer_github_link_opens_in_new_tab_safely(self) -> None:
-        assert 'target="_blank"' in export._EXPORT_FOOTER
+        assert 'target="_blank"' in self.footer
         # target="_blank" without rel="noopener" lets the opened page access
         # window.opener and repoint it (a reverse tabnabbing risk).
-        assert 'rel="noopener noreferrer"' in export._EXPORT_FOOTER
+        assert 'rel="noopener noreferrer"' in self.footer
 
     def test_footer_dash_is_separated_from_the_link(self) -> None:
         """The em dash sits as plain text before the anchor, with a space on
         each side, rather than being glued to (or part of) the link itself."""
-        assert "— <a" in export._EXPORT_FOOTER
-        assert "—<a" not in export._EXPORT_FOOTER
+        assert "— <a" in self.footer
+        assert "—<a" not in self.footer
 
     def test_footer_present_on_single_page_export(self, server_with_games: NFLSimulatorServer) -> None:
         handler = FakeHandler("/api/export/page", server_with_games, body={})
         handler._handle_export_page()
         html = handler.wfile.getvalue().decode("utf-8")
-        assert export._EXPORT_FOOTER in html
+        assert self.footer_pattern.search(html)
         # Divider + footer come after the page content, right before the
         # closing wrapper tags, not injected mid-page.
         assert html.rstrip().endswith("</a></p></div></main></body></html>")
@@ -279,7 +371,7 @@ class TestExportFooter:
             "schedule-grid.html", "simulations.html", "team-bills.html",
         ]:
             html = zf.read(f"{root}/{filename}").decode("utf-8")
-            assert export._EXPORT_FOOTER in html, f"{filename} missing export footer"
+            assert self.footer_pattern.search(html), f"{filename} missing export footer"
 
 
 class TestExportPageEndpoint:
@@ -381,16 +473,18 @@ class TestExportPageEndpoint:
         assert "team-bills.html" not in html
         assert '<a class="mdn-team-link"' not in html
 
-    def test_shows_brand_name_in_title(self, server_with_games: NFLSimulatorServer) -> None:
-        """The single-page export's title/heading should show the full
-        brand name, not the generic "NFL Playoff Export" placeholder --
-        and without a version number cluttering the heading (that lives in
-        the footer instead, see TestExportFooter)."""
+    def test_has_no_all_caps_export_heading(self, server_with_games: NFLSimulatorServer) -> None:
+        """The page header (nav bar) already carries the brand, so the
+        single-page export has no separate "... Export — <year>" <h1>; the
+        season is shown by the Season data card instead."""
         handler = FakeHandler("/api/export/page", server_with_games, body={})
         handler._handle_export_page()
         html = handler.wfile.getvalue().decode("utf-8")
-        assert "NFL MONTE CARLO PLAYOFF SIM Export" in html
-        assert "NFL Playoff Export" not in html
+        assert "SIM Export —" not in html
+        assert "<title>NFL Playoff Rankings Monte Carlo Simulator — 2026 Export</title>" in html
+        assert "<h1" not in html
+        assert "NFL PLAYOFF RANKINGS SIM" in html  # nav bar brand
+        assert "Season data" in html
 
     def test_malformed_json_body_returns_400(self, server_with_games: NFLSimulatorServer) -> None:
         handler = FakeHandler("/api/export/page", server_with_games, body=None)
@@ -417,6 +511,11 @@ class TestExportPageEndpoint:
         assert "Simulation" not in html
 
 
+def test_export_filename_is_shared_slug_season_and_extension() -> None:
+    assert export.export_filename(2026, "zip") == "nfl-playoff-rankings-mc-sim-export-2026.zip"
+    assert export.export_filename(2026, "html") == "nfl-playoff-rankings-mc-sim-export-2026.html"
+
+
 class TestExportBundleEndpoint:
     def test_bundle_contains_expected_files(self, server_with_games: NFLSimulatorServer) -> None:
         handler = FakeHandler("/api/export/bundle", server_with_games, body={"simulation_result": SAMPLE_SIM_RESULT})
@@ -425,6 +524,7 @@ class TestExportBundleEndpoint:
         assert handler._sent_code == 200
         assert handler.header("Content-Type") == "application/zip"
         assert "attachment" in (handler.header("Content-Disposition") or "")
+        assert f'filename="{export.export_filename(server_with_games.season_year, "zip")}"' in (handler.header("Content-Disposition") or "")
 
         zf = zipfile.ZipFile(BytesIO(handler.wfile.getvalue()))
         names = set(zf.namelist())
@@ -528,19 +628,20 @@ class TestExportBundleEndpoint:
             assert "Season data" in html, f"{filename} missing Season data card"
             assert "Game simulations" not in html
 
-    def test_index_shows_brand_name_in_title(
+    def test_index_has_no_all_caps_export_heading(
         self, server_with_games: NFLSimulatorServer
     ) -> None:
-        """The bundle's index page should show the full brand name, not the
-        generic "NFL Playoff Export" placeholder -- and without a version
-        number in the heading (that lives in the footer instead)."""
+        """The index page's nav bar carries the brand; it has no separate
+        "... Export — <year>" <h1> heading."""
         handler = FakeHandler("/api/export/bundle", server_with_games, body={"simulation_result": SAMPLE_SIM_RESULT})
         handler._handle_export_bundle()
         zf = zipfile.ZipFile(BytesIO(handler.wfile.getvalue()))
         index_html = zf.read(f"{export._BUNDLE_ROOT}/index.html").decode("utf-8")
 
-        assert "NFL MONTE CARLO PLAYOFF SIM Export" in index_html
-        assert "NFL Playoff Export" not in index_html
+        assert "SIM Export —" not in index_html
+        assert "<title>NFL Playoff Rankings Monte Carlo Simulator — 2026 Export</title>" in index_html
+        assert "<h1" not in index_html
+        assert "NFL PLAYOFF RANKINGS SIM" in index_html  # nav bar brand
 
     def test_malformed_json_body_returns_400(self, server_with_games: NFLSimulatorServer) -> None:
         handler = FakeHandler("/api/export/bundle", server_with_games, body=None)

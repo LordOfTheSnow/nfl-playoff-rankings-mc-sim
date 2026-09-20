@@ -1,7 +1,7 @@
 [project]
-name = "nfl-monte-carlo-simulator"
+name = "nfl-playoff-rankings-mc-sim"
 version = "1.0.3"
-description = "Monte Carlo NFL Playoff Simulator"
+description = "Monte Carlo simulation of NFL playoff rankings — seeding probabilities with full tiebreaker rules"
 requires-python = ">=3.11"
 dependencies = [
     "httpx==0.28.1",

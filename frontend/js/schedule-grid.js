@@ -1,5 +1,5 @@
 /**
- * Schedule Grid view for the NFL Monte Carlo Playoff Simulator.
+ * Schedule Grid view for the NFL Playoff Rankings Monte Carlo Simulator.
  *
  * "Ledger" design (Modernist system): league-wide schedule grid with all 32
  * teams as rows and the season's weeks as columns (1–18, or 1–17 for a

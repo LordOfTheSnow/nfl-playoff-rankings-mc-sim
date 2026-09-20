@@ -325,6 +325,9 @@ class SimulationResult:
         cutoff_week: The cutoff week used for this simulation.
         low_confidence: True if statistical confidence is low.
         team_strengths: Mapping of team name to strength rating.
+        data_driven_share: Fraction (0-1) of the league's ratings that is
+            based on played games rather than the league-average prior --
+            see TeamStrengthCalculator.data_driven_share.
     """
 
     team_results: dict[str, TeamResult]
@@ -335,6 +338,7 @@ class SimulationResult:
     team_strengths: dict[str, float]
     fixed_games_count: int = 0
     simulated_games_count: int = 0
+    data_driven_share: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -855,6 +859,7 @@ class Simulator:
             team_strengths=strengths,
             fixed_games_count=len(fixed_games),
             simulated_games_count=len(games_to_simulate),
+            data_driven_share=self._strength_calculator.data_driven_share(fixed_games),
         )
 
     def _determine_cutoff_week(self, games: list[Game]) -> int:

@@ -1,5 +1,5 @@
 /**
- * Export view for the NFL Monte Carlo Playoff Simulator.
+ * Export view for the NFL Playoff Rankings Monte Carlo Simulator.
  *
  * Offers two backend-generated exports of the current season state:
  * - a single standalone HTML page (Standings, Statistics, Schedule Grid,
@@ -91,7 +91,7 @@ async function _runExport(kind) {
     const blob = kind === "page"
       ? await API.exportPage(payload)
       : await API.exportBundle(payload);
-    const filename = kind === "page" ? `nfl-export-${season}.html` : `nfl-export-${season}.zip`;
+    const filename = `nfl-playoff-rankings-mc-sim-export-${season}.${kind === "page" ? "html" : "zip"}`;
     _downloadBlob(blob, filename);
     if (statusEl) statusEl.textContent = "";
   } catch (err) {

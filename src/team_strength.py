@@ -43,6 +43,19 @@ from src.data_client import Game, GameStatus
 logger = logging.getLogger(__name__)
 
 
+def data_confidence_label(share: float) -> str:
+    """Human label for a data_driven_share() value (single source of truth
+    for the live app and the HTML export, which render it verbatim)."""
+    pct = share * 100
+    if pct < 25:
+        return "Very low"
+    if pct < 40:
+        return "Low"
+    if pct < 55:
+        return "Moderate"
+    return "Good"
+
+
 @dataclass
 class TeamRating:
     """A team's calculated strength rating.
@@ -171,6 +184,36 @@ class TeamStrengthCalculator:
             convergence_rate,
         )
         return self._apply_dampening(final_relaxed, games_per_team)
+
+    def data_driven_share(self, completed_games: list[Game]) -> float:
+        """How much of the league's ratings is earned rather than assumed.
+
+        The mean, over all 32 teams, of the dampening weight n / (n + K) --
+        the fraction of each team's rating that comes from its own results
+        instead of the league-average prior. A team with no completed games
+        (or a bye) contributes 0. Ranges from 0.0 (no data: every rating is
+        1.0) up to n / (n + K) for a full season (~0.68 at 17 games, K=8),
+        so it is a heuristic indicator of model reliability, not a
+        statistical confidence level.
+
+        Args:
+            completed_games: Games used for the ratings (non-COMPLETED
+                games are ignored, as in calculate()).
+
+        Returns:
+            Share in [0.0, 1.0).
+        """
+        from src.nfl_teams import ALL_TEAMS
+
+        games_per_team: dict[str, int] = {team: 0 for team in ALL_TEAMS}
+        for game in completed_games:
+            if game.status != GameStatus.COMPLETED:
+                continue
+            for team in (game.home_team, game.away_team):
+                if team in games_per_team:
+                    games_per_team[team] += 1
+        k = self.DAMPENING_K
+        return sum(n / (n + k) for n in games_per_team.values()) / len(games_per_team)
 
     def _initial_ratings(self, teams: set[str]) -> dict[str, float]:
         """Initialize all teams with a rating of 1.0.

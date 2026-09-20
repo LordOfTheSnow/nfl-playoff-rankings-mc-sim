@@ -1,5 +1,5 @@
 /**
- * Main application logic for the NFL Monte Carlo Playoff Simulator.
+ * Main application logic for the NFL Playoff Rankings Monte Carlo Simulator.
  *
  * Implements hash-based SPA routing, navigation state management,
  * global error/loading display, and view switching.

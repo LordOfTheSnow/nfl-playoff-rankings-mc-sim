@@ -1,5 +1,5 @@
 /**
- * Chart rendering for the NFL Monte Carlo Playoff Simulator.
+ * Chart rendering for the NFL Playoff Rankings Monte Carlo Simulator.
  *
  * Provides a canvas-based heatmap visualization showing seeding probability
  * distribution for each team within a selected conference.

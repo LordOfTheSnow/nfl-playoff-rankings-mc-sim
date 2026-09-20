@@ -1,5 +1,5 @@
 /**
- * Simulations view for the NFL Monte Carlo Playoff Simulator.
+ * Simulations view for the NFL Playoff Rankings Monte Carlo Simulator.
  *
  * Provides one global function:
  *   - renderSimulations(contentEl) — renders the Simulations view (#simulations)
@@ -584,6 +584,7 @@ async function renderSimulations(contentEl) {
   <div style="border-top:2px solid var(--mdn-divider);margin-bottom:18px"></div>`;
 
   if (results) {
+    html += _renderDataConfidence(results);
     const showWarning = results.low_confidence || !results.convergence_achieved;
     if (showWarning) {
       html += `<p class="mdn-hint" style="color:var(--mdn-accent-700);margin:0 0 16px">${results.low_confidence ? "Low confidence." : ""}${results.convergence_achieved ? "" : " Convergence not achieved."}</p>`;
@@ -614,6 +615,29 @@ async function renderSimulations(contentEl) {
       });
     });
   }
+}
+
+/**
+ * "Data-driven ratings: N% — <label>" indicator shown under the Results
+ * line: how much of the league's team ratings comes from played games
+ * rather than the league-average prior (see doc/algorithms.md, Bayesian
+ * Dampening). Mirrors export.py's `_data_confidence_line`. Empty for
+ * results that lack the field (e.g. produced before it existed).
+ *
+ * @param {object} results - The simulation result object.
+ * @returns {string} HTML string.
+ */
+function _renderDataConfidence(results) {
+  const pct = results.data_driven_pct;
+  if (typeof pct !== "number" || !Number.isFinite(pct)) return "";
+  const labelHtml = results.data_confidence ? ` — ${_escapeHtml(String(results.data_confidence))}` : "";
+  let played = "";
+  const fixed = results.fixed_games;
+  const total = fixed + results.simulated_games;
+  if (Number.isInteger(fixed) && Number.isInteger(results.simulated_games) && total > 0) {
+    played = ` · ${fixed.toLocaleString("en-US")} of ${total.toLocaleString("en-US")} games played (${(fixed / total * 100).toFixed(1)}%)`;
+  }
+  return `<p class="mdn-hint" style="margin:0 0 16px"><strong>Data-driven ratings: ${Math.round(pct)}%${labelHtml}</strong>${played} · Share of each team's rating earned from its own results rather than assumed to be league average.</p>`;
 }
 
 /**
