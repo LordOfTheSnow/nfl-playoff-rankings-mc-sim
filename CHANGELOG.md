@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-09-21
+
+### Fixed
+- Division standings order and the division champion were still wrong early in the season when teams had played different numbers of games: `GET /api/standings`'s `_division_tiebreak_sort` and `determine_playoff_bracket` (`standings.py`) grouped teams as "tied" by win percentage alone, so a 1-0 team and a 2-0 team (both 1.000) went through the tiebreaker cascade together and the 1-0 team could win on e.g. strength of victory — shown as the first row and division champion even though `games_behind` correctly named the 2-0 team the leader. Teams are now only tied when win percentage *and* win-loss margin match (`_standing_tie_key`, shared by both places and by the no-games fallback sort `_sort_teams_by_record`), so 2-0 ranks ahead of 1-0 and 0-0 ahead of 0-1, while genuine ties such as 1-1 vs 2-2 still go to the tiebreakers. This also replaces the earlier special case that ranked not-yet-played teams ahead of winless played teams. Only partial-season states are affected; once every team has played the same number of games nothing changes, so simulation results are unaffected. The 1.1.0 entry on `games_behind` below fixed only that column, not the row order
+
 ## [1.1.0] - 2026-09-21
 
 ### Added
@@ -435,7 +440,8 @@ Full "Modernist" redesign of every page (flat red-on-white style, Bootstrap remo
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.0.1...v1.0.2

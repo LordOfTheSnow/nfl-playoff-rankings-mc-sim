@@ -13,6 +13,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 from enum import Enum
+from itertools import groupby
 
 from src.data_client import Game, GameStatus
 from src.nfl_teams import NFL_TEAMS, get_team_conference, get_team_division
@@ -129,6 +130,28 @@ def _calculate_games_behind(
         Games behind as a float (can be 0.0 for the leader).
     """
     return ((leader_wins - team_wins) + (team_losses - leader_losses)) / 2
+
+
+def _standing_tie_key(win_percentage: float, wins: int, losses: int) -> tuple[float, int]:
+    """Key under which two teams count as genuinely tied on record.
+
+    Equal win percentage alone isn't enough early in the season, when teams
+    have played different numbers of games: 1-0 and 2-0 are both 1.000, and
+    0-0 and 0-1 are both 0.0, but the 2-0 team is strictly ahead of the 1-0
+    team and the 0-0 team of the 0-1 team. Adding the win-loss margin
+    separates those cases — it's equivalent to "games behind is not 0" (see
+    `_calculate_games_behind`) — while leaving genuine ties such as 1-1 vs
+    2-2 (both 0.500, margin 0) for the tiebreakers to resolve. After a full
+    season every team has played the same number of games, so this never
+    splits a real tie there.
+
+    Higher is better in both components; `server.py`'s standings display
+    sort uses the same key so its row order matches the division champion.
+
+    Returns:
+        (win_percentage, wins - losses).
+    """
+    return (win_percentage, wins - losses)
 
 
 def compute_standings(
@@ -387,7 +410,7 @@ class WildCardMatchup:
 
 
 def _sort_teams_by_record(teams: list[TeamStanding]) -> list[TeamStanding]:
-    """Sort teams by win_percentage descending, then alphabetically by name ascending.
+    """Sort teams by record (win_percentage, then win-loss margin) descending, then name ascending.
 
     This is the fallback sort used when tiebreaker functions are not yet available.
     When full tiebreakers are implemented, this should be replaced with the
@@ -397,9 +420,15 @@ def _sort_teams_by_record(teams: list[TeamStanding]) -> list[TeamStanding]:
         teams: List of TeamStanding objects to sort.
 
     Returns:
-        New list sorted by win_percentage descending, then team name ascending.
+        New list sorted by record descending (see `_standing_tie_key`), then team name ascending.
     """
-    return sorted(teams, key=lambda t: (-t.win_percentage, t.team))
+    return sorted(
+        teams,
+        key=lambda t: (
+            *(-v for v in _standing_tie_key(t.win_percentage, t.wins, t.losses)),
+            t.team,
+        ),
+    )
 
 
 def determine_playoff_bracket(
@@ -459,43 +488,32 @@ def determine_playoff_bracket(
         if all_games is None:
             return _sort_teams_by_record(teams)
 
-        # Group by win_percentage (teams with same win% are tied)
+        # Group teams that are genuinely tied on record (see
+        # _standing_tie_key: equal win% *and* equal win-loss margin, so a 1-0
+        # team isn't tied with a 2-0 team, nor a 0-0 team with a 0-1 team —
+        # comparing those via H2H/SoS/etc. is meaningless this early).
         team_lookup = {t.team: t for t in teams}
-        sorted_by_wp = sorted(teams, key=lambda t: -t.win_percentage)
+        sorted_by_record = sorted(
+            teams,
+            key=lambda t: tuple(
+                -v for v in _standing_tie_key(t.win_percentage, t.wins, t.losses)
+            ),
+        )
 
         result: list[TeamStanding] = []
-        i = 0
-        while i < len(sorted_by_wp):
-            wp = sorted_by_wp[i].win_percentage
-            group = []
-            while i < len(sorted_by_wp) and sorted_by_wp[i].win_percentage == wp:
-                group.append(sorted_by_wp[i])
-                i += 1
-
+        for _key, tied in groupby(
+            sorted_by_record,
+            key=lambda t: _standing_tie_key(t.win_percentage, t.wins, t.losses),
+        ):
+            group = list(tied)
             if len(group) == 1:
                 result.append(group[0])
             else:
-                # A team that hasn't played yet (0 games) and a team that has
-                # played and lost every game both compute to a 0.0 win_percentage
-                # (see _calculate_win_percentage), but they aren't really tied:
-                # the winless-but-played team has strictly more losses. Comparing
-                # them via H2H/SoS/etc. is meaningless this early (those steps
-                # were designed for teams who've actually played), so rank
-                # not-yet-played teams ahead of played-and-winless teams instead
-                # of running the full tiebreaker cascade across both.
-                unplayed = [t for t in group if (t.wins + t.losses + t.ties) == 0]
-                played = [t for t in group if (t.wins + t.losses + t.ties) > 0]
-
-                for subgroup in (unplayed, played):
-                    if len(subgroup) == 1:
-                        result.append(subgroup[0])
-                    elif len(subgroup) > 1:
-                        tied_names = [t.team for t in subgroup]
-                        ordered_names = break_tie(
-                            tied_names, all_games, simulated_game_ids, context
-                        )
-                        for name in ordered_names:
-                            result.append(team_lookup[name])
+                ordered_names = break_tie(
+                    [t.team for t in group], all_games, simulated_game_ids, context
+                )
+                for name in ordered_names:
+                    result.append(team_lookup[name])
 
         return result
 
