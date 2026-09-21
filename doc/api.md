@@ -134,6 +134,8 @@ Computes and returns current standings grouped by conference and division, inclu
 }
 ```
 
+Teams within a division are ordered by record, then by the tiebreaker cascade among genuinely tied teams. Two teams are only tied when both win percentage **and** win-loss margin match, so early in the season, when teams have played different numbers of games, a 2-0 team ranks ahead of a 1-0 team (`games_behind` 0.5) and a 0-0 team ahead of a 0-1 team, rather than being run through the tiebreakers. This is the same rule `determine_playoff_bracket` uses to pick the division champion, so the first row of each division is always the champion. After a full season every team has played the same number of games, so it never splits a real tie.
+
 ---
 
 ### `GET /api/schedule-grid`

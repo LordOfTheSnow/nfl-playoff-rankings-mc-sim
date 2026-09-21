@@ -40,7 +40,7 @@ from src.simulator import (
     compute_prior_seasons_tie_pool,
     resolve_tie_probability,
 )
-from src.standings import compute_standings, determine_playoff_bracket
+from src.standings import _standing_tie_key, compute_standings, determine_playoff_bracket
 from src.team_strength import data_confidence_label
 
 logger = logging.getLogger(__name__)
@@ -1562,51 +1562,33 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                 """
                 from src.data_client import GameStatus as GS
 
-                # First sort by win% descending for grouping
+                # Sort by record for grouping. Teams are only "tied" when
+                # win% and win-loss margin both match (see standings.py's
+                # _standing_tie_key), so e.g. a 2-0 team ranks ahead of a 1-0
+                # team and a 0-0 team ahead of a 0-1 team instead of feeding
+                # them into the tiebreaker cascade — meaningless this early
+                # (e.g. SoS keyed off a single early-season opponent) and
+                # inconsistent with games_behind and the division champion.
+                def _record_key(t: dict[str, Any]) -> tuple[float, int]:
+                    return _standing_tie_key(t["win_percentage"], t["wins"], t["losses"])
+
                 div_teams_sorted = sorted(
-                    div_teams, key=lambda t: -t["win_percentage"]
+                    div_teams, key=lambda t: tuple(-v for v in _record_key(t))
                 )
 
                 result: list[dict[str, Any]] = []
                 i = 0
                 while i < len(div_teams_sorted):
-                    # Find group of teams with same win%
-                    wp = div_teams_sorted[i]["win_percentage"]
+                    # Find group of genuinely tied teams
+                    rk = _record_key(div_teams_sorted[i])
                     group = []
-                    while i < len(div_teams_sorted) and div_teams_sorted[i]["win_percentage"] == wp:
+                    while i < len(div_teams_sorted) and _record_key(div_teams_sorted[i]) == rk:
                         group.append(div_teams_sorted[i])
                         i += 1
 
                     if len(group) == 1:
                         result.append(group[0])
                     else:
-                        # A team with 0 games played and a team that's played
-                        # and lost every game both round to win_percentage 0.0,
-                        # but they aren't really tied — the played team has
-                        # strictly more losses, and running H2H/SoS/etc. across
-                        # them produces meaningless results (e.g. SoS keyed off
-                        # a single early-season opponent). Rank not-yet-played
-                        # teams ahead of played-and-winless teams instead of
-                        # feeding both into the tiebreaker cascade together.
-                        unplayed = [
-                            t for t in group
-                            if (t["wins"] + t["losses"] + t["ties"]) == 0
-                        ]
-                        played = [
-                            t for t in group
-                            if (t["wins"] + t["losses"] + t["ties"]) > 0
-                        ]
-                        if unplayed and played:
-                            if len(unplayed) > 1:
-                                for t in unplayed:
-                                    t["tiebreaker"] = "Alpha"
-                                unplayed.sort(key=lambda t: t["team"])
-                            result.extend(unplayed)
-                            group = played
-                            if len(group) == 1:
-                                result.append(group[0])
-                                continue
-
                         # Compute tiebreaker metrics for each tied team
                         team_names = [t["team"] for t in group]
 
