@@ -2,7 +2,7 @@
   "name": "nfl-playoff-rankings-frontend-tests",
   "version": "1.0.0",
   "private": true,
-  "description": "Property-based tests for the NFL Playoff Rankings Simulator frontend",
+  "description": "Property-based tests for the NFL Playoff Rankings Monte Carlo Simulator frontend",
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest"

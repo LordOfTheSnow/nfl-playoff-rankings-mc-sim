@@ -1,4 +1,4 @@
-"""HTTP server and REST API for the NFL Monte Carlo Playoff Simulator.
+"""HTTP server and REST API for the NFL Playoff Rankings Monte Carlo Simulator.
 
 Provides a local web server that serves the frontend static files and
 exposes REST API endpoints for data fetching, simulation, standings,
@@ -23,9 +23,10 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import unquote
 
+from src import export
 from src.cache import Cache
 from src.cp_solver import ORTOOLS_AVAILABLE, CPSolverConfig, solve_clinch, solve_clinch_all
 from src.data_client import DataClient, FetchResult, Game, GameStatus, derive_season_weeks
@@ -40,6 +41,7 @@ from src.simulator import (
     resolve_tie_probability,
 )
 from src.standings import compute_standings, determine_playoff_bracket
+from src.team_strength import data_confidence_label
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +192,8 @@ def _serialize_simulation_result(
         "team_strengths": team_strengths,
         "fixed_games": result.fixed_games_count,
         "simulated_games": result.simulated_games_count,
+        "data_driven_pct": round(result.data_driven_share * 100, 1),
+        "data_confidence": data_confidence_label(result.data_driven_share),
     }
 
 
@@ -333,6 +337,71 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
         _, error_body = _json_error(code, message, details)
         self._send_json_response(code, error_body)
 
+    def _send_html_response(self, status_code: int, html: str) -> None:
+        """Send a standalone HTML page response (used by the export endpoints).
+
+        Args:
+            status_code: HTTP status code.
+            html: The full HTML document to send.
+        """
+        body = html.encode("utf-8")
+        self.send_response(status_code)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_binary_response(
+        self, status_code: int, content: bytes, content_type: str, filename: str
+    ) -> None:
+        """Send a binary file response with a download filename.
+
+        Used by the export ZIP bundle endpoint.
+
+        Args:
+            status_code: HTTP status code.
+            content: Raw bytes to send.
+            content_type: MIME type of the content.
+            filename: Filename suggested to the browser via Content-Disposition.
+        """
+        self.send_response(status_code)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(content)))
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.end_headers()
+        self.wfile.write(content)
+
+    def _capture_json_response(self, handler: Callable[..., None], *args: Any) -> dict[str, Any] | None:
+        """Call an existing GET/POST JSON handler and capture its response body
+        instead of writing it to the socket.
+
+        Lets the export endpoints (POST /api/export/page, POST /api/export/bundle)
+        reuse the exact same standings/statistics/schedule-grid/team-detail
+        computation the live API uses, without an HTTP round-trip and without
+        duplicating that logic.
+
+        Returns:
+            The response dict if the handler sent a 200, else None (e.g. a 409
+            "no cached data" — callers treat that the same as the section
+            simply not being available).
+        """
+        captured: dict[str, Any] = {}
+
+        def _capture(status_code: int, data: dict[str, Any]) -> None:
+            captured["status"] = status_code
+            captured["data"] = data
+
+        original = self._send_json_response
+        self._send_json_response = _capture  # type: ignore[method-assign]
+        try:
+            handler(*args)
+        finally:
+            self._send_json_response = original  # type: ignore[method-assign]
+
+        if captured.get("status") != 200:
+            return None
+        return captured["data"]
+
     def _read_request_body(self) -> bytes:
         """Read the request body based on Content-Length header.
 
@@ -409,6 +478,10 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             self._handle_post_set_season()
         elif path == "/api/reset-counters":
             self._handle_post_reset_counters()
+        elif path == "/api/export/page":
+            self._handle_export_page()
+        elif path == "/api/export/bundle":
+            self._handle_export_bundle()
         elif path.startswith("/api/"):
             self._send_error_response(404, "Endpoint not found", f"No handler for POST {path}")
         else:
@@ -2014,6 +2087,126 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             logger.exception("Error getting team schedule")
             self._send_error_response(500, "Error retrieving team schedule", str(e))
 
+    def _handle_export_page(self) -> None:
+        """Handle POST /api/export/page — a single standalone HTML page.
+
+        Body: {"simulation_result": {...} | null, "cutoff_week": int | null}.
+        The simulation_result is whatever the frontend already has in
+        window._simulationResults (results only live in server memory for 10
+        minutes per job, with no lookup by cutoff, so the frontend forwards
+        them directly rather than the backend trying to look up a job).
+        Standings/statistics/schedule-grid are always freshly computed here.
+        """
+        body = self._parse_json_body()
+        if body is None:
+            self._send_error_response(400, "Invalid JSON in request body", "")
+            return
+
+        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
+        cutoff_week = body.get("cutoff_week") if isinstance(body.get("cutoff_week"), int) else None
+        standings_path = self._export_standings_path("/api/export/page", body)
+
+        standings_data = self._capture_json_response(self._handle_get_standings, standings_path)
+        if standings_data is None:
+            self._send_error_response(
+                409,
+                "No cached data available",
+                "Data must be fetched first using POST /api/fetch-data",
+            )
+            return
+        stats_data = self._capture_json_response(self._handle_get_statistics)
+        grid_data = self._capture_json_response(self._handle_get_schedule_grid)
+        status_data = self._capture_json_response(self._handle_get_status)
+        sim_result = export.validate_simulation_payload(body.get("simulation_result"))
+
+        css_content = Path(server.static_dir, "css", "styles.css").read_text(encoding="utf-8")
+        html = export.render_combined_page(
+            conferences=standings_data["conferences"],
+            stats=stats_data,
+            grid=grid_data["teams"],
+            season_weeks=grid_data["season_weeks"],
+            sim_result=sim_result,
+            season_year=server.season_year,
+            css_content=css_content,
+            logos=self._load_export_logos(server.static_dir),
+            status=status_data,
+            cutoff_week=cutoff_week,
+        )
+        self._send_html_response(200, html)
+
+    def _handle_export_bundle(self) -> None:
+        """Handle POST /api/export/bundle — a ZIP of an index page, one page
+        per section, and one page per team, all linking to a shared styles.css.
+
+        Same request body as POST /api/export/page.
+        """
+        body = self._parse_json_body()
+        if body is None:
+            self._send_error_response(400, "Invalid JSON in request body", "")
+            return
+
+        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
+        cutoff_week = body.get("cutoff_week") if isinstance(body.get("cutoff_week"), int) else None
+        standings_path = self._export_standings_path("/api/export/bundle", body)
+
+        standings_data = self._capture_json_response(self._handle_get_standings, standings_path)
+        if standings_data is None:
+            self._send_error_response(
+                409,
+                "No cached data available",
+                "Data must be fetched first using POST /api/fetch-data",
+            )
+            return
+        stats_data = self._capture_json_response(self._handle_get_statistics)
+        grid_data = self._capture_json_response(self._handle_get_schedule_grid)
+        status_data = self._capture_json_response(self._handle_get_status)
+        sim_result = export.validate_simulation_payload(body.get("simulation_result"))
+        team_details = {
+            team: self._capture_json_response(self._handle_get_team, team)
+            for team in ALL_TEAMS
+        }
+
+        css_content = Path(server.static_dir, "css", "styles.css").read_text(encoding="utf-8")
+        zip_bytes = export.build_bundle_zip(
+            conferences=standings_data["conferences"],
+            stats=stats_data,
+            grid=grid_data["teams"],
+            season_weeks=grid_data["season_weeks"],
+            sim_result=sim_result,
+            team_details=team_details,
+            season_year=server.season_year,
+            css_content=css_content,
+            logos=self._load_export_logos(server.static_dir),
+            status=status_data,
+            cutoff_week=cutoff_week,
+        )
+        filename = export.export_filename(server.season_year, "zip")
+        self._send_binary_response(200, zip_bytes, "application/zip", filename)
+
+    @staticmethod
+    def _load_export_logos(static_dir: str) -> dict[str, bytes]:
+        """Read every team/conference logo PNG an export might reference
+        (see export.ALL_LOGO_IDS) so callers can embed them (single-page:
+        base64 CSS classes) or copy them into the bundle's img/logos/."""
+        logos_dir = Path(static_dir, "img", "logos")
+        result: dict[str, bytes] = {}
+        for logo_id in export.ALL_LOGO_IDS:
+            path = logos_dir / f"{logo_id}.png"
+            if path.is_file():
+                result[logo_id] = path.read_bytes()
+        return result
+
+    @staticmethod
+    def _export_standings_path(base_path: str, body: dict[str, Any]) -> str:
+        """Build the path _handle_get_standings expects, carrying over the
+        client's currently-selected cutoff week (if any) so the exported
+        standings match what the Standings page currently displays -- the
+        same cutoff_week query param convention used by GET /api/standings."""
+        cutoff_week = body.get("cutoff_week")
+        if isinstance(cutoff_week, int):
+            return f"{base_path}?cutoff_week={cutoff_week}"
+        return base_path
+
     def _serve_static_file(self, path: str) -> None:
         """Serve a static file from the configured static directory.
 
@@ -2089,6 +2282,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             ".gif": "image/gif",
             ".svg": "image/svg+xml",
             ".ico": "image/x-icon",
+            ".zip": "application/zip",
         }
 
         ext = Path(file_path).suffix.lower()
@@ -2101,7 +2295,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
 
 
 class NFLSimulatorServer(ThreadingMixIn, HTTPServer):
-    """HTTP server for the NFL Monte Carlo Playoff Simulator.
+    """HTTP server for the NFL Playoff Rankings Monte Carlo Simulator.
 
     Extends HTTPServer with ThreadingMixIn to handle requests concurrently,
     allowing the CP solver to run in the background while other requests
@@ -2141,7 +2335,7 @@ class NFLSimulatorServer(ThreadingMixIn, HTTPServer):
         # Read version from package metadata
         try:
             from importlib.metadata import version
-            self.version: str = version("nfl-monte-carlo-simulator")
+            self.version: str = version("nfl-playoff-rankings-mc-sim")
         except Exception:
             self.version = "unknown"
 
@@ -2177,7 +2371,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(
         prog="python -m src.server",
-        description="NFL Monte Carlo Playoff Simulator — local web server",
+        description="NFL Playoff Rankings Monte Carlo Simulator — local web server",
     )
     parser.add_argument(
         "--port",

@@ -1,4 +1,4 @@
-"""Application entry point for the NFL Monte Carlo Playoff Simulator.
+"""Application entry point for the NFL Playoff Rankings Monte Carlo Simulator.
 
 Allows running the application as a package:
     python -m src

@@ -1,5 +1,5 @@
 /**
- * Standings view rendering for the NFL Monte Carlo Playoff Simulator.
+ * Standings view rendering for the NFL Playoff Rankings Monte Carlo Simulator.
  *
  * "Ledger" design (Modernist system): dense per-division tables grouped by
  * conference, a Season/Simulation card, conference filtering, clinch/eliminate

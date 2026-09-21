@@ -607,16 +607,19 @@ def _compute_games_behind(standings: list[TeamStanding]) -> None:
 
     # For each division, find the leader and compute games behind
     for _div_key, div_standings in division_groups.items():
-        # Find the leader: highest win percentage, breaking ties by fewest
-        # games played. This matters early in the season, where a team that
-        # hasn't played yet (0 games, 0.0%) and a team that has played and
-        # lost every game (also 0.0%) otherwise look tied to max() — which
-        # would arbitrarily pick whichever appears first in the input list,
-        # sometimes crowning the winless-but-played team as "leader" and
-        # giving it a nonzero games_behind relative to itself.
+        # Find the leader: highest win percentage, breaking ties by most wins
+        # then fewest losses. This matters early in the season, where teams
+        # tied on win percentage can otherwise look tied to max() — which
+        # would arbitrarily pick whichever appears first in the input list.
+        # Most-wins/fewest-losses (rather than fewest games played) correctly
+        # handles both directions: a team that hasn't played yet (0-0, 0.0%)
+        # isn't crowned leader over a team that's played and lost every game
+        # (also 0.0%, but more losses), and a team with fewer games played
+        # isn't crowned leader over one with a better raw record at the same
+        # percentage (e.g. 1-0 vs 2-0, both 1.000%).
         leader = min(
             div_standings,
-            key=lambda s: (-s.win_percentage, s.wins + s.losses + s.ties),
+            key=lambda s: (-s.win_percentage, -s.wins, s.losses),
         )
 
         for standing in div_standings:

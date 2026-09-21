@@ -34,7 +34,7 @@ beforeAll(() => {
     <nav class="mdn-nav">
       <a class="mdn-brand" href="#standings">
         <img src="img/logos/nfl.png" alt="NFL" width="30" height="30">
-        <span>NFL MONTE CARLO PLAYOFF SIM</span>
+        <span>NFL PLAYOFF RANKINGS SIM</span>
         <span id="app-version" class="mdn-brand-version"></span>
       </a>
       <div class="mdn-nav-links">
@@ -57,6 +57,8 @@ beforeAll(() => {
     getSimulationStatus: () => Promise.resolve({ status: "completed", phase: "", progress_done: 0, progress_total: 0, result: {} }),
     cancelSimulation: () => Promise.resolve({ job_id: "test-job", status: "cancelled" }),
     fetchCPClinchAll: () => Promise.resolve(null),
+    exportPage: () => Promise.resolve(new Blob(["<html></html>"], { type: "text/html" })),
+    exportBundle: () => Promise.resolve(new Blob([], { type: "application/zip" })),
   };
 
   // Load app JS files in dependency order
@@ -68,6 +70,7 @@ beforeAll(() => {
   loadScript("simulation.js");
   loadScript("statistics.js");
   loadScript("charts.js");
+  loadScript("export.js");
 });
 
 afterEach(() => {

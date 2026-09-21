@@ -1,4 +1,4 @@
-"""Hypothesis test strategies for NFL Monte Carlo Playoff Simulator."""
+"""Hypothesis test strategies for NFL Playoff Rankings Monte Carlo Simulator."""
 
 from tests.strategies.games import (
     completed_game,

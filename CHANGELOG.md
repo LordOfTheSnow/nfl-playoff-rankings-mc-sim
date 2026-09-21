@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-21
+
+### Added
+- **Standalone HTML export** (new `#export` page, `src/export.py`): downloads the current Standings, Statistics, Schedule Grid, per-team pages and — optionally — the latest simulation result as self-contained HTML in the live app's "Modernist" style, either as a single page (`POST /api/export/page`) or as a ZIP bundle with an index and one page per section and team (`POST /api/export/bundle`). The export reuses the live JSON handlers rather than recomputing anything, and logos are inlined/bundled so the files work offline. See [API Reference](doc/api.md)
+- "Data-driven ratings" reliability indicator under the "Results" line of the Simulations page and in the HTML export (single page's Simulation section and the bundle's `simulations.html`), e.g. "Data-driven ratings: 11% — Very low · 1 of 272 games played (0.4%)". It is the share of the league's team ratings that is based on played games rather than the league-average prior (mean over all 32 teams of the Bayesian dampening weight `n / (n + K)`), labelled Very low (< 25%) / Low (< 40%) / Moderate (< 55%) / Good. Heuristic reliability indicator, not a statistical confidence interval; most useful early in the season, when ratings are mostly regressed to average. New `data_driven_pct` and `data_confidence` fields on `GET /api/simulate/status/{job_id}`'s `result` (`doc/api.md`, `doc/algorithms.md`); older results without them simply omit the line
+- ZIP bundle export: every page except `index.html` itself (the 4 section pages, previously missing one; team pages already had it) now has a "← Back to index" link
+- Export's "Season data" card (season/cutoff, weeks/games loaded) now appears at the top of every page in both export modes — single page and every page of the bundle, including team pages — instead of only being shown nested under the Simulation section (and therefore missing entirely whenever no simulation was included in the export). Its "N games × M iterations = X" figure is folded in as a fifth "Game simulations" stat tile (only shown when a simulation was actually included) instead of being left as an orphaned standalone line below the card
+- Standalone HTML export (single page and every page of the ZIP bundle) starts with the live app's header: a dark nav bar with the NFL logo and the "NFL PLAYOFF RANKINGS SIM" brand (linking back to `index.html` in the bundle), plus the "independent project not affiliated with the NFL" disclaimer strip. `nfl.png` is embedded/copied alongside the team and conference logos
+- Standalone HTML export (single page and every page of the ZIP bundle) ends with a footer, divided from the page content by a horizontal rule: "Created by nfl-playoff-rankings-mc-sim v{version} on {YYYY-MM-DD HH:MM} UTC±HH:MM. — View on GitHub" (server-local time with numeric UTC offset, e.g. `2026-09-20 17:05 UTC+02:00`; resolved once per export, so every page of a bundle shows the same timestamp) linking to the project's repo (opens in a new tab), with an inlined GitHub icon so the export stays fully self-contained
+
+### Changed
+- Both export downloads now share one naming scheme, `nfl-playoff-rankings-mc-sim-export-<season>` plus extension (`.zip` for the bundle, `.html` for the single page; previously `nfl-export-<season>.zip`/`.html`). The bundle name is set by the server's `Content-Disposition` header, the single page's by the frontend (`export.js`)
+- Standalone HTML export (single page and the bundle's `index.html`) no longer has the all-caps "NFL PLAYOFF RANKINGS SIM Export — {year}" heading under the page header: the nav bar already shows the brand and the Season data card shows the season. The browser tab `<title>` of those two pages is now the full name, "NFL Playoff Rankings Monte Carlo Simulator — {year} Export", instead of all-caps
+- Unified the project's naming, which had drifted across the repo, package, and UI into four variants. There is now one slug, one full name, and one short name:
+  - **Slug `nfl-playoff-rankings-mc-sim`** (matches the GitHub repo, GHCR image, and Docker container): the Python package name in `pyproject.toml`/`uv.lock` was `nfl-monte-carlo-simulator`. The `importlib.metadata` lookups in `server.py` and `export.py` follow, so the export footer now reads "Created by nfl-playoff-rankings-mc-sim v…". Re-run `pip install -e ".[dev]"` in an existing checkout so the installed package metadata picks up the new name (until then the version shows as "unknown")
+  - **Full name "NFL Playoff Rankings Monte Carlo Simulator"**: README title, browser tab `<title>`, `--help` text, `doc/` headers, and all module/JS/CSS docstrings (previously a mix of "NFL Monte Carlo Playoff Simulator" and "NFL Monte Carlo Playoff Ranking Simulator")
+  - **Short name "NFL PLAYOFF RANKINGS SIM"**: nav bar brand and standalone export header/title (previously "NFL MONTE CARLO PLAYOFF SIM")
+  - `pyproject.toml` description is now "Monte Carlo simulation of NFL playoff rankings — seeding probabilities with full tiebreaker rules"
+- ZIP bundle export nests every file under a single `export/` folder instead of scattering 38+ files loose at the ZIP's top level; all internal links are relative, so nothing else changed
+- The "Data-driven ratings" hint under the Results line now explains itself on a second line ("Data-driven ratings = the share of a team's strength rating that comes from its own played games, averaged over all teams; the rest is assumed to be league average"), instead of a sentence that read as describing the "games played" percentage
+
+### Fixed
+- ZIP bundle export's `index.html` team directory rendered small (13px text, 18px logos) with each logo sitting on the text baseline, so logos looked shifted up against the names. Team links there are now 16px with 24px logos, vertically centred on the name (new `.mdn-index-team` modifier in `styles.css`)
+- Division standings' `games_behind` leader selection (`_compute_games_behind`, `standings.py`) broke ties on win percentage by fewest games played, which is backwards for teams tied at 100% — e.g. a 1-0 team with a bye week could outrank a 2-0 team with the better actual record, showing the 2-0 team as `-0.5` games behind the 1-0 team instead of being the division leader itself. Tiebreak changed to most wins, then fewest losses, which still correctly handles the original edge case this logic exists for (a 0-0 bye-week team isn't outranked by a 0-1 team that's played and lost)
+- Standalone HTML export's Schedule Grid rendered each game as a single line (`W 26–14 @ LAC`), unlike the live app's two-line cell (opponent, then score, no W/L/T letter) — `export.py`'s `_grid_cell` now matches `schedule-grid.js` exactly
+- Standalone HTML export's Seeding Probabilities matrix had no per-cell color heatmap at all (plain white cells), where the live app tints each cell by probability (`simulation.js`'s `_seedTint`) — ported bucket-for-bucket as `_seed_tint` in `export.py`
+- Playoff Probabilities and Seeding Probabilities tables (both the live Simulations page and the export) rendered the AFC and NFC tables as two independent `<table>` elements with `table-layout: auto`, so each table's Team column auto-sized to that conference's own longest team name — e.g. NFC's "Buccaneers"/"Commanders" made its Team column wider than AFC's, shifting every column after it out of alignment between the two tables. Both tables now use `table-layout: fixed` with explicit per-column widths (`simulation.js`, mirrored in `export.py`), so AFC and NFC always render pixel-identical column positions regardless of team-name length
+
 ## [1.0.3] - 2026-09-15
 
 ### Fixed
@@ -407,7 +435,8 @@ Full "Modernist" redesign of every page (flat red-on-white style, Bootstrap remo
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.0.0...v1.0.1

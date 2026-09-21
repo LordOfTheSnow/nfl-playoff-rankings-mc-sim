@@ -2,7 +2,7 @@
 
 [← Back to README](../README.md) | [Technical Details](technical.md)
 
-This document describes the core algorithms powering the NFL Monte Carlo Playoff Ranking Simulator.
+This document describes the core algorithms powering the NFL Playoff Rankings Monte Carlo Simulator.
 
 ## Team Strength Ratings
 
@@ -71,6 +71,12 @@ With K=8 (default):
 | 17 (full season) | 68% | 32% | Mostly earned rating |
 
 This prevents unrealistic extreme ratings early in the season when a 2-0 start against weak opponents could otherwise produce inflated playoff probabilities.
+
+#### Data-driven share (reliability indicator)
+
+Because of the dampening, early-season simulations are mostly "everyone is average" plus a small signal from the few games played. To make that visible, every simulation result reports the **data-driven share**: the mean of the weight `n / (n + K)` over all 32 teams (a team with no games or a bye counts as 0) — i.e. how much of the league's ratings is earned from played games rather than assumed. With K=8 and every team having played the same number of games, it is 11% after week 1, 50% after week 8, and tops out at 68% after 17 games. Partial weeks count proportionally — a single game played in the whole league gives only 0.7%. Labels: **Very low** (< 25%), **Low** (< 40%), **Moderate** (< 55%), **Good** (≥ 55%).
+
+This is a heuristic, not a statistical confidence interval: it says how much the ratings can be trusted, not how far a probability could be off (that would need a parameter-uncertainty band or a backtest). It is computed by `TeamStrengthCalculator.data_driven_share` and labelled by `data_confidence_label` in `src/team_strength.py`, returned as `data_driven_pct` / `data_confidence` (see `doc/api.md`), and shown under the "Results" line of the Simulations page and in the HTML export.
 
 ### Output
 

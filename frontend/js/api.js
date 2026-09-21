@@ -1,5 +1,5 @@
 /**
- * REST API client for the NFL Monte Carlo Playoff Simulator.
+ * REST API client for the NFL Playoff Rankings Monte Carlo Simulator.
  *
  * All functions use the Fetch API, return parsed JSON on success,
  * and throw an Error with the server's error message on failure.
@@ -287,6 +287,62 @@ const API = (() => {
     return request("/api/reset-counters", { method: "POST" });
   }
 
+  /**
+   * Internal helper: POST JSON and return the raw response body as a Blob,
+   * for endpoints that return a file (HTML page or ZIP) rather than JSON.
+   *
+   * @param {string} url
+   * @param {Object} payload
+   * @returns {Promise<Blob>}
+   */
+  async function _fetchBlob(url, payload) {
+    let response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload || {}),
+      });
+    } catch (networkError) {
+      throw new Error("Network error: unable to reach the server.");
+    }
+    if (!response.ok) {
+      let message = `Server error (HTTP ${response.status})`;
+      try {
+        const data = await response.json();
+        if (data && data.message) message = data.message;
+      } catch (_) {
+        // response body wasn't JSON — keep the generic message
+      }
+      throw new Error(message);
+    }
+    return response.blob();
+  }
+
+  /**
+   * Export a single standalone HTML page combining Standings, Statistics,
+   * Schedule Grid, and (if supplied) Simulation results.
+   * POST /api/export/page
+   *
+   * @param {{simulation_result?: Object|null, cutoff_week?: number|null}} payload
+   * @returns {Promise<Blob>} The HTML file contents.
+   */
+  function exportPage(payload) {
+    return _fetchBlob("/api/export/page", payload);
+  }
+
+  /**
+   * Export a ZIP bundle: an index page, one page per section, and one page
+   * per team, all linking to a shared styles.css.
+   * POST /api/export/bundle
+   *
+   * @param {{simulation_result?: Object|null, cutoff_week?: number|null}} payload
+   * @returns {Promise<Blob>} The ZIP file contents.
+   */
+  function exportBundle(payload) {
+    return _fetchBlob("/api/export/bundle", payload);
+  }
+
   return {
     fetchStatus,
     fetchData,
@@ -304,5 +360,7 @@ const API = (() => {
     solverTimings,
     getSystemInfo,
     resetCounters,
+    exportPage,
+    exportBundle,
   };
 })();

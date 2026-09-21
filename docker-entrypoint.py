@@ -1,4 +1,4 @@
-"""Docker entrypoint script for the NFL Monte Carlo Playoff Simulator.
+"""Docker entrypoint script for the NFL Playoff Rankings Monte Carlo Simulator.
 
 Reads the SEASON environment variable, validates it, constructs the CLI
 invocation with proper precedence (CLI args override env vars), and execs

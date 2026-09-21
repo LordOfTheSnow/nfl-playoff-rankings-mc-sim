@@ -19,6 +19,7 @@ env/
 *.swp
 *.swo
 *~
+*.code-workspace
 
 # SQLite database (runtime cache)
 *.db

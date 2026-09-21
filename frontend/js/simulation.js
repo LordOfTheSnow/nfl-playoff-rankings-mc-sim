@@ -1,5 +1,5 @@
 /**
- * Simulations view for the NFL Monte Carlo Playoff Simulator.
+ * Simulations view for the NFL Playoff Rankings Monte Carlo Simulator.
  *
  * Provides one global function:
  *   - renderSimulations(contentEl) — renders the Simulations view (#simulations)
@@ -584,6 +584,7 @@ async function renderSimulations(contentEl) {
   <div style="border-top:2px solid var(--mdn-divider);margin-bottom:18px"></div>`;
 
   if (results) {
+    html += _renderDataConfidence(results);
     const showWarning = results.low_confidence || !results.convergence_achieved;
     if (showWarning) {
       html += `<p class="mdn-hint" style="color:var(--mdn-accent-700);margin:0 0 16px">${results.low_confidence ? "Low confidence." : ""}${results.convergence_achieved ? "" : " Convergence not achieved."}</p>`;
@@ -617,6 +618,29 @@ async function renderSimulations(contentEl) {
 }
 
 /**
+ * "Data-driven ratings: N% — <label>" indicator shown under the Results
+ * line: how much of the league's team ratings comes from played games
+ * rather than the league-average prior (see doc/algorithms.md, Bayesian
+ * Dampening). Mirrors export.py's `_data_confidence_line`. Empty for
+ * results that lack the field (e.g. produced before it existed).
+ *
+ * @param {object} results - The simulation result object.
+ * @returns {string} HTML string.
+ */
+function _renderDataConfidence(results) {
+  const pct = results.data_driven_pct;
+  if (typeof pct !== "number" || !Number.isFinite(pct)) return "";
+  const labelHtml = results.data_confidence ? ` — ${_escapeHtml(String(results.data_confidence))}` : "";
+  let played = "";
+  const fixed = results.fixed_games;
+  const total = fixed + results.simulated_games;
+  if (Number.isInteger(fixed) && Number.isInteger(results.simulated_games) && total > 0) {
+    played = ` · ${fixed.toLocaleString("en-US")} of ${total.toLocaleString("en-US")} games played (${(fixed / total * 100).toFixed(1)}%)`;
+  }
+  return `<p class="mdn-hint" style="margin:0 0 16px"><strong>Data-driven ratings: ${Math.round(pct)}%${labelHtml}</strong>${played}<br>Data-driven ratings = the share of a team's strength rating that comes from its own played games, averaged over all teams; the rest is assumed to be league average.</p>`;
+}
+
+/**
  * Render playoff probability summary tables grouped by conference.
  * Sorted descending by probability; alphabetical for ties.
  *
@@ -641,15 +665,15 @@ function _renderPlayoffProbabilityTables(teamResults) {
       <img src="img/logos/${conf.toLowerCase()}.png" alt="${conf}" width="26" height="26">
       <h2>${conf} Playoff Probabilities</h2>
     </div>
-    <table class="mdn-led-table" style="margin-bottom:32px" aria-label="${conf} playoff probabilities">
+    <table class="mdn-led-table" style="margin-bottom:32px;table-layout:fixed" aria-label="${conf} playoff probabilities">
       <thead>
         <tr>
           <th style="width:36px" class="mdn-num">#</th>
-          <th>Team</th>
-          <th class="mdn-num">Record</th>
-          <th>Division</th>
+          <th style="width:320px">Team</th>
+          <th style="width:180px" class="mdn-num">Record</th>
+          <th style="width:190px">Division</th>
           <th style="width:220px">Playoff %${_infoIcon("Share of simulated seasons in which this team reaches the playoffs. Each trial plays out every remaining game using team strength plus noise, applies the NFL tiebreakers, then checks whether the team lands in the top 7 of its conference. 12,414 of 15,000 trials = 82.8%.")}</th>
-          <th class="mdn-num">Strength${_infoIcon("Relative team rating derived from results so far. Higher values win more simulated games; 1.000 is league average.")}</th>
+          <th style="width:270px" class="mdn-num">Strength${_infoIcon("Relative team rating derived from results so far. Higher values win more simulated games; 1.000 is league average.")}</th>
         </tr>
       </thead>
       <tbody>`;
@@ -736,10 +760,10 @@ function _renderSeedingMatrix(teamResults) {
       <img src="img/logos/${conf.toLowerCase()}.png" alt="${conf}" width="26" height="26">
       <h2>${conf} Seeding Probabilities</h2>
     </div>
-    <table class="mdn-led-table" style="margin-bottom:32px" aria-label="${conf} seeding probability matrix">
+    <table class="mdn-led-table" style="margin-bottom:32px;table-layout:fixed" aria-label="${conf} seeding probability matrix">
       <thead>
         <tr>
-          <th>Team</th>
+          <th style="width:250px">Team</th>
           ${Array.from({ length: 7 }, (_, i) => `<th class="mdn-num">Seed ${i + 1}</th>`).join("")}
         </tr>
       </thead>
