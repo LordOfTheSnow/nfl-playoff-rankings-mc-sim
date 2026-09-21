@@ -637,7 +637,7 @@ function _renderDataConfidence(results) {
   if (Number.isInteger(fixed) && Number.isInteger(results.simulated_games) && total > 0) {
     played = ` · ${fixed.toLocaleString("en-US")} of ${total.toLocaleString("en-US")} games played (${(fixed / total * 100).toFixed(1)}%)`;
   }
-  return `<p class="mdn-hint" style="margin:0 0 16px"><strong>Data-driven ratings: ${Math.round(pct)}%${labelHtml}</strong>${played} · Share of each team's rating earned from its own results rather than assumed to be league average.</p>`;
+  return `<p class="mdn-hint" style="margin:0 0 16px"><strong>Data-driven ratings: ${Math.round(pct)}%${labelHtml}</strong>${played}<br>Data-driven ratings = the share of a team's strength rating that comes from its own played games, averaged over all teams; the rest is assumed to be league average.</p>`;
 }
 
 /**

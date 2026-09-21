@@ -611,9 +611,10 @@ def _data_confidence_line(sim_result: dict[str, Any]) -> str:
         played = f" · {fixed:,} of {total:,} games played ({played_pct}%)"
     return (
         '<p class="mdn-hint" style="margin:0 0 16px">'
-        f"<strong>Data-driven ratings: {int(pct + 0.5)}%{label_html}</strong>{played}"
-        " · Share of each team's rating earned from its own results rather than "
-        "assumed to be league average.</p>"
+        f"<strong>Data-driven ratings: {int(pct + 0.5)}%{label_html}</strong>{played}<br>"
+        "Data-driven ratings = the share of a team's strength rating that comes "
+        "from its own played games, averaged over all teams; the rest is assumed "
+        "to be league average.</p>"
     )
 
 
