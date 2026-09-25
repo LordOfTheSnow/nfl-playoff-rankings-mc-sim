@@ -402,7 +402,8 @@ class Cache:
         Freshness is determined by the game status-specific TTL policy:
         - Completed games: always fresh (never expire)
         - In-progress games: fresh if fetched within 60 seconds
-        - Scheduled games: fresh if fetched within 24 hours
+        - Scheduled games (future date): fresh if fetched within 24 hours
+        - Scheduled games (today or past date): always stale — game may have been played
 
         Args:
             year: The season year.
@@ -412,14 +413,17 @@ class Cache:
             True if cached data is fresh, False if stale or missing.
         """
         rows = self._conn.execute(
-            "SELECT status, fetched_at FROM games WHERE year = ? AND week = ?",
+            "SELECT status, fetched_at, game_date FROM games WHERE year = ? AND week = ?",
             (year, week),
         ).fetchall()
 
         if not rows:
             return False
 
+        from datetime import date as date_type
+
         now = datetime.now(UTC)
+        today = now.date()
         for row in rows:
             status = row["status"]
             fetched_at = datetime.fromisoformat(row["fetched_at"])
@@ -434,6 +438,11 @@ class Cache:
                 if age > CachePolicy.IN_PROGRESS_TTL:
                     return False
             else:
+                # A scheduled game whose date has passed may have been played —
+                # always re-fetch so completed results aren't missed within the 24h TTL.
+                game_date = date_type.fromisoformat(row["game_date"])
+                if game_date <= today:
+                    return False
                 if age > CachePolicy.SCHEDULE_TTL:
                     return False
 

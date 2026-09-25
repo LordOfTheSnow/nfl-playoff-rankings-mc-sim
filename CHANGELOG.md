@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-09-25
+
+### Fixed
+- Docker: clicking "Fetch" did not pick up games that completed after the schedule was last cached. `Cache.is_fresh()` treated any week whose games were all stored as `scheduled` within the last 24 hours as fresh — so a week fetched (as all-scheduled) earlier the same day would never be re-fetched, even after games in it finished. The fix: a `scheduled` game whose `game_date` is today or in the past is always treated as stale and re-fetched from ESPN, regardless of the 24-hour TTL. Games scheduled for a future date still use the TTL as before. Standalone runs were unaffected because they start with an empty cache for upcoming weeks, which always triggers a live fetch
+
 ## [1.1.1] - 2026-09-21
 
 ### Fixed
@@ -441,6 +446,7 @@ Full "Modernist" redesign of every page (flat red-on-white style, Bootstrap remo
 - 104 unit/integration tests passing
 
 [Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.1...HEAD
+[1.1.2]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.0.2...v1.0.3
