@@ -23,6 +23,7 @@ env/
 
 # SQLite database (runtime cache)
 *.db
+*.db.bak
 *.db-journal
 *.db-wal
 *.db-shm
