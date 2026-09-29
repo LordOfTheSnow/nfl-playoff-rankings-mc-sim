@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-09-29
+
+### Fixed
+- Standings page (`GET /api/standings`) could hang indefinitely when a division had 3+ teams tied on record. `_division_tiebreak_sort`'s per-team tiebreaker-badge loop reused the loop variable name `i`, shadowing the outer `while i < len(div_teams_sorted)` index that walks the division's team list — each tied group reset `i` back to `len(group) - 1` on exit, so the outer loop kept re-processing the same group forever. Renamed the inner loop variable to `j`
+- Multi-team tiebreaker badge (e.g. AFC North teams all at 2-1) showed the wrong rule and, in some cases, produced a wrong team order. Two bugs: (1) the deciding step was computed once for the whole tied group by requiring *every* team to have a fully distinct value at that step — with 3+ teams this is rarely true, so the code skipped past valid earlier steps like division record straight to whichever later step (e.g. strength of victory) happened to give all teams distinct values; (2) teams with zero head-to-head games against the other tied teams defaulted to a 0.5 ("tied") win percentage instead of 0.0, which could both mislabel the badge and outrank a team that had an actual head-to-head loss. Fixed by: labelling each team with the first step that separates it from its immediate neighbor in the sorted order (so different pairs within the same tie can show different rules, e.g. one pair separated by head-to-head, the next by conference record); skipping head-to-head as a badge/label candidate for a pair unless both teams have actually played a tied opponent; and using 0.0 (no games played) instead of 0.5 for the win-percentage default, consistent with every other tiebreaker step
+
 ## [1.1.2] - 2026-09-25
 
 ### Fixed
@@ -445,7 +451,8 @@ Full "Modernist" redesign of every page (flat red-on-white style, Bootstrap remo
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.3...HEAD
+[1.1.3]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.0.3...v1.1.0

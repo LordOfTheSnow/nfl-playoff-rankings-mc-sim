@@ -1618,7 +1618,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                         for t in team_names:
                             hw, hl = h2h_records[t]
                             h2h_total = hw + hl
-                            h2h_wps[t] = hw / h2h_total if h2h_total > 0 else 0.5
+                            h2h_wps[t] = hw / h2h_total if h2h_total > 0 else 0.0
 
                         # Step 2: Division record win%
                         div_wps: dict[str, float] = {}
@@ -1688,27 +1688,6 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                             pa = ts.points_against or 0 if ts else 0
                             net_pts[t] = pf - pa
 
-                        # Determine which step actually breaks the tie
-                        def _values_differentiate(vals: dict[str, float | int]) -> bool:
-                            """Check if values produce a unique ordering (no ties)."""
-                            v_list = list(vals.values())
-                            return len(set(v_list)) == len(v_list)
-
-                        if _values_differentiate(h2h_wps):
-                            tiebreaker_label = "H2H"
-                        elif _values_differentiate(div_wps):
-                            tiebreaker_label = "Div"
-                        elif _values_differentiate(conf_wps):
-                            tiebreaker_label = "Conf"
-                        elif _values_differentiate(sov):
-                            tiebreaker_label = "SoV"
-                        elif _values_differentiate(sos):
-                            tiebreaker_label = "SoS"
-                        elif _values_differentiate(net_pts):
-                            tiebreaker_label = "Pts"
-                        else:
-                            tiebreaker_label = "Alpha"
-
                         # Sort using all steps as a composite key
                         def _tie_sort_key(td: dict[str, Any]) -> tuple:
                             t = td["team"]
@@ -1724,21 +1703,46 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
 
                         group.sort(key=_tie_sort_key)
 
-                        # Annotate tied teams with tiebreaker info
-                        for td in group:
+                        # Annotate each team with the first step that separates it
+                        # from its adjacent neighbor (next for all but last, which
+                        # compares backward so every team gets a badge).
+                        _tb_steps: list[tuple[str, dict[str, float | int]]] = [
+                            ("H2H", h2h_wps),
+                            ("Div", div_wps),
+                            ("Conf", conf_wps),
+                            ("SoV", sov),
+                            ("SoS", sos),
+                            ("Pts", net_pts),
+                        ]
+
+                        for j, td in enumerate(group):
                             t = td["team"]
+                            cmp_idx = j + 1 if j < len(group) - 1 else j - 1
+                            other_t = group[cmp_idx]["team"]
+
+                            label = "Alpha"
+                            for step_name, step_vals in _tb_steps:
+                                if step_name == "H2H":
+                                    t_games = sum(h2h_records[t])
+                                    o_games = sum(h2h_records[other_t])
+                                    if t_games == 0 or o_games == 0:
+                                        continue
+                                if step_vals[t] != step_vals[other_t]:
+                                    label = step_name
+                                    break
+
                             hw, hl = h2h_records[t]
-                            if tiebreaker_label == "H2H":
+                            if label == "H2H":
                                 td["tiebreaker"] = f"H2H {hw}-{hl}"
-                            elif tiebreaker_label == "Div":
+                            elif label == "Div":
                                 td["tiebreaker"] = f"Div {td['division_record']}"
-                            elif tiebreaker_label == "Conf":
+                            elif label == "Conf":
                                 td["tiebreaker"] = f"Conf {td['conference_record']}"
-                            elif tiebreaker_label == "SoV":
+                            elif label == "SoV":
                                 td["tiebreaker"] = f"SoV {sov[t]:.3f}"
-                            elif tiebreaker_label == "SoS":
+                            elif label == "SoS":
                                 td["tiebreaker"] = f"SoS {sos[t]:.3f}"
-                            elif tiebreaker_label == "Pts":
+                            elif label == "Pts":
                                 sign = "+" if net_pts[t] > 0 else ""
                                 td["tiebreaker"] = f"Pts {sign}{net_pts[t]}"
                             else:
