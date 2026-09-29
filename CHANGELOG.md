@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `compose.yaml`: configurable `TZ` environment variable for the simulator service, defaulting to `UTC`. Sets the container's local time, used by `export.py`'s "Created by ... on {date}" timestamp footer
+
 ## [1.1.3] - 2026-09-29
 
 ### Fixed
