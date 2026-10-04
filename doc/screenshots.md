@@ -64,6 +64,14 @@ Every page in the app, all in the flat, red-on-white "Modernist" design system. 
 
 *Game Outcomes card (home/away/tie/overtime/one-score win rates as inline percentage bars, average score, longest winning/losing streaks with team logos) alongside a Score Margin Distribution card bucketing every completed game's final margin.*
 
+## Export
+
+### Teaser image — "Biggest movers" (2026 season, cutoff week 3)
+
+![Biggest movers teaser card: five team tiles with logos, each showing the playoff-probability change since the saved baseline, plus the app name and version in the footer](img/screenshot-movercard.png)
+
+*Teaser image downloaded from the Export page (1200×630 PNG, for link previews and social posts): the five teams whose playoff probability changed most since the baseline saved on an earlier week. Each tile shows the team's logo, its change (▲/▼), and before → after probabilities. The footer carries the app name and version.*
+
 ## Settings / Info
 
 ![Settings / Info page in the Modernist style, showing runtime environment, lifetime totals, SQLite cache database metadata, and recent fetch attempts](img/screenshot-settings-info-new-design.png)

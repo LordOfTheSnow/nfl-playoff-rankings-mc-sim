@@ -26,6 +26,7 @@ A browser application that predicts NFL playoff probabilities using Monte Carlo 
 - Statistics page: game-outcome rates (home/away/tie/overtime/one-score), score margin distribution, and longest winning/losing streaks
 - Simulation results: playoff probabilities, seeding matrix, top scenarios
 - HTML export: save the current Standings, Statistics, Schedule Grid, and Simulation results as a standalone HTML page, or a ZIP bundle with an index and one page per team
+- Teaser image: a 1200×630 "Biggest movers" PNG from the Export page for link previews and social posts, showing the five teams whose playoff probability changed most since a baseline you saved explicitly (so week-over-week deltas stay pinned to the numbers you published), with team logos and the app name and version
 - Clinching scenarios solver: find all game-outcome combinations that guarantee a playoff spot (available once 4 weeks remain before the season ends — week 14 for an 18-week season)
 - CP-SAT constraint solver for mathematical clinching/elimination detection using Google OR-Tools (provably correct, available from week 1)
 - Solver performance export: one-click export of timing benchmarks to `doc/solver-performance.md`
@@ -43,7 +44,7 @@ A browser application that predicts NFL playoff probabilities using Monte Carlo 
 
 *Seeding Probabilities matrix: each cell is tinted on a warm tan-to-maroon scale proportional to that team's probability of landing exactly that seed, switching to white text once the tint gets dark enough — never gray, and never tinted at exactly 0%.*
 
-📸 **[See the full screenshot gallery →](doc/screenshots.md)** — Standings, Team Detail, Schedule Grid, Playoff Probabilities, Top Scenarios, Clinching Scenarios, Solver Timing History, Statistics, and Settings / Info.
+📸 **[See the full screenshot gallery →](doc/screenshots.md)** — Standings, Team Detail, Schedule Grid, Playoff Probabilities, Top Scenarios, Clinching Scenarios, Solver Timing History, Statistics, Teaser Image, and Settings / Info.
 
 ## Setup
 

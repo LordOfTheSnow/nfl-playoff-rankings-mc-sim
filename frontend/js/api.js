@@ -343,6 +343,32 @@ const API = (() => {
     return _fetchBlob("/api/export/bundle", payload);
   }
 
+  /**
+   * Get the saved teaser baseline for the active season.
+   * GET /api/teaser/baseline
+   *
+   * @returns {Promise<{baseline: Object|null}>}
+   */
+  function getTeaserBaseline() {
+    return request("/api/teaser/baseline");
+  }
+
+  /**
+   * Save the playoff probabilities of a simulation run as the teaser baseline
+   * for the active season, replacing any earlier one.
+   * POST /api/teaser/baseline
+   *
+   * @param {Object} simulationResult - The last completed simulation result.
+   * @returns {Promise<{baseline: Object}>}
+   */
+  function saveTeaserBaseline(simulationResult) {
+    return request("/api/teaser/baseline", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ simulation_result: simulationResult }),
+    });
+  }
+
   return {
     fetchStatus,
     fetchData,
@@ -362,5 +388,7 @@ const API = (() => {
     resetCounters,
     exportPage,
     exportBundle,
+    getTeaserBaseline,
+    saveTeaserBaseline,
   };
 })();
