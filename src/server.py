@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import unquote
 
-from src import export
+from src import export, teaser
 from src.cache import Cache
 from src.cp_solver import ORTOOLS_AVAILABLE, CPSolverConfig, solve_clinch, solve_clinch_all
 from src.data_client import DataClient, FetchResult, Game, GameStatus, derive_season_weeks
@@ -474,6 +474,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             self._handle_get_status()
         elif path == "/api/standings" or path.startswith("/api/standings?"):
             self._handle_get_standings(path)
+        elif path == "/api/teaser/baseline":
+            self._handle_get_teaser_baseline()
         elif path == "/api/statistics":
             self._handle_get_statistics()
         elif path == "/api/schedule-grid":
@@ -520,6 +522,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             self._handle_export_page()
         elif path == "/api/export/bundle":
             self._handle_export_bundle()
+        elif path == "/api/teaser/baseline":
+            self._handle_post_teaser_baseline()
         elif path.startswith("/api/"):
             self._send_error_response(404, "Endpoint not found", f"No handler for POST {path}")
         else:
@@ -1843,6 +1847,53 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
         except Exception as e:
             logger.exception("Error computing statistics")
             self._send_error_response(500, "Error computing statistics", str(e))
+
+    def _handle_get_teaser_baseline(self) -> None:
+        """Handle GET /api/teaser/baseline — the saved baseline for the active season.
+
+        Responds with {"baseline": null} when none has been saved yet.
+        """
+        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
+        try:
+            baseline = server.cache.get_teaser_baseline(server.season_year)
+            self._send_json_response(200, {"baseline": baseline})
+        except Exception as e:
+            logger.exception("Error loading teaser baseline")
+            self._send_error_response(500, "Error loading teaser baseline", str(e))
+
+    def _handle_post_teaser_baseline(self) -> None:
+        """Handle POST /api/teaser/baseline — save the playoff probabilities of a simulation run.
+
+        Body: {"simulation_result": <the last completed simulation result>}.
+        Only a complete result (a probability for all 32 teams) is accepted.
+        """
+        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
+
+        body = self._parse_json_body()
+        if body is None:
+            self._send_error_response(400, "Invalid JSON in request body", "")
+            return
+
+        probabilities = teaser.extract_baseline_probabilities(body.get("simulation_result"))
+        if probabilities is None:
+            self._send_error_response(
+                400,
+                "Invalid simulation result",
+                "simulation_result must include a playoff probability for every team; run a simulation first",
+            )
+            return
+
+        cutoff_week = body["simulation_result"].get("cutoff_week_used")
+        if not isinstance(cutoff_week, int) or isinstance(cutoff_week, bool):
+            self._send_error_response(400, "Invalid simulation result", "simulation_result.cutoff_week_used must be an integer")
+            return
+
+        try:
+            baseline = server.cache.store_teaser_baseline(server.season_year, cutoff_week, probabilities)
+            self._send_json_response(200, {"baseline": baseline})
+        except Exception as e:
+            logger.exception("Error saving teaser baseline")
+            self._send_error_response(500, "Error saving teaser baseline", str(e))
 
     def _handle_get_team(self, team_name: str) -> None:
         """Handle GET /api/team/<name> — return team schedule.

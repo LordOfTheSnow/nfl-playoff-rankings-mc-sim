@@ -622,6 +622,47 @@ Every team name anywhere in the bundle links to that team's page.
 
 ---
 
+## Teaser Image
+
+The Export page can download a 1200×630 "Biggest movers" PNG: the five teams whose playoff probability changed most since a saved baseline. The card is drawn in the browser (`frontend/js/teaser.js`) from the last simulation result and the baseline below; the server only stores and returns the baseline. The baseline is saved explicitly, one per season, so each week's deltas stay pinned to the numbers that were published.
+
+### `GET /api/teaser/baseline`
+
+Returns the baseline saved for the active season.
+
+**Response:** `200`
+
+```json
+{
+  "baseline": {
+    "season": 2025,
+    "cutoff_week": 9,
+    "saved_at": "2026-10-04T09:11:30.123456+00:00",
+    "probabilities": {"Bears": 12.4, "Bengals": 3.0, "...": "..."}
+  }
+}
+```
+
+`baseline` is `null` when no baseline has been saved for the season. `probabilities` maps all 32 team short names to playoff probability (0–100, one decimal), as in `GET /api/simulate/status/{job_id}`'s `team_results`.
+
+### `POST /api/teaser/baseline`
+
+Saves the playoff probabilities of a completed simulation run as the active season's baseline, replacing any earlier one.
+
+**Request body:**
+
+```json
+{ "simulation_result": { "cutoff_week_used": 9, "team_results": [ { "team": "Bears", "playoff_probability": 12.4 } ] } }
+```
+
+`simulation_result` is the last completed simulation result (the `result` object from `GET /api/simulate/status/{job_id}`). Only `team_results` (every team's `playoff_probability`) and `cutoff_week_used` are read.
+
+**Response:** `200` with the saved baseline, in the same shape as the `GET` response's `baseline`.
+
+**Errors:** `400` invalid JSON body; `400` `simulation_result` lacks a finite probability between 0 and 100 for every one of the 32 teams, or `cutoff_week_used` is not an integer.
+
+---
+
 ## Performance & Export
 
 ### `GET /api/solver-timings`

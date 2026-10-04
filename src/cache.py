@@ -129,6 +129,13 @@ class Cache:
                 excluded_season INTEGER NOT NULL,
                 computed_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS teaser_baseline (
+                season INTEGER PRIMARY KEY,
+                cutoff_week INTEGER NOT NULL,
+                saved_at TEXT NOT NULL,
+                probabilities TEXT NOT NULL
+            );
         """)
         self._conn.commit()
 
@@ -394,6 +401,56 @@ class Cache:
             "season_count": row["season_count"],
             "excluded_season": row["excluded_season"],
             "computed_at": row["computed_at"],
+        }
+
+    def store_teaser_baseline(self, season: int, cutoff_week: int, probabilities: dict[str, float]) -> dict[str, Any]:
+        """Save the playoff probabilities a teaser image will be compared against.
+
+        One row per season, overwritten on every call. Written only on an
+        explicit "Save baseline" action, so the week-over-week deltas stay
+        pinned to the exact numbers that were published instead of drifting
+        with each new simulation run.
+
+        Args:
+            season: Season year the probabilities belong to.
+            cutoff_week: Cutoff week the simulation was run at.
+            probabilities: Team short name -> playoff probability (0-100).
+
+        Returns:
+            The stored baseline, as returned by get_teaser_baseline().
+        """
+        saved_at = datetime.now(UTC).isoformat()
+        self._conn.execute(
+            """INSERT OR REPLACE INTO teaser_baseline
+               (season, cutoff_week, saved_at, probabilities)
+               VALUES (?, ?, ?, ?)""",
+            (season, cutoff_week, saved_at, json.dumps(probabilities, sort_keys=True)),
+        )
+        self._conn.commit()
+        return {
+            "season": season,
+            "cutoff_week": cutoff_week,
+            "saved_at": saved_at,
+            "probabilities": probabilities,
+        }
+
+    def get_teaser_baseline(self, season: int) -> dict[str, Any] | None:
+        """Retrieve the saved teaser baseline for a season, if one was saved.
+
+        Returns:
+            Dict with keys season/cutoff_week/saved_at/probabilities, or None.
+        """
+        row = self._conn.execute(
+            "SELECT cutoff_week, saved_at, probabilities FROM teaser_baseline WHERE season = ?",
+            (season,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "season": season,
+            "cutoff_week": row["cutoff_week"],
+            "saved_at": row["saved_at"],
+            "probabilities": json.loads(row["probabilities"]),
         }
 
     def is_fresh(self, year: int, week: int) -> bool:

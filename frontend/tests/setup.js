@@ -59,6 +59,8 @@ beforeAll(() => {
     fetchCPClinchAll: () => Promise.resolve(null),
     exportPage: () => Promise.resolve(new Blob(["<html></html>"], { type: "text/html" })),
     exportBundle: () => Promise.resolve(new Blob([], { type: "application/zip" })),
+    getTeaserBaseline: () => Promise.resolve({ baseline: null }),
+    saveTeaserBaseline: () => Promise.resolve({ baseline: null }),
   };
 
   // Load app JS files in dependency order
@@ -70,6 +72,7 @@ beforeAll(() => {
   loadScript("simulation.js");
   loadScript("statistics.js");
   loadScript("charts.js");
+  loadScript("teaser.js");
   loadScript("export.js");
 });
 
