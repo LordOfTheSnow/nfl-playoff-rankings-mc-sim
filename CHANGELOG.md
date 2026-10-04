@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-04
+
 ### Added
 - **Teaser image** on the Export page: a 1200×630 "Biggest movers" PNG for link previews and social posts, showing the five teams whose playoff probability changed most since a saved baseline, with each team's change and its before/after probability. Click **Save as baseline** after publishing a run; the next **Download teaser (.png)** compares against it, so the deltas stay pinned to the published numbers. The baseline is stored per season in the cache database (`GET`/`POST /api/teaser/baseline`, see [API Reference](doc/api.md)); the card is drawn in the browser, so there is no new dependency
 - `compose.yaml`: configurable `TZ` environment variable for the simulator service, defaulting to `UTC`. Sets the container's local time, used by `export.py`'s "Created by ... on {date}" timestamp footer
@@ -461,7 +463,8 @@ Full "Modernist" redesign of every page (flat red-on-white style, Bootstrap remo
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.3...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.3...v1.2.0
 [1.1.3]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.0...v1.1.1
