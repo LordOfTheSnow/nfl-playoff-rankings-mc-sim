@@ -120,7 +120,7 @@ class TestStandingsEndpointOrder:
         assert by_team["Bills"]["is_division_champion"] is True
         assert by_team["Jets"]["is_division_champion"] is False
 
-    def test_genuinely_tied_zero_zero_teams_still_get_alpha_badge(self) -> None:
+    def test_genuinely_tied_zero_zero_teams_are_an_unresolved_coin_toss(self) -> None:
         server = NFLSimulatorServer(port=0, season_year=2024, db_path=":memory:")
         try:
             # Only a game outside AFC East, so all four AFC East teams are 0-0-0.
@@ -130,6 +130,61 @@ class TestStandingsEndpointOrder:
             east = handler.get_response_json()["conferences"]["AFC"]["East"]
 
             assert [t["team"] for t in east] == ["Bills", "Dolphins", "Jets", "Patriots"]
-            assert all(t["tiebreaker"] == "Alpha" for t in east)
+            assert all(t["tiebreaker"] == "Coin toss" for t in east)
+            assert not any(t["is_division_champion"] for t in east)
+        finally:
+            server.cache.close()
+
+    def test_common_games_badge_shows_each_teams_record(self) -> None:
+        server = NFLSimulatorServer(port=0, season_year=2024, db_path=":memory:")
+        try:
+            # Bills and Jets are both 2-2 and never play each other. Their common
+            # opponents are Chiefs and Bengals: Bills 2-0 there, Jets 0-2.
+            games = [
+                _completed("g1", 1, "Bills", "Chiefs", 20, 10),
+                _completed("g2", 1, "Bengals", "Bills", 10, 20),
+                _completed("g3", 2, "Steelers", "Bills", 20, 10),
+                _completed("g4", 2, "Browns", "Bills", 20, 10),
+                _completed("g5", 3, "Chiefs", "Jets", 20, 10),
+                _completed("g6", 3, "Bengals", "Jets", 20, 10),
+                _completed("g7", 4, "Jets", "Titans", 20, 10),
+                _completed("g8", 4, "Jets", "Colts", 20, 10),
+            ]
+            server.cache.store_games(games, 2024)
+            handler = FakeHandler("/api/standings", server)
+            handler._handle_get_standings("/api/standings")
+            east = handler.get_response_json()["conferences"]["AFC"]["East"]
+            by_team = {t["team"]: t for t in east}
+
+            assert by_team["Bills"]["is_division_champion"] is True
+            assert by_team["Bills"]["tiebreaker"] == "Common 2-0-0"
+            assert by_team["Jets"]["tiebreaker"] == "Common 0-2-0"
+        finally:
+            server.cache.close()
+
+    def test_resolved_tie_names_champion_and_deciding_rule(self) -> None:
+        server = NFLSimulatorServer(port=0, season_year=2024, db_path=":memory:")
+        try:
+            # Bills and Jets both 1-1; Bills won the head-to-head meeting.
+            games = [
+                _completed("g1", 1, "Bills", "Jets", 20, 10),
+                _completed("g2", 2, "Chiefs", "Bills", 20, 10),
+                _completed("g3", 2, "Jets", "Patriots", 24, 17),
+                _completed("g4", 1, "Chiefs", "Patriots", 20, 10),
+                _completed("g5", 3, "Bengals", "Patriots", 20, 10),
+                _completed("g6", 1, "Bengals", "Dolphins", 20, 10),
+                _completed("g7", 2, "Bengals", "Dolphins", 20, 10),
+            ]
+            server.cache.store_games(games, 2024)
+            handler = FakeHandler("/api/standings", server)
+            handler._handle_get_standings("/api/standings")
+            east = handler.get_response_json()["conferences"]["AFC"]["East"]
+            by_team = {t["team"]: t for t in east}
+
+            assert [t["team"] for t in east][:2] == ["Bills", "Jets"]
+            assert by_team["Bills"]["is_division_champion"] is True
+            assert by_team["Jets"]["is_division_champion"] is False
+            assert by_team["Bills"]["tiebreaker"] == "H2H"
+            assert by_team["Jets"]["tiebreaker"] == "H2H"
         finally:
             server.cache.close()

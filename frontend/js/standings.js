@@ -64,11 +64,11 @@ const TEAM_LOGO_IDS = {
 const TIEBREAKER_RULE_NAMES = {
   H2H: "head-to-head record",
   Div: "division record",
+  Common: "common-games record",
   Conf: "conference record",
   SoV: "strength of victory",
   SoS: "strength of schedule",
   Pts: "net points",
-  Alpha: "no other rule differentiated them — shown alphabetically (not an official NFL tiebreaker; the real final tiebreaker is a coin toss)",
 };
 
 /**
@@ -435,10 +435,14 @@ function _buildTiebreakerTag(tiebreaker) {
   wrap.appendChild(tag);
 
   const code = tiebreaker.split(" ")[0];
-  const ruleName = TIEBREAKER_RULE_NAMES[code] || "tiebreaker rule";
   const pop = document.createElement("span");
   pop.className = "mdn-tt-pop";
-  pop.textContent = "Seeded by " + ruleName + ": " + tiebreaker + ".";
+  if (code === "Coin") {
+    pop.textContent = "Order not decided: no tiebreaker rule separates these teams. The final step is a coin toss, held outside this app.";
+  } else {
+    const ruleName = TIEBREAKER_RULE_NAMES[code] || "tiebreaker rule";
+    pop.textContent = "Seeded by " + ruleName + ": " + tiebreaker + ".";
+  }
   wrap.appendChild(pop);
 
   return wrap;
