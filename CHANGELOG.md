@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Season selector in the navigation bar showed only the active season in Chrome on Windows: the dropdown popup is drawn white there, and the options inherited the nav's white text, so only the highlighted row was readable. The options now set their own colors
+
 ## [1.2.0] - 2026-10-04
 
 ### Added

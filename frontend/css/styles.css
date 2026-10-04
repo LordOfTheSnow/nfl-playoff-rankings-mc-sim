@@ -114,6 +114,13 @@ body {
     padding: 5px 8px;
 }
 
+/* The dropdown popup is drawn by the OS (white on Windows Chrome), so the
+   options must set their own colors instead of inheriting the nav's white text. */
+.mdn-nav-season option {
+    background: var(--mdn-ink);
+    color: #fff;
+}
+
 .mdn-disclaimer {
     padding: 5px 32px;
     font-size: 10.5px;
