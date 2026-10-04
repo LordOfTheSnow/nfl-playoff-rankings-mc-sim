@@ -5,7 +5,7 @@
 [![Docker Image](https://img.shields.io/badge/ghcr.io-nfl--playoff--rankings--mc--sim-blue?logo=docker)](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/pkgs/container/nfl-playoff-rankings-mc-sim)
 [![Build Status](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/actions/workflows/docker-publish.yml)
 
-**v1.1.3**
+**v1.2.0**
 
 A browser application that predicts NFL playoff probabilities using Monte Carlo simulation. It fetches real game data from ESPN's public API, computes strength-of-schedule-weighted team ratings, simulates remaining games, applies official NFL tiebreaker rules, and presents probability distributions through an interactive browser UI.
 
@@ -138,7 +138,6 @@ pytest tests/ -v
 ## ToDo
 
 - **Vectorize standings computation with NumPy** *(lower priority than previously assumed — see [profiling notes](doc/technical.md#where-time-goes-profiling-findings))*: Rewrite the MC simulation hot path to process all trials simultaneously as batched array operations. Game outcome simulation (random draws + strength comparisons) and W/L/T record accumulation can be expressed as matrix operations over a `(trials, games)` array, eliminating per-trial Python loops. The tiebreaker logic would remain in Python but only be invoked for the subset of trials where teams are actually tied in win percentage. At the current default iteration count, the main trial loop is a small fraction of total time next to impact-games computation (still the dominant cost even after the mitigations in [Algorithms](doc/algorithms.md#impact-games--background-jobs)), so this pays off mainly at much higher iteration counts (~100,000+) where the main loop's linearly-scaling cost catches up — re-profile at that scale before committing to the rewrite.
-- **Consolidate duplicate divisional tiebreaker logic**: `server.py`'s `GET /api/standings` handler (`_division_tiebreak_sort`) reimplements the NFL tiebreaker cascade independently of `standings.py`'s `break_tie`/`_apply_tiebreaker_steps` (the documented single source of truth used by `determine_playoff_bracket`), purely to compute display row order and the `tiebreaker` badge text. The two can disagree on a fully unresolved tie: the real engine's coin-toss fallback (`_step_coin_toss`) can crown a different division champion than the display's alphabetical fallback picks as the first row. Have the standings endpoint reuse `standings.py`'s tiebreaker results directly instead of re-deriving its own.
 
 ## Disclaimer
 
