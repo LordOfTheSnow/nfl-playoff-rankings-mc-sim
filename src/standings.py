@@ -1035,19 +1035,16 @@ def _step_head_to_head(
     teams: list[str],
     all_games: list[Game],
     simulated_game_ids: set[str],
-    require_all_played: bool = False,
 ) -> list[str] | None:
     """Tiebreaker step: head-to-head record among tied teams.
 
-    For division ties, head-to-head is always applicable.
-    For conference ties, head-to-head only applies if ALL tied teams
-    have played each other (require_all_played=True).
+    Head-to-head only applies if ALL tied teams have played each other, so a
+    team's unplayed pairs can't count as a 0% head-to-head record.
 
     Args:
         teams: List of tied team names.
         all_games: All games in the season.
         simulated_game_ids: Set of game IDs that were simulated.
-        require_all_played: If True, only apply if all teams played each other.
 
     Returns:
         Teams sorted by head-to-head win%, or None if tie not broken.
@@ -1057,17 +1054,15 @@ def _step_head_to_head(
 
     h2h_games = _get_games_between(teams, all_games, simulated_game_ids)
 
-    if require_all_played:
-        # Check that every pair of teams has played at least one game
-        for i, t1 in enumerate(teams):
-            for t2 in teams[i + 1:]:
-                pair_games = [
-                    g for g in h2h_games
-                    if (g.home_team == t1 and g.away_team == t2)
-                    or (g.home_team == t2 and g.away_team == t1)
-                ]
-                if not pair_games:
-                    return None  # Not all teams played each other
+    for i, t1 in enumerate(teams):
+        for t2 in teams[i + 1:]:
+            pair_games = [
+                g for g in h2h_games
+                if (g.home_team == t1 and g.away_team == t2)
+                or (g.home_team == t2 and g.away_team == t1)
+            ]
+            if not pair_games:
+                return None  # Not all teams played each other
 
     if not h2h_games:
         return None
@@ -1131,6 +1126,17 @@ def _step_division_record(
     return sorted_teams
 
 
+def _record_in_common_games(
+    team: str,
+    common_opps: set[str],
+    all_games: list[Game],
+    simulated_game_ids: set[str],
+) -> tuple[int, int, int]:
+    """Return a team's (wins, losses, ties) against the given common opponents."""
+    common_games = _get_games_against_opponents(team, common_opps, all_games, simulated_game_ids)
+    return _get_record_in_games(team, common_games, simulated_game_ids, _simulated_winners)
+
+
 def _step_common_games(
     teams: list[str],
     all_games: list[Game],
@@ -1158,10 +1164,7 @@ def _step_common_games(
 
     win_pcts: dict[str, float] = {}
     for team in teams:
-        common_games = _get_games_against_opponents(
-            team, common_opps, all_games, simulated_game_ids
-        )
-        w, l, t = _get_record_in_games(team, common_games, simulated_game_ids, _simulated_winners)
+        w, l, t = _record_in_common_games(team, common_opps, all_games, simulated_game_ids)
         win_pcts[team] = _calculate_win_percentage(w, l, t)
 
     pct_values = list(win_pcts.values())
@@ -1395,42 +1398,6 @@ def _step_coin_toss(teams: list[str]) -> list[str]:
     return shuffled
 
 
-def _apply_tiebreaker_steps(
-    teams: list[str],
-    all_games: list[Game],
-    simulated_game_ids: set[str],
-    context: str,
-) -> list[str]:
-    """Apply tiebreaker steps in order for the given context.
-
-    This applies the steps once (no multi-team restart logic).
-
-    Args:
-        teams: List of tied team names.
-        all_games: All games in the season.
-        simulated_game_ids: Set of game IDs that were simulated.
-        context: Either 'division' or 'conference'.
-
-    Returns:
-        Teams sorted by tiebreaker result.
-    """
-    if len(teams) <= 1:
-        return list(teams)
-
-    if context == "division":
-        steps = _get_division_steps()
-    else:
-        steps = _get_conference_steps()
-
-    for step_fn in steps:
-        result = step_fn(teams, all_games, simulated_game_ids)
-        if result is not None:
-            return result
-
-    # Final fallback: coin toss
-    return _step_coin_toss(teams)
-
-
 def _get_division_steps():
     """Return the ordered list of division tiebreaker step functions.
 
@@ -1451,7 +1418,7 @@ def _get_division_steps():
         List of step functions with signature (teams, all_games, sim_ids) -> list | None.
     """
     def step_h2h(teams, all_games, sim_ids):
-        return _step_head_to_head(teams, all_games, sim_ids, require_all_played=False)
+        return _step_head_to_head(teams, all_games, sim_ids)
 
     def step_div(teams, all_games, sim_ids):
         return _step_division_record(teams, all_games, sim_ids)
@@ -1481,9 +1448,9 @@ def _get_division_steps():
         return _step_net_points_all_games(teams, all_games, sim_ids)
 
     return [
-        step_h2h, step_div, step_common, step_conf,
-        step_sov, step_sos, step_pts_conf, step_pts_all,
-        step_net_common, step_net_all,
+        ("H2H", step_h2h), ("Div", step_div), ("Common", step_common), ("Conf", step_conf),
+        ("SoV", step_sov), ("SoS", step_sos), ("PtsConf", step_pts_conf), ("PtsAll", step_pts_all),
+        ("NetCommon", step_net_common), ("NetAll", step_net_all),
     ]
 
 
@@ -1506,7 +1473,7 @@ def _get_conference_steps():
         List of step functions with signature (teams, all_games, sim_ids) -> list | None.
     """
     def step_h2h(teams, all_games, sim_ids):
-        return _step_head_to_head(teams, all_games, sim_ids, require_all_played=True)
+        return _step_head_to_head(teams, all_games, sim_ids)
 
     def step_conf(teams, all_games, sim_ids):
         return _step_conference_record(teams, all_games, sim_ids)
@@ -1533,9 +1500,9 @@ def _get_conference_steps():
         return _step_net_points_all_games(teams, all_games, sim_ids)
 
     return [
-        step_h2h, step_conf, step_common,
-        step_sov, step_sos, step_pts_conf, step_pts_all,
-        step_net_common, step_net_all,
+        ("H2H", step_h2h), ("Conf", step_conf), ("Common", step_common),
+        ("SoV", step_sov), ("SoS", step_sos), ("PtsConf", step_pts_conf), ("PtsAll", step_pts_all),
+        ("NetCommon", step_net_common), ("NetAll", step_net_all),
     ]
 
 
@@ -1565,73 +1532,49 @@ def break_tie(
     if len(tied_teams) <= 1:
         return list(tied_teams)
 
-    if len(tied_teams) == 2:
-        # Two-team tie: apply steps directly, no restart needed
-        return _apply_tiebreaker_steps(tied_teams, all_games, simulated_game_ids, context)
-
-    # Multi-team tie (3+): apply collectively with restart logic
-    return _break_multi_team_tie(tied_teams, all_games, simulated_game_ids, context)
+    ordered, unresolved = resolve_tie_order(tied_teams, all_games, simulated_game_ids, context)
+    return [team for team, _ in ordered] + _step_coin_toss(unresolved)
 
 
-def _break_multi_team_tie(
+def resolve_tie_order(
     tied_teams: list[str],
     all_games: list[Game],
     simulated_game_ids: set[str],
-    context: str,
-) -> list[str]:
-    """Break a multi-team tie with restart logic.
+    context: str = "division",
+) -> tuple[list[tuple[str, str]], list[str]]:
+    """Order tied teams using only the deterministic tiebreaker steps.
 
-    When 3+ teams are tied, apply tiebreaker steps collectively.
-    If a step produces differentiation (not all teams have the same value),
-    check if one team is clearly separated. If so, place that team and
-    restart from step 1 for the remaining teams.
+    Each round applies the steps in order; the first step that separates the
+    remaining teams places the best of them and restarts from step 1 for the
+    rest. Teams that no step separates are returned unordered instead of being
+    coin-tossed, so callers can report them as unresolved.
 
     Args:
-        tied_teams: List of 3+ tied team names.
+        tied_teams: List of tied team names.
         all_games: All games in the season.
         simulated_game_ids: Set of game IDs that were simulated.
         context: Either 'division' or 'conference'.
 
     Returns:
-        Teams in tiebreaker order (best first).
+        A pair: teams placed best-first as (team, deciding_step_name) tuples,
+        and the teams no step could separate (empty unless the tie is unresolved).
     """
+    steps = _get_division_steps() if context == "division" else _get_conference_steps()
+
     remaining = list(tied_teams)
-    result: list[str] = []
-
+    ordered: list[tuple[str, str]] = []
+    last_step = ""
     while len(remaining) > 1:
-        if context == "division":
-            steps = _get_division_steps()
-        else:
-            steps = _get_conference_steps()
-
-        resolved_this_round = False
-
-        for step_fn in steps:
+        for step_name, step_fn in steps:
             step_result = step_fn(remaining, all_games, simulated_game_ids)
-            if step_result is None:
-                continue
+            if step_result is not None:
+                best_team = step_result[0]
+                ordered.append((best_team, step_name))
+                remaining.remove(best_team)
+                last_step = step_name
+                break
+        else:
+            return ordered, remaining
 
-            # Step produced an ordering — check if top team is separated
-            # The step returns all teams sorted. If the best team is clearly
-            # ahead (different value from #2), we can extract them.
-            # We need to re-check by seeing if the step differentiates.
-            # Since the step returned non-None, there IS differentiation.
-
-            # Extract the best team (first in sorted order)
-            best_team = step_result[0]
-            result.append(best_team)
-            remaining.remove(best_team)
-            resolved_this_round = True
-            break  # Restart from step 1 with remaining teams
-
-        if not resolved_this_round:
-            # No step could break the tie — use coin toss for all remaining
-            coin_result = _step_coin_toss(remaining)
-            result.extend(coin_result)
-            remaining = []
-
-    # Add the last remaining team
-    if remaining:
-        result.extend(remaining)
-
-    return result
+    ordered.extend((team, last_step) for team in remaining)
+    return ordered, []

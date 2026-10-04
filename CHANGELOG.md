@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `compose.yaml`: configurable `TZ` environment variable for the simulator service, defaulting to `UTC`. Sets the container's local time, used by `export.py`'s "Created by ... on {date}" timestamp footer
 
+### Changed
+- Standings division order (`GET /api/standings`) now uses the same tiebreaker procedure as the playoff bracket and simulator (`standings.resolve_tie_order`) instead of a separate reimplementation. A division tie that no rule separates is shown alphabetically with a "Coin toss" badge and no division champion, since the NFL's coin toss happens outside the app; previously the display named an alphabetical first team that could disagree with the bracket. The tiebreaker badge now names the rule that placed each team in the order, followed by the team's own record in that rule's scope (e.g. `Common 2-0-0`, `Div 4-1-0`)
+
+### Fixed
+- Division head-to-head tiebreaker (`standings.py`) could place a team ahead of a tied rival it had not yet played. Division ties applied H2H to whatever games existed, counting unplayed pairs as a 0% record, so e.g. a Steelers team that had only played the Bengals and Browns was ranked ahead of the Ravens on H2H. H2H now applies only when every tied team has played every other. The NFL's published procedure (nfl.com tie-breaking procedures) does not say this explicitly; it is a conservative reading of "best won-lost-tied percentage in games among the clubs", which is undefined for a club with no such games. This changes playoff seeding and simulation results for partially played divisions
+
 ## [1.1.3] - 2026-09-29
 
 ### Fixed

@@ -84,13 +84,17 @@ class TestHeadToHead:
         result = _step_head_to_head(["Chiefs", "Raiders"], games, set())
         assert result is None
 
+    def test_partially_played_group_does_not_decide_by_h2h(self) -> None:
+        """Unplayed pairs can't count as a 0% head-to-head record in a division tie."""
+        games = [_make_game("g1", "Steelers", "Bengals", 24, 17)]
+        result = _step_head_to_head(["Steelers", "Ravens", "Bengals"], games, set())
+        assert result is None
+
     def test_conference_h2h_requires_all_played(self) -> None:
         """Conference H2H requires all teams to have played each other."""
         # Chiefs beat Raiders, but Chiefs haven't played Broncos
         games = [_make_game("g1", "Chiefs", "Raiders", 27, 20)]
-        result = _step_head_to_head(
-            ["Chiefs", "Raiders", "Broncos"], games, set(), require_all_played=True
-        )
+        result = _step_head_to_head(["Chiefs", "Raiders", "Broncos"], games, set())
         assert result is None
 
     def test_conference_h2h_all_played(self) -> None:
@@ -100,9 +104,7 @@ class TestHeadToHead:
             _make_game("g2", "Chiefs", "Broncos", 31, 24),
             _make_game("g3", "Raiders", "Broncos", 28, 21),
         ]
-        result = _step_head_to_head(
-            ["Chiefs", "Raiders", "Broncos"], games, set(), require_all_played=True
-        )
+        result = _step_head_to_head(["Chiefs", "Raiders", "Broncos"], games, set())
         assert result is not None
         assert result[0] == "Chiefs"  # 2-0 in H2H
         assert result[1] == "Raiders"  # 1-1 in H2H
