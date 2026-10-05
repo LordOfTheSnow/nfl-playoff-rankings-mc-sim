@@ -5,7 +5,7 @@
 [![Docker Image](https://img.shields.io/badge/ghcr.io-nfl--playoff--rankings--mc--sim-blue?logo=docker)](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/pkgs/container/nfl-playoff-rankings-mc-sim)
 [![Build Status](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/actions/workflows/docker-publish.yml)
 
-**v1.2.0**
+**v1.2.1**
 
 A browser application that predicts NFL playoff probabilities using Monte Carlo simulation. It fetches real game data from ESPN's public API, computes strength-of-schedule-weighted team ratings, simulates remaining games, applies official NFL tiebreaker rules, and presents probability distributions through an interactive browser UI.
 
@@ -26,7 +26,7 @@ A browser application that predicts NFL playoff probabilities using Monte Carlo 
 - Statistics page: game-outcome rates (home/away/tie/overtime/one-score), score margin distribution, and longest winning/losing streaks
 - Simulation results: playoff probabilities, seeding matrix, top scenarios
 - HTML export: save the current Standings, Statistics, Schedule Grid, and Simulation results as a standalone HTML page, or a ZIP bundle with an index and one page per team
-- Teaser image: a 1200×630 "Biggest movers" PNG from the Export page for link previews and social posts, showing the five teams whose playoff probability changed most since a baseline you saved explicitly (so week-over-week deltas stay pinned to the numbers you published), with team logos and the app name and version
+- Teaser image: a "Biggest movers" PNG from the Export page for link previews and social posts, in landscape (1200×630), portrait 4:5 (1080×1350) or 9:16 Story (1080×1920) format, showing the five teams whose playoff probability changed most since a baseline you saved explicitly (so week-over-week deltas stay pinned to the numbers you published), with team logos and the app name and version
 - Clinching scenarios solver: find all game-outcome combinations that guarantee a playoff spot (available once 4 weeks remain before the season ends — week 14 for an 18-week season)
 - CP-SAT constraint solver for mathematical clinching/elimination detection using Google OR-Tools (provably correct, available from week 1)
 - Solver performance export: one-click export of timing benchmarks to `doc/solver-performance.md`

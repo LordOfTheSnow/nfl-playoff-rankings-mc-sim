@@ -16,6 +16,18 @@
 const TEASER_WIDTH = 1200;
 const TEASER_HEIGHT = 630;
 const TEASER_MOVER_COUNT = 5;
+const TEASER_LOGO_SIZE = 80;
+
+/**
+ * Card sizes the teaser can be exported in. `topSafe` keeps the header clear
+ * of the phone UI at the top of a Story; `bottomSafe` is the margin below the
+ * footer. `bell` adds the simulation dot plot between the rows and the footer.
+ */
+const TEASER_FORMATS = {
+  landscape: { id: "landscape", label: "Landscape 1200×630", width: 1200, height: 630, portrait: false },
+  portrait: { id: "portrait-4x5", label: "Portrait 4:5 1080×1350", width: 1080, height: 1350, topSafe: 0, bottomSafe: 48, portrait: true },
+  story: { id: "portrait-9x16", label: "Story 9:16 1080×1920", width: 1080, height: 1920, topSafe: 200, bottomSafe: 48, portrait: true, bell: true },
+};
 const TEASER_APP_NAME = "NFL Playoff Rankings Monte Carlo Simulator";
 
 /**
@@ -99,19 +111,58 @@ function _loadTeamLogo(team) {
 }
 
 /**
+ * Shrink a logo to fit within `maxSize` x `maxSize`, keeping its aspect ratio.
+ *
+ * Done in halving steps so no single draw resamples by more than 2x. A one-shot
+ * downscale from 500px to 80px depends on how each browser filters the image
+ * and comes out ragged in some of them.
+ *
+ * @param {HTMLImageElement} img
+ * @param {number} maxSize
+ * @returns {HTMLCanvasElement} Canvas holding the shrunken logo.
+ */
+function _shrinkLogo(img, maxSize) {
+  const scale = Math.min(maxSize / img.naturalWidth, maxSize / img.naturalHeight, 1);
+  const targetW = Math.round(img.naturalWidth * scale);
+  const targetH = Math.round(img.naturalHeight * scale);
+
+  let source = img;
+  let w = img.naturalWidth;
+  let h = img.naturalHeight;
+  while (w / 2 >= targetW && h / 2 >= targetH) {
+    w = Math.round(w / 2);
+    h = Math.round(h / 2);
+    const step = document.createElement("canvas");
+    step.width = w;
+    step.height = h;
+    step.getContext("2d").drawImage(source, 0, 0, w, h);
+    source = step;
+  }
+
+  const out = document.createElement("canvas");
+  out.width = targetW;
+  out.height = targetH;
+  out.getContext("2d").drawImage(source, 0, 0, targetW, targetH);
+  return out;
+}
+
+/**
  * Draw the Movers card onto a fresh canvas.
  *
  * @param {Array<{team: string, previous: number, current: number, delta: number}>} movers
  * @param {{season: number, cutoffWeek: number, baselineWeek: number, version?: string}} meta
+ * @param {typeof TEASER_FORMATS[keyof typeof TEASER_FORMATS]} [format=TEASER_FORMATS.landscape]
  * @returns {Promise<HTMLCanvasElement>}
  */
-async function renderTeaserCanvas(movers, meta) {
+async function renderTeaserCanvas(movers, meta, format = TEASER_FORMATS.landscape) {
   const canvas = document.createElement("canvas");
-  canvas.width = TEASER_WIDTH;
-  canvas.height = TEASER_HEIGHT;
+  canvas.width = format.width;
+  canvas.height = format.height;
   const ctx = canvas.getContext("2d");
 
-  const logos = await Promise.all(movers.map((mover) => _loadTeamLogo(mover.team)));
+  const logos = (await Promise.all(movers.map((mover) => _loadTeamLogo(mover.team)))).map(
+    (img) => (img ? _shrinkLogo(img, TEASER_LOGO_SIZE) : null),
+  );
 
   // Archivo is loaded by index.html; wait for it so the text is measured and
   // drawn in the house font rather than the fallback. Failure just means the
@@ -127,6 +178,11 @@ async function renderTeaserCanvas(movers, meta) {
 
   const headingFont = '800 %spx "Archivo", "Helvetica Neue", Arial, sans-serif';
   const bodyFont = '400 %spx "Archivo", "Helvetica Neue", Arial, sans-serif';
+
+  if (format.portrait) {
+    _drawPortraitCard(ctx, movers, logos, meta, format, { headingFont, bodyFont });
+    return canvas;
+  }
 
   // Paper background and ink header band, matching the app's nav bar.
   ctx.fillStyle = "#f3f2f2";
@@ -150,26 +206,29 @@ async function renderTeaserCanvas(movers, meta) {
   ctx.fillStyle = "#161514";
   ctx.font = headingFont.replace("%s", "64");
   ctx.textBaseline = "alphabetic";
-  ctx.fillText("BIGGEST MOVERS", 56, 260);
+  ctx.fillText("BIGGEST MOVERS", 56, 240);
 
   ctx.fillStyle = "#332f2d";
   ctx.font = bodyFont.replace("%s", "24");
   ctx.fillText(
     `Playoff probability change since week ${meta.baselineWeek}`,
     56,
-    300,
+    280,
   );
 
-  // One tile per mover.
+  // One tile per mover: logo centred at the top, team name centred below it,
+  // then the change and the before/after probabilities.
   const tileGap = 16;
   const tileCount = TEASER_MOVER_COUNT;
   const tileWidth = (TEASER_WIDTH - 112 - tileGap * (tileCount - 1)) / tileCount;
-  const tileTop = 340;
-  const tileHeight = 220;
+  const tileTop = 316;
+  const tileHeight = 250;
+  const tilePadding = 12;
 
   for (let i = 0; i < movers.length; i++) {
     const mover = movers[i];
     const x = 56 + i * (tileWidth + tileGap);
+    const centerX = x + tileWidth / 2;
     const up = mover.delta > 0;
 
     ctx.fillStyle = "#ffffff";
@@ -178,37 +237,36 @@ async function renderTeaserCanvas(movers, meta) {
     ctx.fillRect(x, tileTop, tileWidth, 8);
 
     const logo = logos[i];
-    const logoSize = 44;
+    const logoSize = TEASER_LOGO_SIZE;
+    const logoTop = tileTop + 24;
     if (logo) {
-      const scale = Math.min(logoSize / logo.naturalWidth, logoSize / logo.naturalHeight);
-      const drawWidth = logo.naturalWidth * scale;
-      const drawHeight = logo.naturalHeight * scale;
       ctx.drawImage(
         logo,
-        x + 18 + (logoSize - drawWidth) / 2,
-        tileTop + 22 + (logoSize - drawHeight) / 2,
-        drawWidth,
-        drawHeight,
+        centerX - logo.width / 2,
+        logoTop + (logoSize - logo.height) / 2,
       );
     }
 
-    const nameX = x + 18 + logoSize + 12;
+    // Name below the logo, shrunk until it fits the tile's inner width.
+    const teamName = mover.team.toUpperCase();
     ctx.fillStyle = "#161514";
-    ctx.font = _fitFont(ctx, headingFont, mover.team.toUpperCase(), 26, x + tileWidth - 14 - nameX);
-    ctx.fillText(mover.team.toUpperCase(), nameX, tileTop + 52);
+    ctx.font = _fitFont(ctx, headingFont, teamName, 26, tileWidth - 2 * tilePadding);
+    ctx.textAlign = "center";
+    ctx.fillText(teamName, centerX, logoTop + logoSize + 34);
 
     ctx.fillStyle = up ? "#161514" : "#ec3013";
     const deltaText = `${up ? "▲" : "▼"} ${_formatDelta(mover.delta)}`;
-    ctx.font = _fitFont(ctx, headingFont, deltaText, 34, tileWidth - 36);
-    ctx.fillText(deltaText, x + 18, tileTop + 120);
+    ctx.font = _fitFont(ctx, headingFont, deltaText, 34, tileWidth - 2 * tilePadding);
+    ctx.fillText(deltaText, centerX, tileTop + 196);
 
     ctx.fillStyle = "#6b6866";
     ctx.font = bodyFont.replace("%s", "20");
     ctx.fillText(
       `${mover.previous.toFixed(1)}% → ${mover.current.toFixed(1)}%`,
-      x + 18,
-      tileTop + 170,
+      centerX,
+      tileTop + 228,
     );
+    ctx.textAlign = "left";
   }
 
   if (movers.length === 0) {
@@ -234,14 +292,196 @@ async function renderTeaserCanvas(movers, meta) {
 }
 
 /**
+ * Draw the portrait Movers card: the five movers as full-width rows (logo,
+ * name and before/after on the left, change on the right), in the layout the
+ * Export page previews as "A · Vertical ledger". The 9:16 format keeps the
+ * header and footer clear of the phone's UI and gives the rows the extra height.
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {Array<{team: string, previous: number, current: number, delta: number}>} movers
+ * @param {Array<HTMLCanvasElement|null>} logos - Shrunken logos, index-aligned with movers.
+ * @param {{season: number, cutoffWeek: number, baselineWeek: number, version?: string}} meta
+ * @param {typeof TEASER_FORMATS.portrait} format
+ * @param {{headingFont: string, bodyFont: string}} fonts - Font templates with a "%s" size placeholder.
+ */
+function _drawPortraitCard(ctx, movers, logos, meta, format, fonts) {
+  const { headingFont, bodyFont } = fonts;
+  const W = format.width;
+  const H = format.height;
+  const top = format.topSafe;
+  const margin = 56;
+  const contentW = W - 2 * margin;
+  const rowPad = 40;
+
+  // Paper background, then the ink header band below the top safe zone.
+  ctx.fillStyle = "#f3f2f2";
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#161514";
+  ctx.fillRect(0, 0, W, top + 170);
+  ctx.fillStyle = "#ec3013";
+  ctx.fillRect(0, top + 170, W, 6);
+
+  ctx.fillStyle = "#f3f2f2";
+  ctx.textBaseline = "middle";
+  ctx.font = headingFont.replace("%s", "44");
+  ctx.fillText("NFL PLAYOFF RANKINGS SIM", margin, top + 85);
+  ctx.font = bodyFont.replace("%s", "28");
+  ctx.textAlign = "right";
+  ctx.fillText(`${meta.season} · Week ${meta.cutoffWeek}`, W - margin, top + 85);
+  ctx.textAlign = "left";
+
+  // Headline and subtitle.
+  ctx.fillStyle = "#161514";
+  ctx.textBaseline = "alphabetic";
+  ctx.font = _fitFont(ctx, headingFont, "BIGGEST MOVERS", 96, contentW);
+  ctx.fillText("BIGGEST MOVERS", margin, top + 300);
+  ctx.fillStyle = "#332f2d";
+  ctx.font = bodyFont.replace("%s", "32");
+  ctx.fillText(`Playoff probability change since week ${meta.baselineWeek}`, margin, top + 360);
+
+  // Footer baselines sit at the bottom edge; the bell panel (Story only) goes
+  // above them and the rows fill whatever space is left.
+  const footerNameY = H - format.bottomSafe - 40;
+  const footerDiscY = H - format.bottomSafe;
+  const footerTop = footerNameY - 28;
+  const bellH = format.bell ? 240 : 0;
+  const bellBottom = footerTop - 48;
+  const bellTop = bellBottom - bellH;
+
+  // Rows fill the space between the subtitle and the footer (or the bell panel).
+  const gap = 16;
+  const listTop = top + 400;
+  const listBottom = format.bell ? bellTop - 40 : footerTop - 48;
+  const rowH = (listBottom - listTop - gap * (TEASER_MOVER_COUNT - 1)) / TEASER_MOVER_COUNT;
+  const tall = rowH >= 170;
+
+  if (movers.length === 0) {
+    ctx.fillStyle = "#6b6866";
+    ctx.font = bodyFont.replace("%s", "32");
+    ctx.fillText("No playoff probabilities changed since the baseline.", margin, listTop + 60);
+  }
+
+  const logoBox = Math.min(rowH - 40, 120);
+  const rightEdge = margin + contentW - rowPad;
+
+  for (let i = 0; i < movers.length; i++) {
+    const mover = movers[i];
+    const y = listTop + i * (rowH + gap);
+    const up = mover.delta > 0;
+    const accent = up ? "#161514" : "#ec3013";
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(margin, y, contentW, rowH);
+    ctx.fillStyle = accent;
+    ctx.fillRect(margin, y, contentW, 8);
+
+    const logo = logos[i];
+    if (logo) {
+      ctx.drawImage(
+        logo,
+        margin + rowPad + (logoBox - logo.width) / 2,
+        y + (rowH - logo.height) / 2,
+      );
+    }
+
+    // Change: measured first so the team name can leave room for it.
+    const deltaText = `${up ? "▲" : "▼"} ${_formatDelta(mover.delta)}`;
+    const deltaFont = _fitFont(ctx, headingFont, deltaText, tall ? 76 : 66, 420);
+    const deltaW = ctx.measureText(deltaText).width;
+
+    const textX = margin + rowPad + logoBox + 32;
+    const nameMaxW = rightEdge - deltaW - 32 - textX;
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#161514";
+    ctx.font = _fitFont(ctx, headingFont, mover.team.toUpperCase(), tall ? 64 : 52, nameMaxW);
+    ctx.fillText(mover.team.toUpperCase(), textX, y + rowH * 0.4);
+
+    ctx.fillStyle = "#6b6866";
+    ctx.font = bodyFont.replace("%s", tall ? "34" : "30");
+    ctx.fillText(`${mover.previous.toFixed(1)}% → ${mover.current.toFixed(1)}%`, textX, y + rowH * 0.68);
+
+    ctx.fillStyle = accent;
+    ctx.font = deltaFont;
+    ctx.textAlign = "right";
+    ctx.fillText(deltaText, rightEdge, y + rowH / 2);
+    ctx.textAlign = "left";
+  }
+
+  if (format.bell) {
+    _drawBellPanel(ctx, { x: margin, y: bellTop, width: contentW, height: bellH }, meta, fonts);
+  }
+
+  // Footer, left-aligned, at the bottom edge.
+  ctx.textBaseline = "alphabetic";
+  const footerName = meta.version ? `${TEASER_APP_NAME} v${meta.version}` : TEASER_APP_NAME;
+  ctx.fillStyle = "#332f2d";
+  ctx.font = _fitFont(ctx, headingFont, footerName, 28, contentW);
+  ctx.fillText(footerName, margin, footerNameY);
+  ctx.fillStyle = "#6b6866";
+  ctx.font = bodyFont.replace("%s", "24");
+  ctx.fillText("Independent project, not affiliated with the NFL", margin, footerDiscY);
+}
+
+/**
+ * Draw the stylised "simulation" panel: an ink block with a dot plot shaped
+ * like a bell curve, the outer tails in red, and a caption with the number of
+ * Monte Carlo iterations behind the run. Decorative, not a chart of real data.
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {{x: number, y: number, width: number, height: number}} box
+ * @param {{iterations?: number}} meta
+ * @param {{headingFont: string, bodyFont: string}} fonts
+ */
+function _drawBellPanel(ctx, box, meta, fonts) {
+  const { x, y, width, height } = box;
+  const pad = 32;
+  const bins = 25;
+  const maxDots = 9;
+  const pitch = 15;
+  const dotR = 6;
+  const colW = (width - 2 * pad) / bins;
+  const baseY = y + height - 24;
+
+  ctx.fillStyle = "#161514";
+  ctx.fillRect(x, y, width, height);
+  ctx.fillStyle = "#ec3013";
+  ctx.fillRect(x, y, width, 8);
+
+  // Caption: the real iteration count when the run reports it.
+  const caption = meta.iterations
+    ? `${meta.iterations.toLocaleString("en-US")} SIMULATIONS`
+    : "MONTE CARLO SIMULATION";
+  ctx.fillStyle = "#f3f2f2";
+  ctx.textBaseline = "alphabetic";
+  ctx.font = _fitFont(ctx, fonts.headingFont, caption, 26, width - 2 * pad);
+  ctx.fillText(caption, x + pad, y + 50);
+
+  // Dot plot: column heights follow a normal curve centred on the middle bin.
+  const centre = (bins - 1) / 2;
+  const sigma = bins / 6;
+  for (let b = 0; b < bins; b++) {
+    const z = (b - centre) / sigma;
+    const count = Math.round(maxDots * Math.exp(-(z * z) / 2));
+    const fill = Math.abs(z) > 1.5 ? "#ec3013" : "#f3f2f2";
+    ctx.fillStyle = fill;
+    for (let k = 0; k < count; k++) {
+      ctx.beginPath();
+      ctx.arc(x + pad + b * colW + colW / 2, baseY - k * pitch - pitch / 2, dotR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+/**
  * Render the Movers card and encode it as a PNG Blob.
  *
  * @param {Array<{team: string, previous: number, current: number, delta: number}>} movers
  * @param {{season: number, cutoffWeek: number, baselineWeek: number}} meta
+ * @param {typeof TEASER_FORMATS[keyof typeof TEASER_FORMATS]} [format=TEASER_FORMATS.landscape]
  * @returns {Promise<Blob>}
  */
-async function buildTeaserBlob(movers, meta) {
-  const canvas = await renderTeaserCanvas(movers, meta);
+async function buildTeaserBlob(movers, meta, format = TEASER_FORMATS.landscape) {
+  const canvas = await renderTeaserCanvas(movers, meta, format);
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
       if (blob) resolve(blob);

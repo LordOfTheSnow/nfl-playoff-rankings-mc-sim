@@ -60,8 +60,12 @@ async function renderExport(contentEl) {
       </div>
       <div class="mdn-card" style="margin:20px 0">
         <h3>Teaser image</h3>
-        <p>A 1200×630 "Biggest movers" card for link previews: the five teams whose playoff probability changed most since the saved baseline. Download compares your last simulation run against the baseline; once you have published this run, save it as the baseline so next week's teaser compares against it.</p>
+        <p>A "Biggest movers" card for link previews and social posts: the five teams whose playoff probability changed most since the saved baseline. Pick a format: landscape for link previews, portrait for feeds, or 9:16 for Stories. Download compares your last simulation run against the baseline; once you have published this run, save it as the baseline so next week's teaser compares against it.</p>
         <p id="teaser-baseline-info" class="mdn-hint"></p>
+        <div class="mdn-field" style="width:240px;margin-bottom:12px">
+          <label for="teaser-format">Format</label>
+          <select class="mdn-input" id="teaser-format">${Object.values(TEASER_FORMATS).map((f) => `<option value="${f.id}">${f.label}</option>`).join("")}</select>
+        </div>
         <button type="button" class="mdn-btn mdn-btn-primary" id="teaser-download-btn" ${hasSimulation && baselineInfo.saved ? "" : "disabled"}>Download teaser (.png)</button>
         <button type="button" class="mdn-btn mdn-btn-secondary" id="teaser-save-btn" ${hasSimulation ? "" : "disabled"}>Save as baseline</button>
         <span id="teaser-status" class="mdn-hint"></span>
@@ -127,14 +131,17 @@ async function _downloadTeaser() {
     } catch (_err) {
       // Version is optional on the card; omit it if the status call fails.
     }
+    const format = Object.values(TEASER_FORMATS).find((f) => f.id === document.getElementById("teaser-format").value) || TEASER_FORMATS.landscape;
     const blob = await buildTeaserBlob(movers, {
       season: baseline.season,
       cutoffWeek: sim.cutoff_week_used,
       baselineWeek: baseline.cutoff_week,
       version,
-    });
+      iterations: sim.iterations_run,
+    }, format);
 
-    const filename = `nfl-playoff-rankings-mc-sim-teaser-${baseline.season}-week${sim.cutoff_week_used}.png`;
+    const suffix = format.portrait ? `-${format.id}` : "";
+    const filename = `nfl-playoff-rankings-mc-sim-teaser-${baseline.season}-week${sim.cutoff_week_used}${suffix}.png`;
     _downloadBlob(blob, filename);
   } catch (err) {
     App.showError(err.message || "Teaser generation failed.");
