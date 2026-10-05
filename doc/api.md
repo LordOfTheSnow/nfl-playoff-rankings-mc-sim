@@ -624,7 +624,7 @@ Every team name anywhere in the bundle links to that team's page.
 
 ## Teaser Image
 
-The Export page can download a 1200×630 "Biggest movers" PNG: the five teams whose playoff probability changed most since a saved baseline. The card is drawn in the browser (`frontend/js/teaser.js`) from the last simulation result and the baseline below; the server only stores and returns the baseline. The baseline is saved explicitly, one per season, so each week's deltas stay pinned to the numbers that were published.
+The Export page can download a "Biggest movers" PNG in one of three formats: landscape 1200×630 (link previews), portrait 4:5 1080×1350 (feeds), or 9:16 1080×1920 (Stories; the top ~250px is kept free of text for the platform UI, and a stylised dot plot captioned with the run's iteration count sits above the footer). Portrait files are named with a `-portrait-4x5` or `-portrait-9x16` suffix. Each shows the five teams whose playoff probability changed most since a saved baseline. The card is drawn in the browser (`frontend/js/teaser.js`) from the last simulation result and the baseline below; the server only stores and returns the baseline. The baseline is saved explicitly, one per season, so each week's deltas stay pinned to the numbers that were published.
 
 ### `GET /api/teaser/baseline`
 

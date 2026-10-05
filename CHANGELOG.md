@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-10-05
+
+### Added
+- Teaser image on the Export page can be downloaded as a portrait 4:5 (1080×1350) or 9:16 Story (1080×1920) card, picked from a new **Format** selector, for mobile-first social posts. The portrait card lists the five movers as full-width rows with the logo, name and before → after probabilities on the left and the change on the right. The Story format keeps the top ~250px free of text for the platform UI, and adds a stylised dot plot of the simulation (captioned with the run's iteration count) between the rows and the footer
+
 ### Fixed
 - Season selector in the navigation bar showed only the active season in Chrome on Windows: the dropdown popup is drawn white there, and the options inherited the nav's white text, so only the highlighted row was readable. The options now set their own colors
 
@@ -466,7 +471,8 @@ Full "Modernist" redesign of every page (flat red-on-white style, Bootstrap remo
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.3...v1.2.0
 [1.1.3]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.1...v1.1.2
