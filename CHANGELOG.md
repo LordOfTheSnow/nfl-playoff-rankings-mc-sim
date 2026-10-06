@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Story 9:16 teaser card: the simulation panel's caption now reads "N SIMULATIONS PER GAME" instead of "N SIMULATIONS"
+
 ## [1.2.1] - 2026-10-05
 
 ### Added

@@ -449,7 +449,7 @@ function _drawBellPanel(ctx, box, meta, fonts) {
 
   // Caption: the real iteration count when the run reports it.
   const caption = meta.iterations
-    ? `${meta.iterations.toLocaleString("en-US")} SIMULATIONS`
+    ? `${meta.iterations.toLocaleString("en-US")} SIMULATIONS PER GAME`
     : "MONTE CARLO SIMULATION";
   ctx.fillStyle = "#f3f2f2";
   ctx.textBaseline = "alphabetic";
