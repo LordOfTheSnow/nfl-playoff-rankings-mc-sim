@@ -137,7 +137,7 @@ async function _downloadTeaser() {
       cutoffWeek: sim.cutoff_week_used,
       baselineWeek: baseline.cutoff_week,
       version,
-      iterations: sim.iterations_run,
+      totalGameSimulations: sim.iterations_run * sim.simulated_games,
     }, format);
 
     const suffix = format.portrait ? `-${format.id}` : "";

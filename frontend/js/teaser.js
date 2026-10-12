@@ -424,12 +424,13 @@ function _drawPortraitCard(ctx, movers, logos, meta, format, fonts) {
 
 /**
  * Draw the stylised "simulation" panel: an ink block with a dot plot shaped
- * like a bell curve, the outer tails in red, and a caption with the number of
- * Monte Carlo iterations behind the run. Decorative, not a chart of real data.
+ * like a bell curve, the outer tails in red, and a caption with the total
+ * number of individual game outcomes simulated across the run. Decorative,
+ * not a chart of real data.
  *
  * @param {CanvasRenderingContext2D} ctx
  * @param {{x: number, y: number, width: number, height: number}} box
- * @param {{iterations?: number}} meta
+ * @param {{totalGameSimulations?: number}} meta
  * @param {{headingFont: string, bodyFont: string}} fonts
  */
 function _drawBellPanel(ctx, box, meta, fonts) {
@@ -447,9 +448,9 @@ function _drawBellPanel(ctx, box, meta, fonts) {
   ctx.fillStyle = "#ec3013";
   ctx.fillRect(x, y, width, 8);
 
-  // Caption: the real iteration count when the run reports it.
-  const caption = meta.iterations
-    ? `${meta.iterations.toLocaleString("en-US")} SIMULATIONS PER GAME`
+  // Caption: the real total game-outcome count when the run reports it.
+  const caption = meta.totalGameSimulations
+    ? `${meta.totalGameSimulations.toLocaleString("en-US")} GAME SIMULATIONS`
     : "MONTE CARLO SIMULATION";
   ctx.fillStyle = "#f3f2f2";
   ctx.textBaseline = "alphabetic";
