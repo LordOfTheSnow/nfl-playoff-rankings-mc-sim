@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-10-13
+
 ### Changed
 - Story 9:16 teaser card: the simulation panel's caption now reads "N GAME SIMULATIONS", the total number of individual game outcomes simulated across the run, instead of the iteration count
+
+### Fixed
+- Standings tiebreaker tooltip (`GET /api/standings`) could show two tied teams an identical-looking value (e.g. both "Common 1-0-0") with no indication of which one actually outranks the other or why. The badge labeled each team's placement against the full tied group, so in a 3+ team tie, a step that separated two teams after a third was already removed used a different, narrower comparison than the one displayed. The badge and tooltip now compare each team directly against its neighbor in the standings (the team ranked just below, or above for the last team in a group), so the numbers always reflect a real difference between the two teams shown; falls back to the original group-wide display in the rare case a direct pairwise comparison disagrees with how the full group's multi-team procedure actually ordered them. New `tiebreaker_detail` field on `GET /api/standings` (see [API Reference](doc/api.md))
 
 ## [1.2.1] - 2026-10-05
 
@@ -474,7 +479,8 @@ Full "Modernist" redesign of every page (flat red-on-white style, Bootstrap remo
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.2.2...HEAD
+[1.2.2]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.3...v1.2.0
 [1.1.3]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.2...v1.1.3
