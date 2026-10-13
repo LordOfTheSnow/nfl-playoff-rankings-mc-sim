@@ -112,7 +112,8 @@ Computes and returns current standings grouped by conference and division, inclu
           "is_division_champion": true,
           "is_playoff_team": true,
           "seed": 2,
-          "tiebreaker": null
+          "tiebreaker": null,
+          "tiebreaker_detail": null
         }
       ],
       "North": ["..."],
@@ -135,6 +136,8 @@ Computes and returns current standings grouped by conference and division, inclu
 ```
 
 Teams within a division are ordered by record, then by the tiebreaker cascade among genuinely tied teams. Two teams are only tied when both win percentage **and** win-loss margin match, so early in the season, when teams have played different numbers of games, a 2-0 team ranks ahead of a 1-0 team (`games_behind` 0.5) and a 0-0 team ahead of a 0-1 team, rather than being run through the tiebreakers. This is the same rule `determine_playoff_bracket` uses to pick the division champion, so the first row of each division is always the champion. After a full season every team has played the same number of games, so it never splits a real tie.
+
+For a genuinely tied team, `tiebreaker` is a short badge naming the deciding rule and this team's own value (e.g. `"Div 4-1-0"`, `"Common 2-0-0"`, `"H2H"`), or `"Coin toss"` if no rule in the cascade separates the whole tied group (a true, unresolved tie — the real coin toss happens outside this app). `tiebreaker_detail` is a sentence comparing this team directly against its neighbor in the standings — the team ranked just below it, or just above for the last team in a tied group — naming both teams and both of their values at the deciding step (e.g. `"Common games record: Bears 2-0-0 vs Lions 1-1-0."`). It's computed independently per pair, so two teams in a 3+-team tie never show matching numbers for a step that didn't actually distinguish them from each other. It's `null` for unresolved ("Coin toss") teams and for untied teams (where `tiebreaker` is also absent).
 
 ---
 

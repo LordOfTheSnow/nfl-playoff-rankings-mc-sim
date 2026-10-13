@@ -132,6 +132,7 @@ class TestStandingsEndpointOrder:
             assert [t["team"] for t in east] == ["Bills", "Dolphins", "Jets", "Patriots"]
             assert all(t["tiebreaker"] == "Coin toss" for t in east)
             assert not any(t["is_division_champion"] for t in east)
+            assert not any("tiebreaker_detail" in t for t in east)
         finally:
             server.cache.close()
 
@@ -159,6 +160,64 @@ class TestStandingsEndpointOrder:
             assert by_team["Bills"]["is_division_champion"] is True
             assert by_team["Bills"]["tiebreaker"] == "Common 2-0-0"
             assert by_team["Jets"]["tiebreaker"] == "Common 0-2-0"
+            assert by_team["Bills"]["tiebreaker_detail"] == (
+                "Common games record: Bills 2-0-0 vs Jets 0-2-0."
+            )
+            assert by_team["Jets"]["tiebreaker_detail"] == (
+                "Common games record: Bills 2-0-0 vs Jets 0-2-0."
+            )
+        finally:
+            server.cache.close()
+
+    def test_three_way_tie_common_games_badge_matches_tooltip_not_stale_group(
+        self,
+    ) -> None:
+        """Regression test: in a 3-team tie, labeling a team's placement
+        against the *original* tied group (rather than the pair actually
+        being compared at that step) could show two teams an identical-
+        looking "Common" record even though the step that separated them
+        used a different, larger common-opponent set once a third team
+        narrowed the group-wide intersection. Bills is clearly best (2-1-0
+        vs the Chiefs/Ravens/Browns all three share) and is removed first;
+        Jets and Dolphins are then compared using the full set *they* share
+        (Chiefs/Ravens/Bengals), which does differentiate them (2-1-0 vs
+        1-2-0) -- the bug was that the badge recomputed their records against
+        the stale three-team-wide set (Chiefs/Ravens only), showing "1-1-0"
+        for both.
+        """
+        server = NFLSimulatorServer(port=0, season_year=2024, db_path=":memory:")
+        try:
+            games = [
+                _completed("g1", 1, "Bills", "Chiefs", 20, 10),
+                _completed("g2", 2, "Bills", "Ravens", 20, 10),
+                _completed("g3", 3, "Bills", "Browns", 10, 20),
+                _completed("g4", 4, "Bills", "Texans", 10, 20),
+                _completed("g5", 1, "Jets", "Chiefs", 20, 10),
+                _completed("g6", 2, "Jets", "Ravens", 10, 20),
+                _completed("g7", 3, "Jets", "Bengals", 20, 10),
+                _completed("g8", 4, "Jets", "Browns", 10, 20),
+                _completed("g9", 1, "Dolphins", "Chiefs", 10, 20),
+                _completed("g10", 2, "Dolphins", "Ravens", 20, 10),
+                _completed("g11", 3, "Dolphins", "Bengals", 10, 20),
+                _completed("g12", 4, "Dolphins", "Texans", 20, 10),
+            ]
+            server.cache.store_games(games, 2024)
+            handler = FakeHandler("/api/standings", server)
+            handler._handle_get_standings("/api/standings")
+            east = handler.get_response_json()["conferences"]["AFC"]["East"]
+            by_team = {t["team"]: t for t in east}
+
+            assert by_team["Jets"]["tiebreaker"] != by_team["Dolphins"]["tiebreaker"]
+            assert by_team["Jets"]["tiebreaker"] == "Common 2-1-0"
+            assert by_team["Dolphins"]["tiebreaker"] == "Common 1-2-0"
+
+            # The badge's own value and the tooltip's comparison agree.
+            assert by_team["Jets"]["tiebreaker_detail"] == (
+                "Common games record: Jets 2-1-0 vs Dolphins 1-2-0."
+            )
+            assert by_team["Dolphins"]["tiebreaker_detail"] == (
+                "Common games record: Jets 2-1-0 vs Dolphins 1-2-0."
+            )
         finally:
             server.cache.close()
 
@@ -186,5 +245,7 @@ class TestStandingsEndpointOrder:
             assert by_team["Jets"]["is_division_champion"] is False
             assert by_team["Bills"]["tiebreaker"] == "H2H"
             assert by_team["Jets"]["tiebreaker"] == "H2H"
+            assert by_team["Bills"]["tiebreaker_detail"] == "Head-to-head: Bills beat Jets."
+            assert by_team["Jets"]["tiebreaker_detail"] == "Head-to-head: Bills beat Jets."
         finally:
             server.cache.close()
