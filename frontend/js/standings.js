@@ -396,7 +396,7 @@ function buildTeamRow(team, isLeader) {
   // Tiebreaker
   const tbCell = document.createElement("td");
   if (team.tiebreaker) {
-    tbCell.appendChild(_buildTiebreakerTag(team.tiebreaker));
+    tbCell.appendChild(_buildTiebreakerTag(team.tiebreaker, team.tiebreaker_detail));
   }
   row.appendChild(tbCell);
 
@@ -418,14 +418,17 @@ function _numCell(value) {
 
 /**
  * Build the outlined "Tiebreaker" chip + hover tooltip for a tied team.
- * The server only reports a short code (e.g. "Div 4-1-0"); the tooltip
- * expands the rule name since the API doesn't return the rival team or
- * full comparison.
+ * The server sends a short code for the chip (e.g. "Div 4-1-0") plus, for
+ * resolved teams, a `tiebreaker_detail` sentence comparing this team
+ * directly against its neighbor in the standings (the specific rival and
+ * both teams' values at the deciding step) — that's what explains *why*
+ * one team outranks the other, rather than just naming the rule.
  *
  * @param {string} tiebreaker - Short tiebreaker string, e.g. "Div 4-1-0".
+ * @param {string} [detail] - Server-computed comparison sentence, if any.
  * @returns {HTMLElement}
  */
-function _buildTiebreakerTag(tiebreaker) {
+function _buildTiebreakerTag(tiebreaker, detail) {
   const wrap = document.createElement("span");
   wrap.className = "mdn-tt-wrap";
 
@@ -439,6 +442,8 @@ function _buildTiebreakerTag(tiebreaker) {
   pop.className = "mdn-tt-pop";
   if (code === "Coin") {
     pop.textContent = "Order not decided: no tiebreaker rule separates these teams. The final step is a coin toss, held outside this app.";
+  } else if (detail) {
+    pop.textContent = detail;
   } else {
     const ruleName = TIEBREAKER_RULE_NAMES[code] || "tiebreaker rule";
     pop.textContent = "Seeded by " + ruleName + ": " + tiebreaker + ".";

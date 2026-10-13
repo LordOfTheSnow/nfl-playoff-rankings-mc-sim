@@ -42,7 +42,9 @@ from src.simulator import (
 )
 from src.standings import (
     _get_common_opponents,
+    _get_games_against_opponents,
     _net_points,
+    _points_scored_and_allowed,
     _record_in_common_games,
     _standing_tie_key,
     _strength_of_schedule,
@@ -302,32 +304,142 @@ def _build_schedule_grid(games: list[Game], all_teams: list[str]) -> list[dict[s
     return entries
 
 
+_STEP_BADGE_CODES = {
+    "H2H": "H2H",
+    "Div": "Div",
+    "Common": "Common",
+    "Conf": "Conf",
+    "SoV": "SoV",
+    "SoS": "SoS",
+    "PtsConf": "Pts (Conf)",
+    "PtsAll": "Pts",
+    "NetCommon": "Net (Common)",
+    "NetAll": "Net",
+}
+
+_TIEBREAKER_RULE_SENTENCE_NAMES = {
+    "Div": "Division record",
+    "Common": "Common games record",
+    "Conf": "Conference record",
+    "SoV": "Strength of victory",
+    "SoS": "Strength of schedule",
+    "PtsConf": "Point differential in conference games",
+    "PtsAll": "Point differential in all games",
+    "NetCommon": "Net points in common games",
+    "NetAll": "Net points in all games",
+}
+
+
+def _tiebreaker_value(
+    team: dict[str, Any], step: str, games: list[Game], group_names: list[str]
+) -> str:
+    """Formatted value for one team at one tiebreaker step (e.g. "4-1-0" for
+    Div, "0.524" for SoV). Empty string for steps with no single number worth
+    displaying (H2H) or where point data is unavailable (simulated games).
+
+    `group_names` scopes "common opponents" for the Common/NetCommon steps —
+    pass just the two teams being compared, not a larger tied group, or the
+    common-opponent set (and so the value) won't match that comparison.
+    """
+    name = team["team"]
+    if step == "H2H":
+        return ""
+    if step == "Div":
+        return str(team["division_record"])
+    if step == "Common":
+        common_opps = _get_common_opponents(group_names, games, set())
+        w, l, t = _record_in_common_games(name, common_opps, games, set())
+        return f"{w}-{l}-{t}"
+    if step == "Conf":
+        return str(team["conference_record"])
+    if step == "SoV":
+        return f"{_strength_of_victory(name, games, set()):.3f}"
+    if step == "SoS":
+        return f"{_strength_of_schedule(name, games, set()):.3f}"
+    if step in ("PtsConf", "PtsAll"):
+        result = _points_scored_and_allowed(
+            name, games, set(), conference_only=(step == "PtsConf")
+        )
+        if result is None:
+            return ""
+        pf, pa = result
+        return f"{pf - pa:+d}"
+    # NetCommon / NetAll
+    if step == "NetCommon":
+        common_opps = _get_common_opponents(group_names, games, set())
+        common_games = _get_games_against_opponents(name, common_opps, games, set())
+        net = _net_points(name, common_games, set())
+    else:
+        net = _net_points(name, games, set())
+    return f"{net:+d}" if net is not None else ""
+
+
 def _tiebreaker_label(
     team: dict[str, Any], step: str, games: list[Game], group_names: list[str]
 ) -> str:
     """Badge text naming the rule that placed a tied team."""
-    name = team["team"]
+    code = _STEP_BADGE_CODES[step]
+    value = _tiebreaker_value(team, step, games, group_names)
+    return f"{code} {value}" if value else code
+
+
+def _resolve_pair(
+    higher: str, lower: str, games: list[Game], context: str
+) -> str | None:
+    """The tiebreaker step that separates `higher` from `lower` when the two
+    are compared directly, if any, and only if that direct comparison agrees
+    with `higher` actually outranking `lower`.
+
+    Used to decide whether a pairwise explanation is safe to show: in a 3+
+    team tie, eliminating a third team can change who's being compared at a
+    given step, so a direct two-team comparison can occasionally disagree
+    with (or fail to resolve) how the full group was actually ordered. In
+    that case the caller should fall back to a non-comparative explanation
+    instead of displaying numbers that look contradictory next to the row's
+    actual position.
+    """
+    ordered, unresolved = resolve_tie_order([higher, lower], games, set(), context)
+    if unresolved or ordered[0][0] != higher:
+        return None
+    return ordered[0][1]
+
+
+def _tiebreaker_detail_text(
+    higher: str,
+    lower: str,
+    step: str | None,
+    by_name: dict[str, dict[str, Any]],
+    games: list[Game],
+) -> str:
+    """Tooltip sentence explaining why `higher` is ranked above `lower`.
+
+    When `step` is given (from `_resolve_pair`), it's the rule that separates
+    these two teams directly, so the values shown are computed scoped to
+    just this pair -- unlike the badge's historical behavior of labeling
+    each team's placement against the full tied group, which can show
+    identical-looking values for two teams when the step that actually
+    separated them from a third team doesn't distinguish the two of them
+    from each other.
+
+    When `step` is None (the pairwise comparison didn't agree with the
+    group's actual order), falls back to a non-numeric explanation.
+    """
+    if step is None:
+        return (
+            f"{higher} is ranked ahead of {lower} by the NFL's multi-team "
+            "tiebreaker procedure; no single rule separates the two of them "
+            "head-to-head."
+        )
     if step == "H2H":
-        return "H2H"
-    if step == "Div":
-        return f"Div {team['division_record']}"
-    if step == "Common":
-        common_opps = _get_common_opponents(group_names, games, set())
-        w, l, t = _record_in_common_games(name, common_opps, games, set())
-        return f"Common {w}-{l}-{t}"
-    if step == "Conf":
-        return f"Conf {team['conference_record']}"
-    if step == "SoV":
-        return f"SoV {_strength_of_victory(name, games, set()):.3f}"
-    if step == "SoS":
-        return f"SoS {_strength_of_schedule(name, games, set()):.3f}"
-    if step == "PtsConf":
-        return "Pts Conf"
-    if step == "NetCommon":
-        return "Pts Common"
-    net = _net_points(name, games, set()) or 0
-    sign = "+" if net > 0 else ""
-    return f"Pts {sign}{net}"
+        return f"Head-to-head: {higher} beat {lower}."
+
+    pair = [higher, lower]
+    rule_name = _TIEBREAKER_RULE_SENTENCE_NAMES.get(step, "a tiebreaker rule")
+    higher_value = _tiebreaker_value(by_name[higher], step, games, pair)
+    lower_value = _tiebreaker_value(by_name[lower], step, games, pair)
+    if not higher_value or not lower_value:
+        return f"{rule_name}: {higher} ranks ahead of {lower}."
+    return f"{rule_name}: {higher} {higher_value} vs {lower} {lower_value}."
 
 
 class NFLRequestHandler(BaseHTTPRequestHandler):
@@ -1628,10 +1740,41 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                         if not result and not ordered:
                             for t in group:
                                 t["is_division_champion"] = False
-                        for name, step in ordered:
-                            by_name[name]["tiebreaker"] = _tiebreaker_label(
-                                by_name[name], step, games, list(by_name)
+                        # Full placement order (resolved teams, then any the
+                        # cascade couldn't separate) so each resolved team can
+                        # be compared against its actual neighbor for the
+                        # tooltip — the team ranked just below it, or just
+                        # above for the last team in the group.
+                        full_order = [name for name, _ in ordered] + sorted(unresolved)
+                        for idx, (name, step) in enumerate(ordered):
+                            if idx + 1 < len(full_order):
+                                higher, lower = name, full_order[idx + 1]
+                            elif idx > 0:
+                                higher, lower = full_order[idx - 1], name
+                            else:
+                                higher = lower = None
+
+                            # Prefer a direct pairwise comparison against the
+                            # neighbor (see _resolve_pair) so the badge and
+                            # tooltip always show the same numbers; fall back
+                            # to this team's placement in the full tied group
+                            # when the pair disagrees with the actual order.
+                            pair_step = (
+                                _resolve_pair(higher, lower, games, "division")
+                                if higher is not None
+                                else None
                             )
+                            if pair_step is not None:
+                                badge_step, badge_group = pair_step, [higher, lower]
+                            else:
+                                badge_step, badge_group = step, list(by_name)
+                            by_name[name]["tiebreaker"] = _tiebreaker_label(
+                                by_name[name], badge_step, games, badge_group
+                            )
+                            if higher is not None:
+                                by_name[name]["tiebreaker_detail"] = _tiebreaker_detail_text(
+                                    higher, lower, pair_step, by_name, games
+                                )
                             result.append(by_name[name])
                         for name in sorted(unresolved):
                             by_name[name]["tiebreaker"] = "Coin toss"
