@@ -305,3 +305,60 @@ In practice, most teams are resolved in 1-2 record groups out of 15+.
 
 - `GET /api/cp-clinch/{team}?cutoff_week=N&time_limit=S` — single team clinch/elimination status
 - `GET /api/cp-clinch-all?cutoff_week=N` — all 32 teams, grouped by conference
+
+## Wild Card Round
+
+`POST /api/wildcard` (`src/wildcard.py`) assembles the Wild Card Round view
+(top-7 seeds per conference, the #1 seed's bye, and an "In the Hunt" list)
+from either Actual standings or Simulated seeding. It composes existing
+modules — `standings.py` for ranking, `cp_solver.py` for elimination status,
+`team_strength.py` for ratings — rather than reimplementing any of them; the
+two pieces below are the only logic specific to this feature.
+
+### Ranking seeds 8-16
+
+The playoff bracket (`determine_playoff_bracket`) only ranks the 7 teams
+that make it. The Wild Card view's "In the Hunt" list needs the rest of the
+conference ranked too, consistently with the bracket (not by a simplified
+proxy like raw win percentage) — since e.g. a tiebreaker could rank team B
+over team A despite a worse raw record.
+
+`standings.rank_conference` reuses the exact same tiebreak engine
+(`_sort_with_tiebreakers`, hoisted out of `determine_playoff_bracket` for
+this purpose) to produce a full 1-16 order: division champions ranked 1-4
+among themselves, everyone else ranked 5-16 among themselves — mirroring
+real NFL rules, where a division champion always outranks a non-champion
+regardless of record. Unlike `determine_playoff_bracket`, it never mutates
+its input `TeamStanding` objects (no `seed`/`is_division_champion` side
+effects), since it's a read-only view concern, not a change to the teams'
+actual standings.
+
+### Modal-seed assignment (Simulated mode)
+
+A Monte Carlo run gives each team an independent probability distribution
+over seeds 1-7 (`seed_probabilities`) — these don't sum to a single
+consistent 7-team bracket on their own (two teams can each have seed 3 as
+their most likely seed). `wildcard.assign_modal_seeds` collapses this into
+one internally-consistent bracket with a greedy assignment: teams are
+processed in order of overall `playoff_probability` descending, and each
+claims its own highest-probability seed that's still unclaimed.
+
+This is a presentation choice, not a new probability model — by
+construction, exactly the 7 teams with the highest `playoff_probability` in
+the conference end up with a seed, since an 8th-ranked team's candidate list
+is exhausted once those 7 have claimed every seed. An alternative (solving
+for the assignment that maximizes total likelihood across all 7 teams, e.g.
+via the Hungarian algorithm) was considered and rejected: this is a cosmetic
+single-bracket display, not a statistic the app reports elsewhere, so the
+simpler greedy rule was preferred over adding an optimal-assignment
+dependency for it.
+
+### Last 5 / streak
+
+Nothing else in the codebase derives a team's current form — `GET
+/api/statistics` computes the longest win/lose streak *across the league*,
+not a single team's trailing run. `wildcard.last5_and_streak` derives both
+directly from the team's completed games (oldest-to-newest): the last-5 game
+log (capped at 5) and the current streak (the trailing same-result run, not
+capped — so e.g. a 7-game win streak shows `W7` even though `last5` only
+shows the most recent 5 `W`s).

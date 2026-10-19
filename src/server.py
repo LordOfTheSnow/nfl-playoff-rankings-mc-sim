@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import unquote
 
-from src import export, teaser
+from src import export, teaser, wildcard
 from src.cache import Cache
 from src.cp_solver import ORTOOLS_AVAILABLE, CPSolverConfig, solve_clinch, solve_clinch_all
 from src.data_client import DataClient, FetchResult, Game, GameStatus, derive_season_weeks
@@ -41,6 +41,7 @@ from src.simulator import (
     resolve_tie_probability,
 )
 from src.standings import (
+    Conference,
     _get_common_opponents,
     _get_games_against_opponents,
     _net_points,
@@ -634,6 +635,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             self._handle_export_page()
         elif path == "/api/export/bundle":
             self._handle_export_bundle()
+        elif path == "/api/wildcard":
+            self._handle_post_wildcard()
         elif path == "/api/teaser/baseline":
             self._handle_post_teaser_baseline()
         elif path.startswith("/api/"):
@@ -2175,6 +2178,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
         grid_data = self._capture_json_response(self._handle_get_schedule_grid)
         status_data = self._capture_json_response(self._handle_get_status)
         sim_result = export.validate_simulation_payload(body.get("simulation_result"))
+        wildcard_actual, wildcard_simulated = self._compute_export_wildcard_data(body, sim_result)
 
         css_content = Path(server.static_dir, "css", "styles.css").read_text(encoding="utf-8")
         html = export.render_combined_page(
@@ -2188,6 +2192,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             logos=self._load_export_logos(server.static_dir),
             status=status_data,
             cutoff_week=cutoff_week,
+            wildcard_actual=wildcard_actual,
+            wildcard_simulated=wildcard_simulated,
         )
         self._send_html_response(200, html)
 
@@ -2218,6 +2224,7 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
         grid_data = self._capture_json_response(self._handle_get_schedule_grid)
         status_data = self._capture_json_response(self._handle_get_status)
         sim_result = export.validate_simulation_payload(body.get("simulation_result"))
+        wildcard_actual, wildcard_simulated = self._compute_export_wildcard_data(body, sim_result)
         team_details = {
             team: self._capture_json_response(self._handle_get_team, team)
             for team in ALL_TEAMS
@@ -2236,9 +2243,124 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             logos=self._load_export_logos(server.static_dir),
             status=status_data,
             cutoff_week=cutoff_week,
+            wildcard_actual=wildcard_actual,
+            wildcard_simulated=wildcard_simulated,
         )
         filename = export.export_filename(server.season_year, "zip")
         self._send_binary_response(200, zip_bytes, "application/zip", filename)
+
+    def _handle_post_wildcard(self) -> None:
+        """Handle POST /api/wildcard — Wild Card Round seeding/matchup data
+        for either Actual standings or Simulated (most-likely) seeding.
+
+        Body: {"source": "actual"|"simulated", "cutoff_week": int|null,
+               "simulation_result": {...}|null}.
+
+        For "simulated", simulation_result must be the client's current
+        window._simulationResults — same client-forwarding pattern as
+        POST /api/export/page, since results only live in server memory for
+        a few minutes per job with no lookup by cutoff.
+        """
+        body = self._parse_json_body()
+        if body is None:
+            self._send_error_response(400, "Invalid JSON in request body", "")
+            return
+
+        code, response = self._compute_wildcard_data(body)
+        self._send_json_response(code, response)
+
+    def _compute_wildcard_data(self, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        """Core of POST /api/wildcard, factored out so the export endpoints
+        can reuse it directly for both sources (see _handle_export_page)
+        without a fake HTTP round-trip through _capture_json_response, since
+        unlike the GET handlers it reuses, this one takes its input from a
+        body dict rather than solely from the live request.
+
+        Returns (status_code, response_dict) — response_dict is either the
+        success payload or an error body shaped like _json_error's.
+        """
+        server: NFLSimulatorServer = self.server  # type: ignore[assignment]
+        source = body.get("source")
+        if source not in ("actual", "simulated"):
+            return _json_error(400, "Invalid source", "source must be 'actual' or 'simulated'")
+
+        games = server.cache.get_games(server.season_year)
+        if not games:
+            return _json_error(
+                409,
+                "No cached data available",
+                "Data must be fetched first using POST /api/fetch-data",
+            )
+        season_weeks = derive_season_weeks(games)
+
+        if source == "simulated":
+            sim_result = export.validate_simulation_payload(body.get("simulation_result"))
+            if sim_result is None:
+                return _json_error(
+                    400,
+                    "Invalid or missing simulation_result",
+                    "source='simulated' requires a valid simulation_result payload",
+                )
+
+            cutoff_week = sim_result.get("cutoff_week_used")
+            if not isinstance(cutoff_week, int):
+                cutoff_week = _auto_detect_cutoff_week(games)
+            cutoff_games = [g for g in games if g.week <= cutoff_week]
+
+            return 200, {
+                "source": "simulated",
+                "cutoff_week": cutoff_week,
+                "iterations": sim_result.get("iterations_run"),
+                "conferences": {
+                    conf: wildcard.build_simulated_conference(
+                        sim_result["team_results"], conf, cutoff_games
+                    )
+                    for conf in ("AFC", "NFC")
+                },
+            }
+
+        # source == "actual"
+        cutoff_week = body.get("cutoff_week")
+        if (
+            not isinstance(cutoff_week, int)
+            or isinstance(cutoff_week, bool)
+            or cutoff_week < 1
+            or cutoff_week > season_weeks
+        ):
+            cutoff_week = _auto_detect_cutoff_week(games)
+        cutoff_games = [g for g in games if g.week <= cutoff_week]
+
+        try:
+            standings = compute_standings(cutoff_games)
+
+            from src.team_strength import TeamStrengthCalculator
+            completed_games = [g for g in cutoff_games if g.status == GameStatus.COMPLETED]
+            team_strengths = TeamStrengthCalculator().calculate(completed_games)
+
+            clinch_data = self._capture_json_response(
+                self._handle_get_cp_clinch_all, f"/api/cp-clinch-all?cutoff_week={cutoff_week}"
+            )
+            eliminated: dict[str, bool] = {}
+            if clinch_data:
+                for conf_entries in clinch_data.get("conferences", {}).values():
+                    for entry in conf_entries:
+                        eliminated[entry["team"]] = entry.get("status") == "eliminated"
+
+            return 200, {
+                "source": "actual",
+                "cutoff_week": cutoff_week,
+                "conferences": {
+                    "AFC": wildcard.build_actual_conference(
+                        standings, Conference.AFC, cutoff_games, team_strengths, eliminated
+                    ),
+                    "NFC": wildcard.build_actual_conference(
+                        standings, Conference.NFC, cutoff_games, team_strengths, eliminated
+                    ),
+                },
+            }
+        except Exception as e:
+            logger.exception("Error computing Wild Card data")
+            return _json_error(500, "Error computing Wild Card data", str(e))
 
     @staticmethod
     def _load_export_logos(static_dir: str) -> dict[str, bytes]:
@@ -2252,6 +2374,29 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
             if path.is_file():
                 result[logo_id] = path.read_bytes()
         return result
+
+    def _compute_export_wildcard_data(
+        self, body: dict[str, Any], sim_result: dict[str, Any] | None
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        """Wild Card data for both export sections: Actual is always
+        attempted (same cutoff_week as the rest of the export), Simulated
+        only when a valid simulation_result was supplied. Either half comes
+        back None if its underlying POST /api/wildcard call didn't return
+        200 (e.g. no cached game data) rather than failing the whole export.
+        """
+        actual_code, actual_data = self._compute_wildcard_data(
+            {"cutoff_week": body.get("cutoff_week"), "source": "actual"}
+        )
+        wildcard_actual = actual_data if actual_code == 200 else None
+
+        wildcard_simulated = None
+        if sim_result is not None:
+            sim_code, sim_data = self._compute_wildcard_data(
+                {"source": "simulated", "simulation_result": sim_result}
+            )
+            wildcard_simulated = sim_data if sim_code == 200 else None
+
+        return wildcard_actual, wildcard_simulated
 
     @staticmethod
     def _export_standings_path(base_path: str, body: dict[str, Any]) -> str:

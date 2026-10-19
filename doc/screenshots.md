@@ -64,6 +64,14 @@ Every page in the app, all in the flat, red-on-white "Modernist" design system. 
 
 *Game Outcomes card (home/away/tie/overtime/one-score win rates as inline percentage bars, average score, longest winning/losing streaks with team logos) alongside a Score Margin Distribution card bucketing every completed game's final margin.*
 
+## Wild Card
+
+### Wild Card Round — Simulated seeding (2026 season, cutoff week 6)
+
+![Wild Card Round page in the Modernist style, showing Simulated seeding for AFC and NFC with bye rows, 2v7/3v6/4v5 matchups, and In the Hunt panels](img/screenshot-wildcard-simulated.png)
+
+*Wild Card Round, Simulated mode: each conference's #1 seed on a first-round bye, the three Wild Card matchups with the higher-strength team highlighted as favorite, and an "In the Hunt" panel listing every team outside the top 7 with its playoff probability. Switching the Data source segment to Actual standings shows the same layout sourced from real results through the cutoff week instead.*
+
 ## Export
 
 ### Teaser image — "Biggest movers" (2026 season, cutoff week 3)
@@ -71,6 +79,12 @@ Every page in the app, all in the flat, red-on-white "Modernist" design system. 
 ![Biggest movers teaser card: five team tiles with logos, each showing the playoff-probability change since the saved baseline, plus the app name and version in the footer](img/screenshot-movercard.png)
 
 *Teaser image downloaded from the Export page (1200×630 PNG, for link previews and social posts): the five teams whose playoff probability changed most since the baseline saved on an earlier week. Each tile shows the team's logo, its change (▲/▼), and before → after probabilities. The footer carries the app name and version.*
+
+### Wild Card teaser — NFC (2026 season, cutoff week 6)
+
+![NFC Wild Card teaser card: 9:16 Story PNG showing the #1 seed's bye, the three 2v7/3v6/4v5 matchups with the favorite highlighted, and a stylised bell-curve panel captioned with the run's total game simulations](img/screenshot-wildcard-nfc.png)
+
+*Wild Card teaser image downloaded from the Export page (1080×1920 PNG, for Stories; AFC has its own matching download): the conference's #1 seed on a bye, the three Wild Card matchups with the higher-strength team highlighted as favorite, and the same stylised simulation bell-curve panel used on the "Biggest movers" teaser, captioned with the run's total game simulations.*
 
 ## Settings / Info
 

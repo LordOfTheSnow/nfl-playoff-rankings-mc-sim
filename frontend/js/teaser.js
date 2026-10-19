@@ -473,6 +473,289 @@ function _drawBellPanel(ctx, box, meta, fonts) {
   }
 }
 
+// --- Wild Card bracket card (AFC/NFC, Simulated only, 9:16 Story only) ----
+
+const TEASER_WC_LOGO_SIZE = 100;
+const TEASER_WC_MATCHUPS = [[2, 7], [3, 6], [4, 5]];
+
+/**
+ * Load a conference mark (afc.png/nfc.png) the same way team logos load.
+ *
+ * @param {"AFC"|"NFC"} conference
+ * @returns {Promise<HTMLImageElement|null>}
+ */
+function _loadConferenceLogo(conference) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = `img/logos/${conference.toLowerCase()}.png`;
+  });
+}
+
+/**
+ * Draw one team row shared by the bye row and the matchup rows: seed, logo,
+ * name, record/division, and a strength stat on the right. `tint` picks the
+ * row's fill ("fav" = the matchup favorite's accent tint, "bye" = the bye
+ * row's neutral tint, "" = plain white) — mirrors the live Wild Card page's
+ * `.fav`/`.mdn-wc-bye`/`.mdn-wc-team` treatment.
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {{x: number, y: number, w: number, h: number}} box
+ * @param {Object} team - One team entry from POST /api/wildcard.
+ * @param {HTMLCanvasElement|null} logo
+ * @param {"fav"|"bye"|""} tint
+ * @param {string|null} subLabel - Extra muted line under record/division (bye row only).
+ * @param {{headingFont: string, bodyFont: string}} fonts
+ */
+function _drawWcTeamRow(ctx, box, team, logo, tint, subLabel, fonts) {
+  const { headingFont, bodyFont } = fonts;
+  const { x, y, w, h } = box;
+
+  ctx.fillStyle = tint === "fav" ? "#fdeae5" : tint === "bye" ? "#f7f6f6" : "#ffffff";
+  ctx.fillRect(x, y, w, h);
+  if (tint === "fav") {
+    ctx.fillStyle = "#ec3013";
+    ctx.fillRect(x, y, 6, h);
+  }
+
+  const padX = 24;
+  const seedColW = 56;
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#8a8785";
+  ctx.font = headingFont.replace("%s", String(Math.round(h * 0.16)));
+  ctx.fillText(String(team.seed), x + padX + seedColW, y + h / 2);
+  ctx.textAlign = "left";
+
+  const logoSize = Math.min(h - 28, TEASER_WC_LOGO_SIZE);
+  const logoX = x + padX + seedColW + 16;
+  if (logo) {
+    const scale = Math.min(logoSize / logo.width, logoSize / logo.height, 1);
+    const dw = logo.width * scale;
+    const dh = logo.height * scale;
+    ctx.drawImage(logo, logoX + (logoSize - dw) / 2, y + (h - dh) / 2, dw, dh);
+  }
+
+  const textX = logoX + logoSize + 20;
+  const statW = 170;
+  const rightEdge = x + w - padX;
+  const nameMaxW = rightEdge - statW - 24 - textX;
+
+  const lines = subLabel ? 3 : 2;
+  const nameY = lines === 3 ? y + h * 0.3 : y + h * 0.38;
+  const subY = lines === 3 ? y + h * 0.56 : y + h * 0.68;
+  const subLabelY = y + h * 0.82;
+
+  ctx.fillStyle = "#161514";
+  ctx.font = _fitFont(ctx, headingFont, team.team.toUpperCase(), Math.round(h * 0.26), nameMaxW);
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(team.team.toUpperCase(), textX, nameY);
+
+  ctx.fillStyle = "#6b6866";
+  ctx.font = bodyFont.replace("%s", String(Math.round(h * 0.13)));
+  ctx.fillText(`${team.record || "0-0-0"} · ${team.division || ""}`, textX, subY);
+
+  if (subLabel) {
+    ctx.fillStyle = "#8a8785";
+    ctx.font = bodyFont.replace("%s", String(Math.round(h * 0.11)));
+    ctx.fillText(subLabel, textX, subLabelY);
+  }
+
+  // Right stat: strength rating.
+  ctx.textAlign = "right";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = "#161514";
+  ctx.font = headingFont.replace("%s", String(Math.round(h * 0.22)));
+  ctx.fillText(team.strength != null ? team.strength.toFixed(3) : "1.000", rightEdge, y + h * 0.46);
+  ctx.fillStyle = "#8a8785";
+  ctx.font = bodyFont.replace("%s", String(Math.round(h * 0.1)));
+  ctx.fillText("STRENGTH", rightEdge, y + h * 0.68);
+  ctx.textAlign = "left";
+}
+
+/**
+ * Draw the Wild Card bracket card onto a fresh canvas: the conference's #1
+ * seed on a bye, then the three 2v7/3v6/4v5 matchups with the higher-
+ * strength team tinted as favorite — the same visual language as the Movers
+ * card's header/footer and the live Wild Card page's row layout.
+ *
+ * @param {"AFC"|"NFC"} conference
+ * @param {Object[]} teams - All 16 teams for this conference (POST /api/wildcard, Simulated).
+ * @param {{season: number, cutoffWeek: number, version?: string, totalGameSimulations?: number}} meta
+ * @param {typeof TEASER_FORMATS.story} [format=TEASER_FORMATS.story] - 9:16 only; other formats aren't supported.
+ * @returns {Promise<HTMLCanvasElement>}
+ */
+async function renderWildcardTeaserCanvas(conference, teams, meta, format = TEASER_FORMATS.story) {
+  const canvas = document.createElement("canvas");
+  canvas.width = format.width;
+  canvas.height = format.height;
+  const ctx = canvas.getContext("2d");
+
+  const bySeed = {};
+  for (const t of teams) bySeed[t.seed] = t;
+  const bye = bySeed[1];
+  const matchups = TEASER_WC_MATCHUPS.map(([h, a]) => ({ homeSeed: h, awaySeed: a, home: bySeed[h], away: bySeed[a] }));
+  const rowTeams = [bye, ...matchups.flatMap((m) => [m.home, m.away])].filter(Boolean);
+
+  const [teamLogos, confLogoImg] = await Promise.all([
+    Promise.all(rowTeams.map((t) => _loadTeamLogo(t.team))),
+    _loadConferenceLogo(conference),
+  ]);
+  const logoByTeam = {};
+  rowTeams.forEach((t, i) => {
+    logoByTeam[t.team] = teamLogos[i] ? _shrinkLogo(teamLogos[i], TEASER_WC_LOGO_SIZE) : null;
+  });
+  const confLogo = confLogoImg ? _shrinkLogo(confLogoImg, 92) : null;
+
+  try {
+    if (document.fonts && document.fonts.load) {
+      await document.fonts.load('800 56px "Archivo"');
+      await document.fonts.load('400 24px "Archivo"');
+    }
+  } catch (_err) {
+    // Fall back to the system sans-serif below.
+  }
+
+  const headingFont = '800 %spx "Archivo", "Helvetica Neue", Arial, sans-serif';
+  const bodyFont = '400 %spx "Archivo", "Helvetica Neue", Arial, sans-serif';
+
+  _drawWildcardCard(ctx, conference, bye, matchups, logoByTeam, confLogo, meta, format, { headingFont, bodyFont });
+  return canvas;
+}
+
+/**
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {"AFC"|"NFC"} conference
+ * @param {Object|undefined} bye
+ * @param {Array<{homeSeed: number, awaySeed: number, home: Object|undefined, away: Object|undefined}>} matchups
+ * @param {Object<string, HTMLCanvasElement|null>} logoByTeam
+ * @param {HTMLCanvasElement|null} confLogo
+ * @param {{season: number, cutoffWeek: number, version?: string, totalGameSimulations?: number}} meta
+ * @param {typeof TEASER_FORMATS.story} format
+ * @param {{headingFont: string, bodyFont: string}} fonts
+ */
+function _drawWildcardCard(ctx, conference, bye, matchups, logoByTeam, confLogo, meta, format, fonts) {
+  const { headingFont, bodyFont } = fonts;
+  const W = format.width;
+  const H = format.height;
+  // Deliberately slimmer than the Movers card's Story topSafe (200px): this
+  // card is dense with bracket content, not a short list, so a big top
+  // margin reads as wasted space rather than safe-zone breathing room.
+  const top = 60;
+  const margin = 56;
+  const contentW = W - 2 * margin;
+
+  // Header band.
+  ctx.fillStyle = "#f3f2f2";
+  ctx.fillRect(0, 0, W, H);
+  const bandBottom = top + 120;
+  ctx.fillStyle = "#161514";
+  ctx.fillRect(0, 0, W, bandBottom);
+  ctx.fillStyle = "#ec3013";
+  ctx.fillRect(0, bandBottom, W, 6);
+
+  ctx.fillStyle = "#f3f2f2";
+  ctx.textBaseline = "middle";
+  ctx.font = headingFont.replace("%s", "44");
+  ctx.fillText("NFL PLAYOFF RANKINGS SIM", margin, top + 60);
+  ctx.font = bodyFont.replace("%s", "28");
+  ctx.textAlign = "right";
+  ctx.fillText(`${meta.season} · Week ${meta.cutoffWeek}`, W - margin, top + 60);
+  ctx.textAlign = "left";
+
+  // Headline: conference mark + "AFC/NFC WILD CARD".
+  ctx.textBaseline = "alphabetic";
+  let headlineX = margin;
+  if (confLogo) {
+    ctx.drawImage(confLogo, margin, bandBottom + 40, confLogo.width, confLogo.height);
+    headlineX = margin + confLogo.width + 24;
+  }
+  const headline = `${conference} WILD CARD`;
+  ctx.fillStyle = "#161514";
+  ctx.font = _fitFont(ctx, headingFont, headline, 80, contentW - (headlineX - margin));
+  ctx.fillText(headline, headlineX, bandBottom + 130);
+
+  ctx.fillStyle = "#332f2d";
+  ctx.font = bodyFont.replace("%s", "30");
+  ctx.fillText("Projected seeding — Simulated", margin, bandBottom + 184);
+
+  // Footer baselines (same convention as the Movers card).
+  const footerNameY = H - format.bottomSafe - 40;
+  const footerDiscY = H - format.bottomSafe;
+  const footerTop = footerNameY - 28;
+
+  // Stylised "simulation" bell panel (same as the Movers Story card), sized
+  // down slightly to leave more room for the bracket content.
+  const bellH = 200;
+  const bellBottom = footerTop - 40;
+  const bellTop = bellBottom - bellH;
+
+  // Layout the bye row + 3 matchups (label strip + 2 team rows each) to fill
+  // the space between the subtitle and the bell panel.
+  const bodyTop = bandBottom + 230;
+  const availableH = bellTop - 32 - bodyTop;
+  const blockGap = 14;
+  const labelH = 46;
+  const rowGap = 3;
+  const byeH = 190;
+  const teamRowH = (availableH - byeH - 3 * blockGap - 3 * labelH - 6 * rowGap) / 6;
+
+  let y = bodyTop;
+  if (bye) {
+    _drawWcTeamRow(ctx, { x: margin, y, w: contentW, h: byeH }, bye, logoByTeam[bye.team], "bye", "FIRST-ROUND BYE", fonts);
+  }
+  y += byeH + blockGap;
+
+  for (const m of matchups) {
+    if (!m.home || !m.away) continue;
+    ctx.fillStyle = "#ebe9e8";
+    ctx.fillRect(margin, y, contentW, labelH);
+    ctx.fillStyle = "#6b6866";
+    ctx.font = headingFont.replace("%s", "22");
+    ctx.textBaseline = "middle";
+    ctx.fillText(`${m.homeSeed} VS ${m.awaySeed}`, margin + 24, y + labelH / 2);
+    y += labelH;
+
+    const homeFav = (m.home.strength || 0) >= (m.away.strength || 0);
+    _drawWcTeamRow(ctx, { x: margin, y, w: contentW, h: teamRowH }, m.home, logoByTeam[m.home.team], homeFav ? "fav" : "", null, fonts);
+    y += teamRowH + rowGap;
+    _drawWcTeamRow(ctx, { x: margin, y, w: contentW, h: teamRowH }, m.away, logoByTeam[m.away.team], homeFav ? "" : "fav", null, fonts);
+    y += teamRowH + blockGap;
+  }
+
+  _drawBellPanel(ctx, { x: margin, y: bellTop, width: contentW, height: bellH }, meta, fonts);
+
+  // Footer, left-aligned, at the bottom edge.
+  ctx.textBaseline = "alphabetic";
+  const footerName = meta.version ? `${TEASER_APP_NAME} v${meta.version}` : TEASER_APP_NAME;
+  ctx.fillStyle = "#332f2d";
+  ctx.font = _fitFont(ctx, headingFont, footerName, 28, contentW);
+  ctx.fillText(footerName, margin, footerNameY);
+  ctx.fillStyle = "#6b6866";
+  ctx.font = bodyFont.replace("%s", "24");
+  ctx.fillText("Independent project, not affiliated with the NFL", margin, footerDiscY);
+}
+
+/**
+ * Render the Wild Card bracket card and encode it as a PNG Blob.
+ *
+ * @param {"AFC"|"NFC"} conference
+ * @param {Object[]} teams - All 16 teams for this conference (POST /api/wildcard, Simulated).
+ * @param {{season: number, cutoffWeek: number, version?: string, totalGameSimulations?: number}} meta
+ * @param {typeof TEASER_FORMATS.story} [format=TEASER_FORMATS.story]
+ * @returns {Promise<Blob>}
+ */
+async function buildWildcardTeaserBlob(conference, teams, meta, format = TEASER_FORMATS.story) {
+  const canvas = await renderWildcardTeaserCanvas(conference, teams, meta, format);
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error("Could not encode the Wild Card image."));
+    }, "image/png");
+  });
+}
+
 /**
  * Render the Movers card and encode it as a PNG Blob.
  *

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-19
+
+### Added
+- **Wild Card tab** (`#wildcard`, new `src/wildcard.py` + `POST /api/wildcard`): shows the top-7-seeds-per-conference Wild Card matchups (2v7, 3v6, 4v5), the #1 seed's first-round bye, and an "In the Hunt" list of teams below seed 7 still alive, from either Actual standings or Simulated (most-likely) seeding. Each team row shows its last-5 game log, current streak, and strength rating; the higher-strength team in each matchup is highlighted as favorite. Seeds 8-16 reuse the playoff bracket's own tiebreaker procedure (`standings.rank_conference`) rather than a simplified record-only ranking. The HTML/ZIP export now includes a Wild Card Round section too (Actual always, Simulated when a run is available), each independently collapsible and styled the same as the Simulations page's Top Scenarios card. See [API Reference](doc/api.md)
+- **Wild Card teaser images** on the Export page: a 9:16 Story PNG per conference (AFC/NFC) showing the projected Wild Card bracket from the last simulation run — bye row, the three matchups, and the favorite highlighted in each — drawn client-side (`frontend/js/teaser.js`) in the same style as the existing "Biggest movers" teaser
+
 ## [1.2.2] - 2026-10-13
 
 ### Changed
@@ -479,7 +485,8 @@ Full "Modernist" redesign of every page (flat red-on-white style, Bootstrap remo
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.2.2...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.1.3...v1.2.0

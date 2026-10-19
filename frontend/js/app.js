@@ -11,6 +11,7 @@
  *   #simulate       — Redirects to #simulations (legacy alias)
  *   #results        — Redirects to #simulations (legacy alias)
  *   #simulations    — Simulation setup + results (owns the sim controls)
+ *   #wildcard       — Wild Card Round seeding/matchups (Actual or Simulated)
  *   #export         — Export current data to standalone HTML
  *   #settings       — Settings / Info (database & runtime environment)
  *
@@ -130,7 +131,7 @@ const App = (() => {
     }
 
     // Known routes
-    const knownRoutes = ["standings", "simulate", "results", "simulations", "statistics", "schedule-grid", "export", "settings"];
+    const knownRoutes = ["standings", "simulate", "results", "simulations", "wildcard", "statistics", "schedule-grid", "export", "settings"];
     if (knownRoutes.includes(hash)) {
       return { view: hash, param: null };
     }
@@ -212,6 +213,12 @@ const App = (() => {
         case "simulations":
           if (typeof renderSimulations === "function") {
             await renderSimulations(contentEl);
+          }
+          break;
+
+        case "wildcard":
+          if (typeof renderWildcard === "function") {
+            await renderWildcard(contentEl);
           }
           break;
 

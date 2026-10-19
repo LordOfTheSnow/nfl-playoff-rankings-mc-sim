@@ -563,16 +563,93 @@ Computes all minimal game-outcome sets that guarantee a team a playoff spot.
 
 ---
 
+## Wild Card Round
+
+### `POST /api/wildcard`
+
+Returns the Wild Card Round seeding/matchups for each conference (top 7
+seeds, #1 seed's bye, and an "In the Hunt" list of teams outside the top 7
+still alive), from either Actual standings or Simulated (most-likely)
+seeding. See `frontend/js/wildcard.js` for the view this feeds and
+`src/wildcard.py` for the assembly logic.
+
+**Request body:**
+
+```json
+{
+  "source": "actual",
+  "cutoff_week": 10,
+  "simulation_result": null
+}
+```
+
+| Field | Type | Default | Constraints |
+|---|---|---|---|
+| `source` | `"actual"` \| `"simulated"` | — (required) | Which data source to seed from. |
+| `cutoff_week` | int \| null | auto-detected | Actual mode only. Games up to and including this week count as real results; out-of-range or omitted falls back to auto-detection (same rule as `GET /api/standings`). Ignored for `source: "simulated"`, which uses the simulation's own `cutoff_week_used` instead. |
+| `simulation_result` | object \| null | null | Required when `source: "simulated"` — the `result` object from a completed simulation job (same payload `POST /api/export/page` takes), forwarded by the client since results only live in server memory for a few minutes per job with no lookup by cutoff. Validated defensively; a malformed value is a `400`, not a silently-empty response. |
+
+**Response:** `200 application/json`
+
+```json
+{
+  "source": "actual",
+  "cutoff_week": 10,
+  "iterations": null,
+  "conferences": {
+    "AFC": [
+      {
+        "seed": 1,
+        "team": "Chiefs",
+        "conference": "AFC",
+        "division": "West",
+        "record": "8-2-0",
+        "strength": 1.234,
+        "last5": ["W", "L", "W", "W", "W"],
+        "streak": { "result": "W", "length": 3 },
+        "eliminated": false
+      }
+    ],
+    "NFC": ["..."]
+  }
+}
+```
+
+Each conference's list always has all 16 teams, ordered by seed 1-16 (seeds
+8-16 use the same conference tiebreak procedure as the playoff bracket —
+`src.standings.rank_conference` — not just raw record). `iterations` is the
+simulation's `iterations_run`, present only for `source: "simulated"`. Each
+team entry carries `playoff_pct` (Simulated) instead of `eliminated`
+(Actual). `last5` is oldest-to-newest, capped at 5 entries; `streak` is the
+trailing same-result run (not capped at 5), or `null` if the team hasn't
+played a game yet within the cutoff.
+
+For Simulated mode, seeds 1-7 come from a greedy modal-seed assignment:
+teams ordered by `playoff_probability` descending, each claiming its own
+highest-probability seed that's still unclaimed (`src.wildcard.assign_modal_seeds`)
+— this is a presentation convenience for showing one internally-consistent
+bracket, not a new probability model.
+
+**Errors:** `400` invalid JSON body, invalid `source`, or (for `source:
+"simulated"`) missing/malformed `simulation_result`; `409` no cached data
+for the active season (fetch data first).
+
+---
+
 ## HTML Export
 
 Generates standalone HTML (no server or JavaScript required to view) of the
-current Standings, Statistics, Schedule Grid, and Simulation results, in the
-same "Modernist" design system as the live app. Simulation results only live
-in server memory for a few minutes per job (see `POST /api/simulate` /
-`GET /api/simulate/status/{job_id}`), so both endpoints take the
-already-fetched simulation result as part of the request body instead of
-looking one up server-side — if omitted, the Simulation section is left out
-of the export (this is not an error).
+current Standings, Statistics, Schedule Grid, Simulation, and Wild Card Round
+results, in the same "Modernist" design system as the live app. Simulation
+results only live in server memory for a few minutes per job (see
+`POST /api/simulate` / `GET /api/simulate/status/{job_id}`), so both
+endpoints take the already-fetched simulation result as part of the request
+body instead of looking one up server-side — if omitted, the Simulation
+section is left out of the export (this is not an error). The Wild Card
+Round section always includes an Actual-standings subsection (no simulation
+needed, same `cutoff_week` as the rest of the export) and additionally a
+Simulated-seeding subsection whenever `simulation_result` was supplied — each
+subsection is an independently collapsible `<details>` disclosure.
 
 Every exported page (single page and every bundle page) opens with the live
 app's header — the NFL logo and "NFL PLAYOFF RANKINGS SIM" brand bar
@@ -582,9 +659,9 @@ with the NFL" disclaimer strip. In the bundle, the brand links to `index.html`.
 ### `POST /api/export/page`
 
 Renders a single, self-contained HTML page (inline CSS) with Standings,
-Statistics, Schedule Grid, and Simulation (if supplied). Team names are
-plain text — this mode has no per-team pages/links, to keep the page a
-manageable size.
+Statistics, Schedule Grid, Simulation (if supplied), and Wild Card Round.
+Team names are plain text — this mode has no per-team pages/links, to keep
+the page a manageable size.
 
 **Request body:**
 
@@ -613,6 +690,7 @@ Same request body as `POST /api/export/page`. Renders a ZIP archive containing:
 - `index.html` — links to the section pages below plus a directory of all 32 teams.
 - `standings.html`, `statistics.html`, `schedule-grid.html` — one page per section.
 - `simulations.html` — included only when `simulation_result` was supplied.
+- `wildcard.html` — Actual Standings subsection always, plus a Simulated Seeding subsection when `simulation_result` was supplied; each independently collapsible.
 - `team-<slug>.html` — one per team (record, division/conference, standings row, full schedule, and simulation probabilities if available). `<slug>` is the team name lowercased (e.g. `team-chiefs.html`, `team-49ers.html`).
 - `styles.css` — shared by every page above.
 - `img/logos/*.png` — the NFL, AFC/NFC, and 32 team logos referenced by the pages.

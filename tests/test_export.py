@@ -537,12 +537,13 @@ class TestExportBundleEndpoint:
         assert f"{root}/statistics.html" in names
         assert f"{root}/schedule-grid.html" in names
         assert f"{root}/simulations.html" in names
+        assert f"{root}/wildcard.html" in names
         assert f"{root}/styles.css" in names
         for team in ALL_TEAMS:
             assert f"{root}/team-{export._slug(team)}.html" in names
         for logo_id in export.ALL_LOGO_IDS:
             assert f"{root}/img/logos/{logo_id}.png" in names
-        assert len(names) == 6 + 32 + len(export.ALL_LOGO_IDS)
+        assert len(names) == 7 + 32 + len(export.ALL_LOGO_IDS)
 
     def test_omits_simulations_page_when_no_simulation_supplied(
         self, server_with_games: NFLSimulatorServer
