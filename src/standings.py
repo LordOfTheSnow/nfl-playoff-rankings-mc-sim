@@ -431,6 +431,91 @@ def _sort_teams_by_record(teams: list[TeamStanding]) -> list[TeamStanding]:
     )
 
 
+def _sort_with_tiebreakers(
+    teams: list[TeamStanding],
+    all_games: list[Game] | None,
+    simulated_game_ids: set[str],
+    context: str,
+) -> list[TeamStanding]:
+    """Sort teams using full tiebreaker logic when games are available.
+
+    Shared by determine_playoff_bracket (seeds 1-7) and rank_conference
+    (seeds 1-16) so both use the identical ordering for any given set of
+    teams — see _rank_conference_teams.
+    """
+    if not teams:
+        return []
+    if len(teams) == 1:
+        return list(teams)
+
+    # If no games available, use simple win% + alphabetical fallback
+    if all_games is None:
+        return _sort_teams_by_record(teams)
+
+    # Group teams that are genuinely tied on record (see
+    # _standing_tie_key: equal win% *and* equal win-loss margin, so a 1-0
+    # team isn't tied with a 2-0 team, nor a 0-0 team with a 0-1 team —
+    # comparing those via H2H/SoS/etc. is meaningless this early).
+    team_lookup = {t.team: t for t in teams}
+    sorted_by_record = sorted(
+        teams,
+        key=lambda t: tuple(
+            -v for v in _standing_tie_key(t.win_percentage, t.wins, t.losses)
+        ),
+    )
+
+    result: list[TeamStanding] = []
+    for _key, tied in groupby(
+        sorted_by_record,
+        key=lambda t: _standing_tie_key(t.win_percentage, t.wins, t.losses),
+    ):
+        group = list(tied)
+        if len(group) == 1:
+            result.append(group[0])
+        else:
+            ordered_names = break_tie(
+                [t.team for t in group], all_games, simulated_game_ids, context
+            )
+            for name in ordered_names:
+                result.append(team_lookup[name])
+
+    return result
+
+
+def _rank_conference_teams(
+    conf_teams: list[TeamStanding],
+    all_games: list[Game] | None,
+    simulated_game_ids: set[str],
+) -> tuple[list[TeamStanding], list[TeamStanding]]:
+    """Order one conference's teams into (division champions, everyone else).
+
+    Pure ranking, no mutation of the input TeamStanding objects — callers
+    decide what to do with the result (determine_playoff_bracket mutates
+    seed/is_division_champion/is_playoff_team for seeds 1-7; rank_conference
+    just reads off the full 1-16 order).
+
+    Division champions are ordered 1-4 by conference tiebreak among
+    themselves; everyone else is ordered by the same conference tiebreak
+    among themselves (giving wild cards 5-7, then the rest 8-16) — mirroring
+    real NFL rules, where division champions always outrank non-champions
+    regardless of raw record.
+    """
+    division_champions: list[TeamStanding] = []
+    remaining_teams: list[TeamStanding] = []
+
+    for div in Division:
+        div_teams = [t for t in conf_teams if t.division == div]
+        if not div_teams:
+            continue
+        sorted_div = _sort_with_tiebreakers(div_teams, all_games, simulated_game_ids, "division")
+        division_champions.append(sorted_div[0])
+        remaining_teams.extend(sorted_div[1:])
+
+    seeded_champions = _sort_with_tiebreakers(division_champions, all_games, simulated_game_ids, "conference")
+    sorted_remaining = _sort_with_tiebreakers(remaining_teams, all_games, simulated_game_ids, "conference")
+    return seeded_champions, sorted_remaining
+
+
 def determine_playoff_bracket(
     standings: list[TeamStanding],
     all_games: list[Game] | None = None,
@@ -475,79 +560,19 @@ def determine_playoff_bracket(
     else:
         _simulated_winners = {}
 
-    def _sort_with_tiebreakers(
-        teams: list[TeamStanding], context: str
-    ) -> list[TeamStanding]:
-        """Sort teams using full tiebreaker logic when games are available."""
-        if not teams:
-            return []
-        if len(teams) == 1:
-            return list(teams)
-
-        # If no games available, use simple win% + alphabetical fallback
-        if all_games is None:
-            return _sort_teams_by_record(teams)
-
-        # Group teams that are genuinely tied on record (see
-        # _standing_tie_key: equal win% *and* equal win-loss margin, so a 1-0
-        # team isn't tied with a 2-0 team, nor a 0-0 team with a 0-1 team —
-        # comparing those via H2H/SoS/etc. is meaningless this early).
-        team_lookup = {t.team: t for t in teams}
-        sorted_by_record = sorted(
-            teams,
-            key=lambda t: tuple(
-                -v for v in _standing_tie_key(t.win_percentage, t.wins, t.losses)
-            ),
-        )
-
-        result: list[TeamStanding] = []
-        for _key, tied in groupby(
-            sorted_by_record,
-            key=lambda t: _standing_tie_key(t.win_percentage, t.wins, t.losses),
-        ):
-            group = list(tied)
-            if len(group) == 1:
-                result.append(group[0])
-            else:
-                ordered_names = break_tie(
-                    [t.team for t in group], all_games, simulated_game_ids, context
-                )
-                for name in ordered_names:
-                    result.append(team_lookup[name])
-
-        return result
-
     bracket = PlayoffBracket()
 
     for conf in (Conference.AFC, Conference.NFC):
-        # Get all teams in this conference
         conf_teams = [s for s in standings if s.conference == conf]
 
-        # Step 1: Determine division champions (best record per division)
-        division_champions: list[TeamStanding] = []
-        remaining_teams: list[TeamStanding] = []
-
-        for div in Division:
-            div_teams = [t for t in conf_teams if t.division == div]
-            if not div_teams:
-                continue
-
-            # Sort with full tiebreaker logic (division context)
-            sorted_div = _sort_with_tiebreakers(div_teams, "division")
-            champion = sorted_div[0]
+        seeded_champions, sorted_remaining = _rank_conference_teams(
+            conf_teams, all_games, simulated_game_ids
+        )
+        for champion in seeded_champions:
             champion.is_division_champion = True
-            division_champions.append(champion)
-            remaining_teams.extend(sorted_div[1:])
-
-        # Step 2: Seed division champions 1-4 by overall record
-        # (with conference tiebreakers)
-        seeded_champions = _sort_with_tiebreakers(division_champions, "conference")
-
-        # Step 3: Select 3 wild card teams from remaining conference teams
-        sorted_remaining = _sort_with_tiebreakers(remaining_teams, "conference")
         wild_card_teams = sorted_remaining[:3]
 
-        # Step 4: Assign seeds and mark playoff teams
+        # Assign seeds and mark playoff teams
         seeds: list[TeamStanding] = []
         for i, team in enumerate(seeded_champions, start=1):
             team.seed = i
@@ -566,6 +591,50 @@ def determine_playoff_bracket(
             bracket.nfc_seeds = seeds
 
     return bracket
+
+
+def rank_conference(
+    standings: list[TeamStanding],
+    conference: Conference,
+    all_games: list[Game] | None = None,
+    simulated_outcomes: list[tuple[str, str | None, bool]] | None = None,
+) -> list[TeamStanding]:
+    """Full 1-16 ranking of one conference, for display purposes beyond the
+    7-team playoff bracket (e.g. the Wild Card Round's "In the Hunt" list).
+
+    Seeds 1-7 are identical to determine_playoff_bracket's (same tiebreak
+    engine, same inputs); seeds 8-16 continue the same wild-card conference
+    tiebreak for every team that didn't make the bracket. Unlike
+    determine_playoff_bracket, this never mutates the input TeamStanding
+    objects (no seed/is_division_champion/is_playoff_team side effects) —
+    callers read the order directly off the returned list's index.
+
+    Args:
+        standings: List of TeamStanding objects (output of compute_standings).
+        conference: Which conference to rank.
+        all_games: Optional list of all season games (enables full tiebreaker logic).
+        simulated_outcomes: Optional simulated game outcomes (see compute_standings).
+
+    Returns:
+        List of 16 TeamStanding objects for the given conference, best first.
+    """
+    simulated_game_ids = (
+        {gid for gid, _, _ in simulated_outcomes} if simulated_outcomes else set()
+    )
+
+    global _simulated_winners
+    if simulated_outcomes:
+        _simulated_winners = {
+            game_id: (winner, is_tie) for game_id, winner, is_tie in simulated_outcomes
+        }
+    else:
+        _simulated_winners = {}
+
+    conf_teams = [s for s in standings if s.conference == conference]
+    seeded_champions, sorted_remaining = _rank_conference_teams(
+        conf_teams, all_games, simulated_game_ids
+    )
+    return seeded_champions + sorted_remaining
 
 
 def get_wild_card_matchups(bracket: PlayoffBracket) -> dict[str, list[WildCardMatchup]]:

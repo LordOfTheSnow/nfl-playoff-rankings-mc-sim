@@ -910,3 +910,129 @@ body {
 .mdn-btn-ghost:hover:not(:disabled) {
     background: var(--mdn-neutral-100);
 }
+
+/* --- Tag: neutral (Wild Card "ACTUAL STANDINGS" source tag) --- */
+.mdn-tag-neutral {
+    background: var(--mdn-neutral-300);
+    color: var(--mdn-text);
+}
+
+/* --- Wild Card Round --- */
+.mdn-wc-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 36px;
+    margin-bottom: 28px;
+}
+
+.mdn-wc-bye {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border: 2px solid var(--mdn-divider-strong);
+    background: var(--mdn-neutral-100);
+    padding: 12px 16px;
+    margin-bottom: 18px;
+}
+
+.mdn-wc-match {
+    border: 2px solid var(--mdn-divider-strong);
+    margin-bottom: 16px;
+}
+
+.mdn-wc-match-head {
+    font: 800 10px var(--mdn-font-heading);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    opacity: 0.55;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--mdn-divider);
+}
+
+.mdn-wc-team {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--mdn-divider);
+}
+
+.mdn-wc-match .mdn-wc-team:last-child {
+    border-bottom: none;
+}
+
+.mdn-wc-team.fav {
+    background: var(--mdn-neutral-100);
+    border-left: 3px solid var(--mdn-accent-500);
+    padding-left: 11px;
+}
+
+.mdn-wc-seed {
+    font: 800 12px var(--mdn-font-heading);
+    opacity: 0.5;
+    width: 16px;
+    flex: none;
+    text-align: right;
+}
+
+.mdn-wc-sub {
+    font-size: 11.5px;
+    opacity: 0.55;
+    margin-left: 2px;
+}
+
+.mdn-wc-stats {
+    display: flex;
+    margin-left: auto;
+    gap: 22px;
+    flex: none;
+}
+
+.mdn-wc-stat {
+    text-align: right;
+}
+
+.mdn-wc-stat-val {
+    font: 700 15px var(--mdn-font-heading);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+}
+
+.mdn-wc-stat-lbl {
+    font: 800 8px var(--mdn-font-heading);
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    opacity: 0.45;
+}
+
+.mdn-wc-hunt {
+    border: 2px dashed var(--mdn-neutral-400);
+    margin-top: 6px;
+}
+
+.mdn-wc-hunt-head {
+    display: flex;
+    justify-content: space-between;
+    font: 800 10px var(--mdn-font-heading);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    opacity: 0.55;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--mdn-divider);
+}
+
+.mdn-wc-hunt .mdn-wc-team:last-child {
+    border-bottom: none;
+}
+
+.mdn-wc-hunt-empty {
+    padding: 11px 14px;
+    opacity: 0.6;
+    font-size: 13px;
+}
+
+@media (max-width: 900px) {
+    .mdn-wc-grid {
+        grid-template-columns: 1fr;
+    }
+}

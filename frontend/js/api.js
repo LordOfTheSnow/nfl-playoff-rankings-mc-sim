@@ -344,6 +344,22 @@ const API = (() => {
   }
 
   /**
+   * Get Wild Card Round seeding/matchup data for either Actual standings or
+   * Simulated (most-likely) seeding.
+   * POST /api/wildcard
+   *
+   * @param {{source: "actual"|"simulated", cutoff_week?: number, simulation_result?: Object}} payload
+   * @returns {Promise<{source: string, cutoff_week: number, iterations?: number, conferences: Object}>}
+   */
+  function postWildcard(payload) {
+    return request("/api/wildcard", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  /**
    * Get the saved teaser baseline for the active season.
    * GET /api/teaser/baseline
    *
@@ -388,6 +404,7 @@ const API = (() => {
     resetCounters,
     exportPage,
     exportBundle,
+    postWildcard,
     getTeaserBaseline,
     saveTeaserBaseline,
   };

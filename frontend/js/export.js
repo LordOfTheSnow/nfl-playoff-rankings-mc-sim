@@ -70,6 +70,13 @@ async function renderExport(contentEl) {
         <button type="button" class="mdn-btn mdn-btn-secondary" id="teaser-save-btn" ${hasSimulation ? "" : "disabled"}>Save as baseline</button>
         <span id="teaser-status" class="mdn-hint"></span>
       </div>
+      <div class="mdn-card" style="margin:20px 0">
+        <h3>Wild Card images</h3>
+        <p>A 9:16 Story card per conference showing the projected Wild Card bracket from your last simulation run: the #1 seed's bye, the three matchups, and the favorite in each.</p>
+        <button type="button" class="mdn-btn mdn-btn-primary" id="wc-teaser-afc-btn" ${hasSimulation ? "" : "disabled"}>Download AFC Wild Card (.png)</button>
+        <button type="button" class="mdn-btn mdn-btn-primary" id="wc-teaser-nfc-btn" ${hasSimulation ? "" : "disabled"}>Download NFC Wild Card (.png)</button>
+        <span id="wc-teaser-status" class="mdn-hint"></span>
+      </div>
     </div>
   `;
 
@@ -78,6 +85,47 @@ async function renderExport(contentEl) {
   document.getElementById("teaser-baseline-info").textContent = baselineInfo.text;
   document.getElementById("teaser-download-btn").addEventListener("click", _downloadTeaser);
   document.getElementById("teaser-save-btn").addEventListener("click", _saveTeaserBaseline);
+  document.getElementById("wc-teaser-afc-btn").addEventListener("click", () => _downloadWildcardTeaser("AFC"));
+  document.getElementById("wc-teaser-nfc-btn").addEventListener("click", () => _downloadWildcardTeaser("NFC"));
+}
+
+/**
+ * Build the Wild Card bracket teaser for one conference from the last
+ * simulation run, and download it as a 9:16 PNG.
+ *
+ * @param {"AFC"|"NFC"} conference
+ */
+async function _downloadWildcardTeaser(conference) {
+  const statusEl = document.getElementById("wc-teaser-status");
+  const sim = window._simulationResults;
+  if (!sim) {
+    App.showError("Run a simulation first.");
+    return;
+  }
+
+  if (statusEl) statusEl.textContent = " Generating…";
+  try {
+    const data = await API.postWildcard({ source: "simulated", simulation_result: sim });
+    let status = {};
+    try {
+      status = await API.fetchStatus();
+    } catch (_err) {
+      // Season/version are optional on the card; omit them if this fails.
+    }
+    const blob = await buildWildcardTeaserBlob(conference, data.conferences[conference], {
+      season: status.season_year,
+      cutoffWeek: data.cutoff_week,
+      totalGameSimulations: sim.iterations_run * sim.simulated_games,
+      version: status.version,
+    });
+
+    const filename = `nfl-playoff-rankings-mc-sim-teaser-wildcard-${conference.toLowerCase()}-${status.season_year}-week${data.cutoff_week}-9x16.png`;
+    _downloadBlob(blob, filename);
+  } catch (err) {
+    App.showError(err.message || "Wild Card image generation failed.");
+  } finally {
+    if (statusEl) statusEl.textContent = "";
+  }
 }
 
 /**

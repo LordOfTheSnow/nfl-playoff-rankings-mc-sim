@@ -622,6 +622,7 @@ def render_simulation_content(
     sim_result: dict[str, Any],
     team_link: TeamLink,
     logo: LogoRenderer,
+    wildcard_simulated: dict[str, Any] | None = None,
 ) -> str:
     parts: list[str] = [_data_confidence_line(sim_result)]
 
@@ -680,6 +681,13 @@ def render_simulation_content(
             f"<tbody>{''.join(rows)}</tbody></table>"
         )
 
+    if wildcard_simulated is not None:
+        parts.append(
+            _collapsible_section(
+                "Wild Card — Simulated Seeding", render_wildcard_content(wildcard_simulated, team_link, logo)
+            )
+        )
+
     scenarios = sim_result.get("top_scenarios", [])
     if not scenarios:
         parts.append(
@@ -709,6 +717,169 @@ def render_simulation_content(
         )
 
     return "".join(parts)
+
+
+# --- Wild Card Round -------------------------------------------------------
+# Mirrors frontend/js/wildcard.js's structure (bye row, 3 match cards with
+# the higher-strength team highlighted as favorite, "In the Hunt" panel) via
+# the same `.mdn-wc-*` classes that view's CSS defines, same pattern as
+# every other section here reusing the live page's own classes. Each
+# source's section (Actual/Simulated) is wrapped in a <details> disclosure
+# (see _collapsible_section) so a reader can collapse the one they don't
+# care about -- a native element, so this works without JS in a static export.
+
+
+def _wc_name_link(team: str, team_link: TeamLink) -> str:
+    safe = escape(team)
+    href = team_link(team)
+    if href is None:
+        return f'<span class="mdn-team-link">{safe}</span>'
+    return f'<a class="mdn-team-link" href="{escape(href)}">{safe}</a>'
+
+
+def _wc_identity(t: dict[str, Any], team_link: TeamLink, logo: LogoRenderer, logo_size: int = 22) -> str:
+    logo_html = logo(TEAM_LOGO_IDS.get(t["team"], ""), logo_size, logo_size)
+    return (
+        f'<span class="mdn-wc-seed">{t["seed"]}</span>'
+        f"{logo_html}"
+        f'{_wc_name_link(t["team"], team_link)}'
+        f'<span class="mdn-wc-sub">{escape(t.get("record", "0-0-0"))} · {escape(t.get("division", ""))}</span>'
+    )
+
+
+def _wc_stat_stack(t: dict[str, Any]) -> str:
+    last5 = t.get("last5") or []
+    last5_text = "→ " + "-".join(last5) if last5 else "—"
+    streak = t.get("streak")
+    streak_text = f'{streak["result"]}{streak["length"]}' if streak else "—"
+    strength = t.get("strength", 1.0)
+
+    def _stat(val: str, label: str) -> str:
+        return (
+            '<div class="mdn-wc-stat">'
+            f'<div class="mdn-wc-stat-val">{escape(str(val))}</div>'
+            f'<div class="mdn-wc-stat-lbl">{label}</div></div>'
+        )
+
+    return (
+        '<div class="mdn-wc-stats">'
+        + _stat(last5_text, "Last 5")
+        + _stat(streak_text, "Streak")
+        + _stat(f"{strength:.3f}", "Strength")
+        + "</div>"
+    )
+
+
+def _wc_bye_row(team: dict[str, Any], team_link: TeamLink, logo: LogoRenderer) -> str:
+    return (
+        '<div class="mdn-wc-bye">'
+        + _wc_identity(team, team_link, logo, logo_size=26)
+        + '<span class="mdn-hint" style="margin-left:10px">First-round bye</span>'
+        + _wc_stat_stack(team)
+        + "</div>"
+    )
+
+
+def _wc_match_card(
+    home_seed: int,
+    away_seed: int,
+    home: dict[str, Any] | None,
+    away: dict[str, Any] | None,
+    team_link: TeamLink,
+    logo: LogoRenderer,
+) -> str:
+    if home is None or away is None:
+        return ""
+    home_fav = (home.get("strength") or 0) >= (away.get("strength") or 0)
+
+    def _row(t: dict[str, Any], fav: bool) -> str:
+        cls = "mdn-wc-team fav" if fav else "mdn-wc-team"
+        return f'<div class="{cls}">' + _wc_identity(t, team_link, logo) + _wc_stat_stack(t) + "</div>"
+
+    return (
+        '<div class="mdn-wc-match">'
+        f'<div class="mdn-wc-match-head">{home_seed} vs {away_seed}</div>'
+        + _row(home, home_fav)
+        + _row(away, not home_fav)
+        + "</div>"
+    )
+
+
+def _wc_hunt_panel(hunt: list[dict[str, Any]], source: str, team_link: TeamLink, logo: LogoRenderer) -> str:
+    html = (
+        '<div class="mdn-wc-hunt"><div class="mdn-wc-hunt-head">'
+        "<span>In the Hunt — Seeds 8+</span>"
+        f'<span>{len(hunt)} team{"" if len(hunt) == 1 else "s"}</span></div>'
+    )
+    if not hunt:
+        html += '<div class="mdn-wc-hunt-empty">No teams outside the top 7 remain alive.</div>'
+    else:
+        for t in hunt:
+            if source == "simulated":
+                pct = t.get("playoff_pct", 0.0)
+                right = (
+                    '<div class="mdn-wc-stats"><div class="mdn-wc-stat">'
+                    f'<div class="mdn-wc-stat-val">{pct:.1f}%</div>'
+                    '<div class="mdn-wc-stat-lbl">Playoff %</div></div></div>'
+                )
+            else:
+                right = '<span class="mdn-tag mdn-tag-outline">Not eliminated</span>'
+            html += '<div class="mdn-wc-team">' + _wc_identity(t, team_link, logo) + right + "</div>"
+    html += "</div>"
+    return html
+
+
+def _wc_conference(
+    conference: str, teams: list[dict[str, Any]], source: str, team_link: TeamLink, logo: LogoRenderer
+) -> str:
+    by_seed = {t["seed"]: t for t in teams}
+    bye = by_seed.get(1)
+    matchups = [(2, 7), (3, 6), (4, 5)]
+    hunt = [
+        t for t in teams
+        if t["seed"] >= 8
+        and ((t.get("playoff_pct") or 0) > 0 if source == "simulated" else not t.get("eliminated"))
+    ]
+
+    parts = [_conf_head(conference, logo)]
+    if bye:
+        parts.append(_wc_bye_row(bye, team_link, logo))
+    for home_seed, away_seed in matchups:
+        parts.append(_wc_match_card(home_seed, away_seed, by_seed.get(home_seed), by_seed.get(away_seed), team_link, logo))
+    parts.append(_wc_hunt_panel(hunt, source, team_link, logo))
+    return "".join(parts)
+
+
+def render_wildcard_content(data: dict[str, Any], team_link: TeamLink, logo: LogoRenderer) -> str:
+    """One Wild Card source's full content: two-column AFC/NFC conference
+    grid plus the Last-5 footnote. `data` is a POST /api/wildcard response
+    (src.server._compute_wildcard_data's success payload)."""
+    source = data.get("source", "actual")
+    grid = (
+        '<div class="mdn-div-grid" style="gap:36px">'
+        + f'<div>{_wc_conference("AFC", data["conferences"]["AFC"], source, team_link, logo)}</div>'
+        + f'<div>{_wc_conference("NFC", data["conferences"]["NFC"], source, team_link, logo)}</div>'
+        + "</div>"
+    )
+    footnote = (
+        '<p class="mdn-hint" style="margin-top:12px;font-size:11.5px">'
+        "Last 5 reads left to right, oldest to most recent — the → marks the flow of time toward the most "
+        "recent game. Example: L-W-W-L-W means the team lost, then won, won, lost, and most recently won.</p>"
+    )
+    return grid + footnote
+
+
+def _collapsible_section(summary: str, body: str, *, open_default: bool = False) -> str:
+    """A <details> disclosure in the same visual style as the Top Scenarios
+    card (see render_simulation_content) — reused here so each Wild Card
+    source section can be collapsed independently without JS."""
+    open_attr = " open" if open_default else ""
+    return (
+        f'<details class="mdn-card mdn-scenario-card"{open_attr} style="margin:8px 0 28px">'
+        '<summary><span class="mdn-scenario-triangle">&#9656;</span>'
+        f'<span class="mdn-card-title" style="font-size:16px;margin:0">{escape(summary)}</span></summary>'
+        f'<div style="margin-top:16px">{body}</div></details>'
+    )
 
 
 # --- Team page (bundle only) ---------------------------------------------
@@ -790,7 +961,9 @@ def render_team_page_content(
 
 # --- Index page (bundle only) ---------------------------------------------
 
-def render_index_page(has_simulation: bool, season_year: int, logo: LogoRenderer) -> str:
+def render_index_page(
+    has_simulation: bool, season_year: int, logo: LogoRenderer, has_wildcard: bool = False
+) -> str:
     links = [
         ("standings.html", "Standings"),
         ("schedule-grid.html", "Schedule Grid"),
@@ -798,6 +971,8 @@ def render_index_page(has_simulation: bool, season_year: int, logo: LogoRenderer
     ]
     if has_simulation:
         links.append(("simulations.html", "Simulations"))
+    if has_wildcard:
+        links.append(("wildcard.html", "Wild Card"))
 
     nav = "".join(
         f'<a href="{href}" class="mdn-btn mdn-btn-secondary" style="text-decoration:none;margin:0 10px 10px 0">{escape(label)}</a>'
@@ -836,6 +1011,8 @@ def render_combined_page(
     status: dict[str, Any] | None = None,
     cutoff_week: int | None = None,
     exported_at: datetime | None = None,
+    wildcard_actual: dict[str, Any] | None = None,
+    wildcard_simulated: dict[str, Any] | None = None,
 ) -> str:
     """The single all-in-one export page. Team names are plain text (no
     links, no per-team sections) by explicit user decision -- a full
@@ -851,13 +1028,21 @@ def render_combined_page(
         )
         + _section_divider("Standings")
         + render_standings_content(conferences, no_link, logo)
-        + _section_divider("Statistics")
+    )
+    if wildcard_actual is not None:
+        body += _collapsible_section(
+            "Wild Card — Actual Standings", render_wildcard_content(wildcard_actual, no_link, logo),
+        )
+    body += (
+        _section_divider("Statistics")
         + render_statistics_content(stats, no_link, logo)
         + _section_divider("Schedule Grid")
         + render_schedule_grid_content(grid, season_weeks, no_link, logo)
     )
     if sim_result is not None:
-        body += _section_divider("Simulation") + render_simulation_content(sim_result, no_link, logo)
+        body += _section_divider("Simulation") + render_simulation_content(
+            sim_result, no_link, logo, wildcard_simulated=wildcard_simulated
+        )
     return _page_shell(
         _export_title(season_year),
         body, logo=logo, inline_css=css_content, logo_css=_build_logo_css(logos),
@@ -892,6 +1077,8 @@ def build_bundle_zip(
     status: dict[str, Any] | None = None,
     cutoff_week: int | None = None,
     exported_at: datetime | None = None,
+    wildcard_actual: dict[str, Any] | None = None,
+    wildcard_simulated: dict[str, Any] | None = None,
 ) -> bytes:
     """Build the multi-file ZIP bundle: index + 4 section pages (3 if no
     simulation data was supplied) + one page per team, all linking to a
@@ -919,6 +1106,7 @@ def build_bundle_zip(
         write("styles.css", css_content)
         for logo_id, content in logos.items():
             write(f"img/logos/{logo_id}.png", content)
+        has_wildcard = wildcard_actual is not None or wildcard_simulated is not None
         write(
             "index.html",
             _page_shell(
@@ -926,7 +1114,7 @@ def build_bundle_zip(
                 _export_header(
                     "", "", status, cutoff_week, sim_result,
                 )
-                + render_index_page(sim_result is not None, season_year, logo),
+                + render_index_page(sim_result is not None, season_year, logo, has_wildcard=has_wildcard),
                 logo=logo, brand_href="index.html", css_href="styles.css", exported_at=exported_at,
             ),
         )
@@ -973,6 +1161,25 @@ def build_bundle_zip(
                     _BACK_TO_INDEX_LINK
                     + _export_header("Simulations", "", status, cutoff_week, sim_result)
                     + render_simulation_content(sim_result, bundle_team_link, logo),
+                    logo=logo, brand_href="index.html", css_href="styles.css", exported_at=exported_at,
+                ),
+            )
+        if has_wildcard:
+            wc_body = _BACK_TO_INDEX_LINK + _export_header("Wild Card Round", "", status, cutoff_week, sim_result)
+            if wildcard_actual is not None:
+                wc_body += _collapsible_section(
+                    "Actual Standings", render_wildcard_content(wildcard_actual, bundle_team_link, logo),
+                    open_default=True,
+                )
+            if wildcard_simulated is not None:
+                wc_body += _collapsible_section(
+                    "Simulated Seeding", render_wildcard_content(wildcard_simulated, bundle_team_link, logo),
+                    open_default=True,
+                )
+            write(
+                "wildcard.html",
+                _page_shell(
+                    "Wild Card Round", wc_body,
                     logo=logo, brand_href="index.html", css_href="styles.css", exported_at=exported_at,
                 ),
             )
