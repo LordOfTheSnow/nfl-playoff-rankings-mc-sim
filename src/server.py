@@ -195,6 +195,20 @@ def _serialize_simulation_result(
         for team, strength in result.team_strengths.items()
     }
 
+    next_week_matchups: list[dict[str, Any]] = [
+        {
+            "game_id": m.game_id,
+            "week": m.week,
+            "date": m.date.isoformat(),
+            "home_team": m.home_team,
+            "away_team": m.away_team,
+            "home_win_probability": round(m.home_win_probability * 100, 1),
+            "away_win_probability": round(m.away_win_probability * 100, 1),
+            "tie_probability": round(m.tie_probability * 100, 1),
+        }
+        for m in result.next_week_matchups
+    ]
+
     return {
         "team_results": team_results,
         "top_scenarios": scenarios,
@@ -207,6 +221,7 @@ def _serialize_simulation_result(
         "simulated_games": result.simulated_games_count,
         "data_driven_pct": round(result.data_driven_share * 100, 1),
         "data_confidence": data_confidence_label(result.data_driven_share),
+        "next_week_matchups": next_week_matchups,
     }
 
 

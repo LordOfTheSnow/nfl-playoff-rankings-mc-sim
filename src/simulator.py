@@ -19,6 +19,7 @@ import multiprocessing
 import os
 import random
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from datetime import date
 from dataclasses import dataclass, field
 from typing import Any, Callable, TYPE_CHECKING
 
@@ -315,6 +316,39 @@ class ScenarioResult:
 
 
 @dataclass
+class MatchupOutcome:
+    """Simulated win/loss/tie split for one game in the week after cutoff.
+
+    Tallied from the same trials that produce the rest of the simulation
+    result — every trial already simulates this game, so this just counts
+    which side won each time instead of discarding that per-game detail
+    (see _run_trial_batch). Scoped to week == cutoff_week + 1 only; see
+    doc/algorithms.md.
+
+    Attributes:
+        game_id: The game's ESPN event id.
+        week: The week number (always cutoff_week + 1).
+        date: The game's scheduled date, for grouping by day in the UI
+            (e.g. Thursday/Sunday/Monday) — kickoff time-of-day isn't
+            tracked anywhere in this codebase, only the date.
+        home_team: Home team short name.
+        away_team: Away team short name.
+        home_win_probability: Fraction of trials the home team won (0-1).
+        away_win_probability: Fraction of trials the away team won (0-1).
+        tie_probability: Fraction of trials that ended in a tie (0-1).
+    """
+
+    game_id: str
+    week: int
+    date: date
+    home_team: str
+    away_team: str
+    home_win_probability: float
+    away_win_probability: float
+    tie_probability: float
+
+
+@dataclass
 class SimulationResult:
     """Complete results of a Monte Carlo simulation run.
 
@@ -328,6 +362,9 @@ class SimulationResult:
         data_driven_share: Fraction (0-1) of the league's ratings that is
             based on played games rather than the league-average prior --
             see TeamStrengthCalculator.data_driven_share.
+        next_week_matchups: Per-game win/loss/tie splits for week
+            cutoff_week + 1, in schedule order. Empty if that week has no
+            games (e.g. cutoff_week is the last week of the season).
     """
 
     team_results: dict[str, TeamResult]
@@ -339,6 +376,7 @@ class SimulationResult:
     fixed_games_count: int = 0
     simulated_games_count: int = 0
     data_driven_share: float = 0.0
+    next_week_matchups: list[MatchupOutcome] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -418,6 +456,7 @@ def _run_trial_batch(
     tie_probability: float,
     noise: float,
     seed: int | None,
+    next_week: int | None = None,
 ) -> dict:
     """Run a batch of simulation trials (can execute in a worker process).
 
@@ -432,10 +471,12 @@ def _run_trial_batch(
         tie_probability: Probability of a tie per game.
         noise: Per-game strength noise sigma.
         seed: Random seed for this worker (None for unseeded).
+        next_week: Week number to tally per-game outcomes for (cutoff_week +
+            1), or None to skip the tally entirely.
 
     Returns:
         Dict with playoff_counts, seed_counts, division_champion_counts,
-        scenario_tracker.
+        scenario_tracker, game_outcome_counts.
     """
     from src.nfl_teams import ALL_TEAMS
 
@@ -449,6 +490,15 @@ def _run_trial_batch(
     }
     division_champion_counts: dict[str, int] = {team: 0 for team in ALL_TEAMS}
     scenario_tracker: dict[frozenset[tuple[str, int]], int] = {}
+    # game_id -> {"home_wins": int, "away_wins": int, "ties": int}, only for
+    # games in `next_week` — every trial already simulates these games as
+    # part of the loop below, so this just tallies who won instead of
+    # discarding that per-game detail once standings are computed.
+    game_outcome_counts: dict[str, dict[str, int]] = {
+        game.game_id: {"home_wins": 0, "away_wins": 0, "ties": 0}
+        for game in games_to_simulate
+        if next_week is not None and game.week == next_week
+    }
 
     for _trial in range(batch_iterations):
         # Simulate remaining games
@@ -458,6 +508,15 @@ def _run_trial_batch(
                 game.home_team, game.away_team, strengths, tie_probability, noise, rng
             )
             outcomes.append((game.game_id, winner, is_tie))
+
+            tally = game_outcome_counts.get(game.game_id)
+            if tally is not None:
+                if is_tie:
+                    tally["ties"] += 1
+                elif winner == game.home_team:
+                    tally["home_wins"] += 1
+                else:
+                    tally["away_wins"] += 1
 
         # Compute standings with fixed games + simulated outcomes
         standings = compute_standings(all_games, outcomes)
@@ -496,6 +555,7 @@ def _run_trial_batch(
         "seed_counts": seed_counts,
         "division_champion_counts": division_champion_counts,
         "scenario_tracker": scenario_tracker,
+        "game_outcome_counts": game_outcome_counts,
     }
 
 
@@ -507,16 +567,16 @@ def _run_trial_batch_wrapper(args: tuple) -> dict:
 
     Args:
         args: Tuple of (all_games, games_to_simulate, strengths,
-              batch_iterations, tie_probability, noise, seed).
+              batch_iterations, tie_probability, noise, seed, next_week).
 
     Returns:
         Result dict from _run_trial_batch.
     """
     (all_games, games_to_simulate, strengths, batch_iterations,
-     tie_probability, noise, seed) = args
+     tie_probability, noise, seed, next_week) = args
     return _run_trial_batch(
         all_games, games_to_simulate, strengths, batch_iterations,
-        tie_probability, noise, seed,
+        tie_probability, noise, seed, next_week,
     )
 
 
@@ -608,6 +668,7 @@ def _merge_batch_results(
     dict[str, dict[int, int]],
     dict[str, int],
     dict[frozenset[tuple[str, int]], int],
+    dict[str, dict[str, int]],
 ]:
     """Merge results from multiple worker batches into unified counters.
 
@@ -616,7 +677,8 @@ def _merge_batch_results(
 
     Returns:
         Tuple of (playoff_counts, seed_counts, division_champion_counts,
-        scenario_tracker) with summed values across all batches.
+        scenario_tracker, game_outcome_counts) with summed values across
+        all batches.
     """
     from src.nfl_teams import ALL_TEAMS
 
@@ -627,6 +689,7 @@ def _merge_batch_results(
     }
     division_champion_counts: dict[str, int] = {team: 0 for team in ALL_TEAMS}
     scenario_tracker: dict[frozenset[tuple[str, int]], int] = {}
+    game_outcome_counts: dict[str, dict[str, int]] = {}
 
     for result in batch_results:
         # Sum playoff counts
@@ -648,7 +711,21 @@ def _merge_batch_results(
                 scenario_tracker.get(scenario_key, 0) + count
             )
 
-    return playoff_counts, seed_counts, division_champion_counts, scenario_tracker
+        # Merge per-game outcome tallies
+        for game_id, tally in result.get("game_outcome_counts", {}).items():
+            merged = game_outcome_counts.setdefault(
+                game_id, {"home_wins": 0, "away_wins": 0, "ties": 0}
+            )
+            for key, count in tally.items():
+                merged[key] += count
+
+    return (
+        playoff_counts,
+        seed_counts,
+        division_champion_counts,
+        scenario_tracker,
+        game_outcome_counts,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -744,6 +821,7 @@ class Simulator:
         _check_cancel()
 
         iterations = self._config.iterations
+        next_week = cutoff_week + 1
 
         # Determine number of workers
         num_workers = self._config.num_workers
@@ -762,11 +840,13 @@ class Simulator:
                 tie_probability=self._config.tie_probability,
                 noise=self._config.noise,
                 seed=None,
+                next_week=next_week,
             )
             playoff_counts = batch_result["playoff_counts"]
             seed_counts = batch_result["seed_counts"]
             division_champion_counts = batch_result["division_champion_counts"]
             scenario_tracker = batch_result["scenario_tracker"]
+            game_outcome_counts = batch_result["game_outcome_counts"]
             _report("Simulating games", 1, 1)
         else:
             # Parallel execution across multiple worker processes
@@ -781,7 +861,7 @@ class Simulator:
 
             batch_args = [
                 (all_games, games_to_simulate, strengths, batch_size,
-                 self._config.tie_probability, self._config.noise, seed)
+                 self._config.tie_probability, self._config.noise, seed, next_week)
                 for batch_size, seed in zip(batch_sizes, seeds)
             ]
 
@@ -807,9 +887,13 @@ class Simulator:
                 raise SimulationCancelled()
 
             # Merge results from all workers
-            playoff_counts, seed_counts, division_champion_counts, scenario_tracker = (
-                _merge_batch_results(batch_results)
-            )
+            (
+                playoff_counts,
+                seed_counts,
+                division_champion_counts,
+                scenario_tracker,
+                game_outcome_counts,
+            ) = _merge_batch_results(batch_results)
 
         # Aggregate probabilities
         team_results = self._aggregate_results(
@@ -850,6 +934,10 @@ class Simulator:
         # Determine low confidence
         low_confidence = iterations < 1000
 
+        next_week_matchups = self._build_next_week_matchups(
+            games_to_simulate, game_outcome_counts, iterations, next_week
+        )
+
         return SimulationResult(
             team_results=team_results,
             scenarios=scenarios,
@@ -860,7 +948,58 @@ class Simulator:
             fixed_games_count=len(fixed_games),
             simulated_games_count=len(games_to_simulate),
             data_driven_share=self._strength_calculator.data_driven_share(fixed_games),
+            next_week_matchups=next_week_matchups,
         )
+
+    def _build_next_week_matchups(
+        self,
+        games_to_simulate: list[Game],
+        game_outcome_counts: dict[str, dict[str, int]],
+        iterations: int,
+        next_week: int,
+    ) -> list[MatchupOutcome]:
+        """Turn raw per-game tallies into win/loss/tie probabilities.
+
+        Kept in schedule order (the order games_to_simulate already has, which
+        follows ESPN's own game order within a week — see data_client.py).
+
+        Args:
+            games_to_simulate: Games that were simulated this run.
+            game_outcome_counts: game_id -> {home_wins, away_wins, ties},
+                from _merge_batch_results (or a single batch's own dict).
+            iterations: Total number of iterations run.
+            next_week: The week these matchups belong to (cutoff_week + 1).
+
+        Returns:
+            List of MatchupOutcome, one per game in `next_week`. Empty if
+            that week has no games.
+        """
+        matchups: list[MatchupOutcome] = []
+        for game in games_to_simulate:
+            if game.week != next_week:
+                continue
+            tally = game_outcome_counts.get(
+                game.game_id, {"home_wins": 0, "away_wins": 0, "ties": 0}
+            )
+            matchups.append(
+                MatchupOutcome(
+                    game_id=game.game_id,
+                    week=game.week,
+                    date=game.date,
+                    home_team=game.home_team,
+                    away_team=game.away_team,
+                    home_win_probability=(
+                        tally["home_wins"] / iterations if iterations > 0 else 0.0
+                    ),
+                    away_win_probability=(
+                        tally["away_wins"] / iterations if iterations > 0 else 0.0
+                    ),
+                    tie_probability=(
+                        tally["ties"] / iterations if iterations > 0 else 0.0
+                    ),
+                )
+            )
+        return matchups
 
     def _determine_cutoff_week(self, games: list[Game]) -> int:
         """Determine the cutoff week for the simulation.

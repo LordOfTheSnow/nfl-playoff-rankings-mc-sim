@@ -140,3 +140,166 @@ describe("Teaser card on the Export page", () => {
     expect(document.getElementById("teaser-baseline-info").textContent).toContain("cutoff week 8");
   });
 });
+
+/**
+ * Matchups card color system: team names/logos always use TEAM_COLORS
+ * directly (stable regardless of opponent), but the bar fill is derived
+ * per matchup via _matchupBarColors, which lightens the away segment when
+ * the two teams' colors are in the same hue family — otherwise two
+ * same-color teams (e.g. two red-branded franchises) would render as one
+ * indistinguishable block instead of a readable split.
+ */
+const hexColorArbitrary = fc
+  .tuple(fc.integer({ min: 0, max: 255 }), fc.integer({ min: 0, max: 255 }), fc.integer({ min: 0, max: 255 }))
+  .map(([r, g, b]) => `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`);
+
+const hueArbitrary = fc.integer({ min: 0, max: 3599 }).map((n) => n / 10);
+
+describe("_hexToHsl / _hslToHex", () => {
+  it("round-trips each RGB channel within rounding tolerance", () => {
+    fc.assert(
+      fc.property(hexColorArbitrary, (hex) => {
+        const { h, s, l } = _hexToHsl(hex);
+        const result = _hslToHex(h, s, l);
+        for (const start of [1, 3, 5]) {
+          const original = parseInt(hex.slice(start, start + 2), 16);
+          const roundTripped = parseInt(result.slice(start, start + 2), 16);
+          expect(Math.abs(original - roundTripped)).toBeLessThanOrEqual(2);
+        }
+      }),
+      { numRuns: 300 },
+    );
+  });
+});
+
+describe("_hueDist", () => {
+  it("is always between 0 and 180", () => {
+    fc.assert(
+      fc.property(hueArbitrary, hueArbitrary, (a, b) => {
+        const d = _hueDist(a, b);
+        expect(d).toBeGreaterThanOrEqual(0);
+        expect(d).toBeLessThanOrEqual(180);
+      }),
+      { numRuns: 200 },
+    );
+  });
+
+  it("is symmetric", () => {
+    fc.assert(
+      fc.property(hueArbitrary, hueArbitrary, (a, b) => {
+        expect(_hueDist(a, b)).toBeCloseTo(_hueDist(b, a), 9);
+      }),
+      { numRuns: 200 },
+    );
+  });
+
+  it("is zero for identical hues", () => {
+    fc.assert(
+      fc.property(hueArbitrary, (a) => {
+        expect(_hueDist(a, a)).toBeCloseTo(0, 9);
+      }),
+      { numRuns: 100 },
+    );
+  });
+});
+
+describe("_matchupBarColors", () => {
+  it("always keeps the home bar at the team's exact canonical color", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...Object.values(TEAM_COLORS)),
+        fc.constantFrom(...Object.values(TEAM_COLORS)),
+        (home, away) => {
+          const { homeBarColor } = _matchupBarColors(home, away);
+          expect(homeBarColor).toBe(home);
+        },
+      ),
+      { numRuns: 200 },
+    );
+  });
+
+  it("keeps the away bar at its canonical color unless it clashes with home", () => {
+    // Texans vs Cardinals: both dark reds (hue distance well under 30°) — lightened.
+    const close = _matchupBarColors(TEAM_COLORS["Texans"], TEAM_COLORS["Cardinals"]);
+    expect(close.awayBarColor).not.toBe(TEAM_COLORS["Cardinals"]);
+    expect(_hexToHsl(close.awayBarColor).l).toBeCloseTo(68, 0);
+
+    // Ravens (purple) vs Browns (brown): clearly different hue families — untouched.
+    const far = _matchupBarColors(TEAM_COLORS["Ravens"], TEAM_COLORS["Browns"]);
+    expect(far.awayBarColor).toBe(TEAM_COLORS["Browns"]);
+  });
+
+  it("always registers every team pair as either clashing or not, never crashing", () => {
+    const teams = Object.keys(TEAM_COLORS);
+    for (const home of teams) {
+      for (const away of teams) {
+        const { homeBarColor, awayBarColor } = _matchupBarColors(TEAM_COLORS[home], TEAM_COLORS[away]);
+        expect(homeBarColor).toMatch(/^#[0-9a-f]{6}$/);
+        expect(awayBarColor).toMatch(/^#[0-9a-f]{6}$/);
+      }
+    }
+  });
+});
+
+describe("_weekdayLabel", () => {
+  it("maps a date-only ISO string to its UTC weekday", () => {
+    expect(_weekdayLabel("2026-10-29")).toBe("THURSDAY");
+    expect(_weekdayLabel("2026-11-01")).toBe("SUNDAY");
+    expect(_weekdayLabel("2026-11-02")).toBe("MONDAY");
+    expect(_weekdayLabel("2026-12-25")).toBe("FRIDAY");
+  });
+});
+
+describe("Matchups card on the Export page", () => {
+  afterEach(() => {
+    window._simulationResults = null;
+  });
+
+  it("disables the Matchups button when there are no next-week games", async () => {
+    window._simulationResults = {
+      cutoff_week_used: 9,
+      iterations_run: 5000,
+      simulated_games: 10,
+      team_results: [],
+      next_week_matchups: [],
+    };
+    const contentEl = document.getElementById("content");
+
+    await renderExport(contentEl);
+
+    expect(document.getElementById("matchups-teaser-btn").disabled).toBe(true);
+  });
+
+  it("enables the Matchups button once next-week matchups exist", async () => {
+    window._simulationResults = {
+      cutoff_week_used: 9,
+      iterations_run: 5000,
+      simulated_games: 10,
+      team_results: [],
+      next_week_matchups: [
+        {
+          game_id: "1",
+          week: 10,
+          home_team: "Lions",
+          away_team: "Bears",
+          home_win_probability: 60,
+          away_win_probability: 39,
+          tie_probability: 1,
+        },
+      ],
+    };
+    const contentEl = document.getElementById("content");
+
+    await renderExport(contentEl);
+
+    expect(document.getElementById("matchups-teaser-btn").disabled).toBe(false);
+  });
+
+  it("disables the Matchups button when no simulation has run", async () => {
+    const contentEl = document.getElementById("content");
+
+    await renderExport(contentEl);
+
+    expect(document.getElementById("matchups-teaser-btn").disabled).toBe(true);
+  });
+});

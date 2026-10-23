@@ -27,6 +27,8 @@
  */
 async function renderExport(contentEl) {
   const hasSimulation = !!window._simulationResults;
+  const nextWeekMatchups = hasSimulation ? (window._simulationResults.next_week_matchups || []) : [];
+  const hasMatchups = hasSimulation && nextWeekMatchups.length > 0;
   const simNote = hasSimulation
     ? `Includes your last simulation run (cutoff week ${window._simulationResults.cutoff_week_used}, ${window._simulationResults.iterations_run} iterations).`
     : `No simulation results available yet — the Simulation section will be omitted from both exports. <a href="#simulations">Run one on Simulations</a> first if you want it included.`;
@@ -77,6 +79,12 @@ async function renderExport(contentEl) {
         <button type="button" class="mdn-btn mdn-btn-primary" id="wc-teaser-nfc-btn" ${hasSimulation ? "" : "disabled"}>Download NFC Wild Card (.png)</button>
         <span id="wc-teaser-status" class="mdn-hint"></span>
       </div>
+      <div class="mdn-card" style="margin:20px 0">
+        <h3>Matchups image</h3>
+        <p>A 9:16 Story card listing every game in the week after cutoff, each with its simulated home/away/tie win probability.</p>
+        <button type="button" class="mdn-btn mdn-btn-primary" id="matchups-teaser-btn" ${hasMatchups ? "" : "disabled"} ${hasMatchups ? "" : 'title="No games scheduled for the week after cutoff."'}>Download Matchups (.png)</button>
+        <span id="matchups-teaser-status" class="mdn-hint"></span>
+      </div>
     </div>
   `;
 
@@ -87,6 +95,47 @@ async function renderExport(contentEl) {
   document.getElementById("teaser-save-btn").addEventListener("click", _saveTeaserBaseline);
   document.getElementById("wc-teaser-afc-btn").addEventListener("click", () => _downloadWildcardTeaser("AFC"));
   document.getElementById("wc-teaser-nfc-btn").addEventListener("click", () => _downloadWildcardTeaser("NFC"));
+  document.getElementById("matchups-teaser-btn").addEventListener("click", _downloadMatchupsTeaser);
+}
+
+/**
+ * Build the Matchups card from the last simulation run's next_week_matchups
+ * and download it as a 9:16 PNG.
+ */
+async function _downloadMatchupsTeaser() {
+  const statusEl = document.getElementById("matchups-teaser-status");
+  const sim = window._simulationResults;
+  const matchups = sim ? (sim.next_week_matchups || []) : [];
+  if (!sim || matchups.length === 0) {
+    App.showError("Run a simulation first.");
+    return;
+  }
+
+  if (statusEl) statusEl.textContent = " Generating…";
+  try {
+    let status = {};
+    try {
+      status = await API.fetchStatus();
+    } catch (_err) {
+      // Season/version are optional on the card; omit them if this fails.
+    }
+    const nextWeek = sim.cutoff_week_used + 1;
+    const blob = await buildMatchupsTeaserBlob(matchups, {
+      season: status.season_year,
+      cutoffWeek: sim.cutoff_week_used,
+      nextWeek,
+      iterations: sim.iterations_run,
+      totalGameSimulations: sim.iterations_run * sim.simulated_games,
+      version: status.version,
+    });
+
+    const filename = `nfl-playoff-rankings-mc-sim-teaser-matchups-${status.season_year}-week${nextWeek}-9x16.png`;
+    _downloadBlob(blob, filename);
+  } catch (err) {
+    App.showError(err.message || "Matchups image generation failed.");
+  } finally {
+    if (statusEl) statusEl.textContent = "";
+  }
 }
 
 /**

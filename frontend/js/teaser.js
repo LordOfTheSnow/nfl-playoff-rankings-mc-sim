@@ -756,6 +756,475 @@ async function buildWildcardTeaserBlob(conference, teams, meta, format = TEASER_
   });
 }
 
+// --- Matchups card (next week's games, win/loss/tie odds, Story only) -----
+
+// One brand color per team (by short name, same keys as TEAM_LOGO_IDS):
+// the darker/more-saturated member of each team's two-color identity, so it
+// stays legible as text on the card's light background — several teams'
+// brighter accent (Steelers gold, Broncos/Bengals orange, Chargers powder
+// blue, Dolphins aqua) fails text contrast at full brightness and is
+// swapped for a deeper shade of the same hue instead.
+const TEAM_COLORS = {
+  "Steelers": "#101820", "Saints": "#9f8958", "Ravens": "#241773", "Browns": "#582c0e",
+  "Bengals": "#c13d0f", "Jaguars": "#006778", "Texans": "#a71930", "Titans": "#0c2340",
+  "Colts": "#002c5f", "Patriots": "#8c1d2b", "Bills": "#00338d", "Dolphins": "#00707a",
+  "Lions": "#0076b6", "Vikings": "#4f2683", "Packers": "#203731", "Panthers": "#006ba6",
+  "Rams": "#003594", "Cardinals": "#97233f", "49ers": "#aa0000", "Seahawks": "#002244",
+  "Chiefs": "#c41230", "Broncos": "#b3480f", "Cowboys": "#041e42", "Giants": "#7a1726",
+  "Eagles": "#004c54", "Commanders": "#5a1414", "Chargers": "#0066a1", "Buccaneers": "#b8090a",
+  "Bears": "#0b162a", "Jets": "#115740", "Raiders": "#1a1d22", "Falcons": "#9e1a2d",
+};
+
+/**
+ * Convert a "#rrggbb" hex color to {h, s, l} (h in degrees, s/l in 0-100).
+ * @param {string} hex
+ * @returns {{h: number, s: number, l: number}}
+ */
+function _hexToHsl(hex) {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  let h = 0, s = 0;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+  }
+  return { h, s: s * 100, l: l * 100 };
+}
+
+/** @param {number} h @param {number} s @param {number} l @returns {string} "#rrggbb" */
+function _hslToHex(h, s, l) {
+  s /= 100; l /= 100;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+  if (h < 60) [r, g, b] = [c, x, 0];
+  else if (h < 120) [r, g, b] = [x, c, 0];
+  else if (h < 180) [r, g, b] = [0, c, x];
+  else if (h < 240) [r, g, b] = [0, x, c];
+  else if (h < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  const toHex = (v) => Math.round((v + m) * 255).toString(16).padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+/** Circular distance between two hues in degrees (0-180). */
+function _hueDist(h1, h2) {
+  const d = Math.abs(h1 - h2) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
+const _WEEKDAY_NAMES = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
+
+/**
+ * Day-of-week label for a matchup's group header, from its "YYYY-MM-DD" date.
+ * Parsed as UTC midnight (how the Date constructor reads a date-only ISO
+ * string) so the result doesn't depend on the browser's local timezone.
+ *
+ * @param {string} isoDate
+ * @returns {string}
+ */
+function _weekdayLabel(isoDate) {
+  return _WEEKDAY_NAMES[new Date(`${isoDate}T00:00:00Z`).getUTCDay()];
+}
+
+const _MATCHUP_BAR_LIGHTNESS_CLASH = 68;
+
+/**
+ * Bar-fill colors for one matchup row. Both the bar and the team
+ * name/logo normally use the exact same canonical TEAM_COLORS entry — the
+ * bar is only ever touched when the home and away team's hues are within
+ * 30° of each other (same color family, e.g. two red-branded teams),
+ * in which case the away segment alone is lightened to a pale tint so the
+ * two segments still read as visually distinct. Home never changes.
+ *
+ * @param {string} homeHex
+ * @param {string} awayHex
+ * @returns {{homeBarColor: string, awayBarColor: string}}
+ */
+function _matchupBarColors(homeHex, awayHex) {
+  const home = _hexToHsl(homeHex);
+  const away = _hexToHsl(awayHex);
+  const clash = _hueDist(home.h, away.h) < 30;
+  return {
+    homeBarColor: homeHex,
+    awayBarColor: clash ? _hslToHex(away.h, Math.max(away.s, 35), _MATCHUP_BAR_LIGHTNESS_CLASH) : awayHex,
+  };
+}
+
+/**
+ * Draw one matchup row: home logo + name, a stacked home/away/tie
+ * probability bar, away name + logo. The away% label is anchored to where
+ * the away segment of the bar starts, pulled back toward the bar's center
+ * if that would run its text into the tie% label (measured with the real
+ * font metrics via ctx.measureText, not estimated).
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {{x: number, y: number, w: number, h: number}} box
+ * @param {{home_team: string, away_team: string, home_win_probability: number, away_win_probability: number, tie_probability: number}} matchup
+ * @param {HTMLCanvasElement|null} homeLogo
+ * @param {HTMLCanvasElement|null} awayLogo
+ * @param {{headingFont: string, bodyFont: string}} fonts
+ */
+function _drawMatchupRow(ctx, box, matchup, homeLogo, awayLogo, fonts) {
+  const { headingFont, bodyFont } = fonts;
+  const { x, y, w, h } = box;
+
+  const homeColor = TEAM_COLORS[matchup.home_team] || "#161514";
+  const awayColor = TEAM_COLORS[matchup.away_team] || "#161514";
+  const { homeBarColor, awayBarColor } = _matchupBarColors(homeColor, awayColor);
+
+  const teamColW = Math.min(240, w * 0.26);
+  const gap = 16;
+  const barX = x + teamColW + gap;
+  const barW = w - 2 * teamColW - 2 * gap;
+  const logoSize = Math.min(h - 20, 56);
+
+  // Home team: logo, then name to its right.
+  if (homeLogo) {
+    const scale = Math.min(logoSize / homeLogo.width, logoSize / homeLogo.height, 1);
+    const dw = homeLogo.width * scale, dh = homeLogo.height * scale;
+    ctx.drawImage(homeLogo, x + (logoSize - dw) / 2, y + (h - dh) / 2, dw, dh);
+  }
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = homeColor;
+  ctx.font = _fitFont(ctx, headingFont, matchup.home_team, Math.round(h * 0.34), teamColW - logoSize - 16);
+  ctx.fillText(matchup.home_team, x + logoSize + 16, y + h / 2);
+
+  // Away team: name right-aligned, then logo at the row's right edge.
+  if (awayLogo) {
+    const scale = Math.min(logoSize / awayLogo.width, logoSize / awayLogo.height, 1);
+    const dw = awayLogo.width * scale, dh = awayLogo.height * scale;
+    ctx.drawImage(awayLogo, x + w - logoSize + (logoSize - dw) / 2, y + (h - dh) / 2, dw, dh);
+  }
+  ctx.textAlign = "right";
+  ctx.fillStyle = awayColor;
+  ctx.font = _fitFont(ctx, headingFont, matchup.away_team, Math.round(h * 0.34), teamColW - logoSize - 16);
+  ctx.fillText(matchup.away_team, x + w - logoSize - 16, y + h / 2);
+  ctx.textAlign = "left";
+
+  // Stacked bar: home | away | tie, left to right.
+  const barH = Math.max(18, Math.round(h * 0.3));
+  const barY = y + h / 2 + 4;
+  const homeW = (matchup.home_win_probability / 100) * barW;
+  const awayW = (matchup.away_win_probability / 100) * barW;
+  const tieW = Math.max(0, barW - homeW - awayW);
+  ctx.fillStyle = homeBarColor;
+  ctx.fillRect(barX, barY, homeW, barH);
+  ctx.fillStyle = awayBarColor;
+  ctx.fillRect(barX + homeW, barY, awayW, barH);
+  ctx.fillStyle = "#c9c6c4";
+  ctx.fillRect(barX + homeW + awayW, barY, tieW, barH);
+
+  // Percent labels above the bar. Home at the left edge, tie flush with
+  // the right edge, away anchored at the boundary between its own segment
+  // and home's — unless that would overlap the tie label, in which case
+  // it's pulled back just far enough to clear it.
+  const labelY = barY - 10;
+  const labelFontPx = Math.max(13, Math.round(h * 0.16));
+  ctx.textBaseline = "alphabetic";
+
+  const homeText = `${matchup.home_win_probability.toFixed(1)}%`;
+  const awayText = `${matchup.away_win_probability.toFixed(1)}%`;
+  const tieText = `${matchup.tie_probability.toFixed(1)}%`;
+
+  ctx.font = headingFont.replace("%s", String(labelFontPx));
+  ctx.fillStyle = homeColor;
+  ctx.fillText(homeText, barX, labelY);
+
+  ctx.font = bodyFont.replace("%s", String(Math.max(11, labelFontPx - 3)));
+  ctx.fillStyle = "#8a8785";
+  const tieTextW = ctx.measureText(tieText).width;
+  ctx.fillText(tieText, barX + barW - tieTextW, labelY);
+
+  ctx.font = headingFont.replace("%s", String(labelFontPx));
+  ctx.fillStyle = awayColor;
+  const awayTextW = ctx.measureText(awayText).width;
+  const boundary = barX + homeW;
+  const maxRight = barX + barW - tieTextW - 10;
+  const awayLeft = boundary + awayTextW > maxRight ? maxRight - awayTextW : boundary;
+  ctx.fillText(awayText, Math.max(barX, awayLeft), labelY);
+}
+
+/**
+ * Draw the Matchups card onto a fresh canvas: one row per game in the week
+ * after cutoff, each a stacked home/away/tie probability bar between the
+ * two teams' logo and name. Same header/footer/bell-panel language as the
+ * Movers and Wild Card cards.
+ *
+ * @param {Array<{game_id: string, week: number, date: string, home_team: string, away_team: string, home_win_probability: number, away_win_probability: number, tie_probability: number}>} matchups
+ * @param {{season: number, cutoffWeek: number, nextWeek: number, version?: string, iterations?: number, totalGameSimulations?: number}} meta
+ * @param {typeof TEASER_FORMATS.story} [format=TEASER_FORMATS.story] - 9:16 only; other formats aren't supported.
+ * @returns {Promise<HTMLCanvasElement>}
+ */
+async function renderMatchupsTeaserCanvas(matchups, meta, format = TEASER_FORMATS.story) {
+  const canvas = document.createElement("canvas");
+  canvas.width = format.width;
+  canvas.height = format.height;
+  const ctx = canvas.getContext("2d");
+
+  const teams = Array.from(new Set(matchups.flatMap((m) => [m.home_team, m.away_team])));
+  const logos = (await Promise.all(teams.map((t) => _loadTeamLogo(t)))).map(
+    (img) => (img ? _shrinkLogo(img, 112) : null),
+  );
+  const logoByTeam = {};
+  teams.forEach((t, i) => { logoByTeam[t] = logos[i]; });
+
+  try {
+    if (document.fonts && document.fonts.load) {
+      await document.fonts.load('800 56px "Archivo"');
+      await document.fonts.load('400 24px "Archivo"');
+    }
+  } catch (_err) {
+    // Fall back to the system sans-serif below.
+  }
+
+  const headingFont = '800 %spx "Archivo", "Helvetica Neue", Arial, sans-serif';
+  const bodyFont = '400 %spx "Archivo", "Helvetica Neue", Arial, sans-serif';
+
+  _drawMatchupsCard(ctx, matchups, logoByTeam, meta, format, { headingFont, bodyFont });
+  return canvas;
+}
+
+/**
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {Array<Object>} matchups
+ * @param {Object<string, HTMLCanvasElement|null>} logoByTeam
+ * @param {{season: number, cutoffWeek: number, nextWeek: number, version?: string, iterations?: number, totalGameSimulations?: number}} meta
+ * @param {typeof TEASER_FORMATS.story} format
+ * @param {{headingFont: string, bodyFont: string}} fonts
+ */
+function _drawMatchupsCard(ctx, matchups, logoByTeam, meta, format, fonts) {
+  const { headingFont, bodyFont } = fonts;
+  const W = format.width;
+  const H = format.height;
+  const top = 60;
+  const margin = 56;
+  const contentW = W - 2 * margin;
+
+  // Header band (brand + season only — the headline below already states
+  // the week, so repeating it in the header badge is redundant).
+  ctx.fillStyle = "#eeece9";
+  ctx.fillRect(0, 0, W, H);
+  const bandBottom = top + 120;
+  ctx.fillStyle = "#161514";
+  ctx.fillRect(0, 0, W, bandBottom);
+  ctx.fillStyle = "#ec3013";
+  ctx.fillRect(0, bandBottom, W, 6);
+  _drawMatchupsHeaderArt(ctx, top);
+
+  ctx.fillStyle = "#f3f2f2";
+  ctx.textBaseline = "middle";
+  ctx.font = headingFont.replace("%s", "44");
+  ctx.fillText("NFL PLAYOFF RANKINGS SIM", margin, top + 60);
+  ctx.font = bodyFont.replace("%s", "28");
+  ctx.textAlign = "right";
+  ctx.fillText(`${meta.season} SEASON`, W - margin, top + 60);
+  ctx.textAlign = "left";
+
+  // Headline + subtitle.
+  ctx.textBaseline = "alphabetic";
+  const headline = `WEEK ${meta.nextWeek} MATCHUPS`;
+  ctx.fillStyle = "#161514";
+  ctx.font = _fitFont(ctx, headingFont, headline, 80, contentW);
+  ctx.fillText(headline, margin, bandBottom + 100);
+  ctx.fillStyle = "#332f2d";
+  ctx.font = bodyFont.replace("%s", "28");
+  const subtitle = meta.iterations
+    ? `Win probabilities across ${meta.iterations.toLocaleString("en-US")} simulations per game (home vs. away vs. tie)`
+    : "Win probabilities across simulated games (home vs. away vs. tie)";
+  ctx.fillText(subtitle, margin, bandBottom + 148);
+
+  // Footer baselines (same convention as Movers/Wild Card). Unlike those
+  // two cards, there's no "stylised simulation" bell panel here — this
+  // card already has its own simulation-themed art in the header, and the
+  // row list needs the extra vertical room more than a second decoration.
+  const footerNameY = H - format.bottomSafe - 40;
+  const footerDiscY = H - format.bottomSafe;
+  const footerTop = footerNameY - 28;
+
+  const listTop = bandBottom + 190;
+  const listBottom = footerTop - 32;
+  const gap = 6;
+  const n = matchups.length;
+
+  if (n === 0) {
+    ctx.fillStyle = "#6b6866";
+    ctx.font = bodyFont.replace("%s", "28");
+    ctx.fillText("No games scheduled for this week.", margin, listTop + 50);
+  } else {
+    // Group consecutive games by day (THURSDAY/SUNDAY/MONDAY, etc.) — the
+    // API only carries a date, not kickoff time-of-day, so this is the
+    // finest grouping available; games already arrive in schedule order.
+    const groupLabelAt = matchups.map((m) => _weekdayLabel(m.date));
+    const groupStartLabel = [];
+    let prevLabel = null;
+    let groupCount = 0;
+    for (let i = 0; i < n; i++) {
+      if (groupLabelAt[i] !== prevLabel) {
+        groupStartLabel[i] = groupLabelAt[i];
+        groupCount++;
+        prevLabel = groupLabelAt[i];
+      }
+    }
+
+    const groupHeaderH = 40;
+    const rowH = (listBottom - listTop - gap * (n - 1) - groupCount * groupHeaderH) / n;
+
+    let y = listTop;
+    for (let i = 0; i < n; i++) {
+      const m = matchups[i];
+      const label = groupStartLabel[i];
+      if (label !== undefined) {
+        ctx.textBaseline = "alphabetic";
+        ctx.fillStyle = "#8a8785";
+        ctx.font = headingFont.replace("%s", "18");
+        ctx.fillText(label, margin, y + 16);
+        const labelW = ctx.measureText(label).width;
+        ctx.fillStyle = "#ebe9e8";
+        ctx.fillRect(margin + labelW + 16, y + 9, contentW - labelW - 16, 1.5);
+        y += groupHeaderH;
+      } else {
+        ctx.fillStyle = "#ebe9e8";
+        ctx.fillRect(margin, y, contentW, 1);
+      }
+      _drawMatchupRow(
+        ctx,
+        { x: margin, y: y + 8, w: contentW, h: rowH - 8 },
+        m,
+        logoByTeam[m.home_team],
+        logoByTeam[m.away_team],
+        fonts,
+      );
+      y += rowH + gap;
+    }
+  }
+
+  // Footer band: black like the header, with the same red accent stripe
+  // mirrored to its top edge, and text colors inverted to stay legible.
+  ctx.fillStyle = "#ec3013";
+  ctx.fillRect(0, footerTop - 6, W, 6);
+  ctx.fillStyle = "#161514";
+  ctx.fillRect(0, footerTop, W, H - footerTop);
+
+  ctx.textBaseline = "alphabetic";
+  const footerName = meta.version ? `${TEASER_APP_NAME} v${meta.version}` : TEASER_APP_NAME;
+  ctx.fillStyle = "#f3f2f2";
+  ctx.font = _fitFont(ctx, headingFont, footerName, 28, contentW);
+  ctx.fillText(footerName, margin, footerNameY);
+  ctx.fillStyle = "#c9c6c4";
+  ctx.font = bodyFont.replace("%s", "24");
+  ctx.fillText("Independent project, not affiliated with the NFL", margin, footerDiscY);
+}
+
+/**
+ * Header-band art for the Matchups card, ported from the design mockup:
+ * a faint yard-line field texture, a bell-shaped outcome histogram (peak
+ * picked out in accent red — the "statistical" half of the motif), and a
+ * tilted laced-football silhouette (the "American football" half). All at
+ * low opacity so the white header text stays fully legible on top.
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} top - The header band's own top (format.topSafe-style offset).
+ */
+function _drawMatchupsHeaderArt(ctx, top) {
+  ctx.save();
+  ctx.strokeStyle = "#f3f2f2";
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([3, 16]);
+  ctx.globalAlpha = 0.05;
+  ctx.beginPath();
+  ctx.moveTo(0, top + 24);
+  ctx.lineTo(1080, top + 24);
+  ctx.moveTo(0, top + 116);
+  ctx.lineTo(1080, top + 116);
+  ctx.stroke();
+  ctx.restore();
+
+  const bars = [
+    { x: 610, h: 8, op: 0.22, color: "#f3f2f2" },
+    { x: 630, h: 14, op: 0.28, color: "#f3f2f2" },
+    { x: 650, h: 22, op: 0.35, color: "#f3f2f2" },
+    { x: 670, h: 34, op: 0.45, color: "#f3f2f2" },
+    { x: 690, h: 48, op: 0.55, color: "#ec3013" },
+    { x: 710, h: 60, op: 0.85, color: "#ec3013" },
+    { x: 730, h: 68, op: 0.98, color: "#ec3013" },
+    { x: 750, h: 60, op: 0.85, color: "#ec3013" },
+    { x: 770, h: 48, op: 0.55, color: "#ec3013" },
+    { x: 790, h: 34, op: 0.45, color: "#f3f2f2" },
+    { x: 810, h: 22, op: 0.35, color: "#f3f2f2" },
+    { x: 830, h: 14, op: 0.28, color: "#f3f2f2" },
+    { x: 850, h: 8, op: 0.22, color: "#f3f2f2" },
+  ];
+  const baseY = top + 118;
+  ctx.save();
+  for (const bar of bars) {
+    ctx.globalAlpha = bar.op;
+    ctx.fillStyle = bar.color;
+    ctx.fillRect(bar.x, baseY - bar.h, 14, bar.h);
+  }
+  ctx.restore();
+
+  ctx.save();
+  ctx.strokeStyle = "#f3f2f2";
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([2, 6]);
+  ctx.globalAlpha = 0.4;
+  ctx.beginPath();
+  ctx.moveTo(600, baseY);
+  ctx.lineTo(872, baseY);
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(730, top + 24);
+  ctx.rotate((-20 * Math.PI) / 180);
+  ctx.globalAlpha = 0.45;
+  ctx.strokeStyle = "#f3f2f2";
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 22, 11, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.moveTo(-14, 0);
+  ctx.lineTo(14, 0);
+  ctx.stroke();
+  ctx.lineWidth = 1.3;
+  for (const lx of [-5.5, 0, 5.5]) {
+    ctx.beginPath();
+    ctx.moveTo(lx, -3.5);
+    ctx.lineTo(lx, 3.5);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/**
+ * Render the Matchups card and encode it as a PNG Blob.
+ *
+ * @param {Array<Object>} matchups
+ * @param {{season: number, cutoffWeek: number, nextWeek: number, version?: string, iterations?: number, totalGameSimulations?: number}} meta
+ * @param {typeof TEASER_FORMATS.story} [format=TEASER_FORMATS.story]
+ * @returns {Promise<Blob>}
+ */
+async function buildMatchupsTeaserBlob(matchups, meta, format = TEASER_FORMATS.story) {
+  const canvas = await renderMatchupsTeaserCanvas(matchups, meta, format);
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error("Could not encode the Matchups image."));
+    }, "image/png");
+  });
+}
+
 /**
  * Render the Movers card and encode it as a PNG Blob.
  *

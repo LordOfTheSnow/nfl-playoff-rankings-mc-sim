@@ -358,12 +358,26 @@ Polls a background simulation job started by `POST /api/simulate`.
     "fixed_games": 240,
     "simulated_games": 32,
     "data_driven_pct": 61.4,
-    "data_confidence": "Good"
+    "data_confidence": "Good",
+    "next_week_matchups": [
+      {
+        "game_id": "401772936",
+        "week": 17,
+        "date": "2026-12-28",
+        "home_team": "Steelers",
+        "away_team": "Saints",
+        "home_win_probability": 58.0,
+        "away_win_probability": 41.8,
+        "tie_probability": 0.2
+      }
+    ]
   }
 }
 ```
 
 `data_driven_pct` / `data_confidence` are a reliability indicator, not a statistical confidence level: the share (0–100, one decimal) of the league's team ratings that is based on played games rather than the league-average prior — the mean over all 32 teams of the dampening weight `n / (n + K)` (see `doc/algorithms.md`, Bayesian Dampening) — and its label (`"Very low"` < 25%, `"Low"` < 40%, `"Moderate"` < 55%, else `"Good"`). It is shown under the "Results" line on the Simulations page and in the HTML export. Note that `low_confidence` is unrelated: it only flags a run with fewer than 1000 iterations.
+
+`next_week_matchups` is the simulated win/loss/tie split for every game in week `cutoff_week_used + 1`, in schedule order. Every trial already simulates these games as part of computing the rest of the result, so this is a tally of which side won each simulated trial (not an extra pass) — see "Next-week matchup odds" in [Algorithms](algorithms.md). Probabilities are 0-100 with one decimal and always sum to 100 for a given game. Empty when that week has no games (e.g. `cutoff_week_used` is the last week of the season) — the frontend's Export page disables the Matchups image download in that case.
 
 `status: "failed"` carries an `error` string (same message a synchronous `400`/`500` would have used) instead of `result`. `status: "cancelled"` carries neither. A `job_id` that never existed or has aged out of the server's in-memory job registry (jobs are pruned 10 minutes after finishing; still-running jobs are never pruned) returns `404`.
 
@@ -706,6 +720,8 @@ Every team name anywhere in the bundle links to that team's page.
 ## Teaser Image
 
 The Export page can download a "Biggest movers" PNG in one of three formats: landscape 1200×630 (link previews), portrait 4:5 1080×1350 (feeds), or 9:16 1080×1920 (Stories; the top ~250px is kept free of text for the platform UI, and a stylised dot plot captioned with the run's iteration count sits above the footer). Portrait files are named with a `-portrait-4x5` or `-portrait-9x16` suffix. Each shows the five teams whose playoff probability changed most since a saved baseline. The card is drawn in the browser (`frontend/js/teaser.js`) from the last simulation result and the baseline below; the server only stores and returns the baseline. The baseline is saved explicitly, one per season, so each week's deltas stay pinned to the numbers that were published.
+
+The Export page also offers a 9:16-only "Matchups" card: one row per game in the week after cutoff, each a stacked home/away/tie probability bar between the two teams' logo and name (`renderMatchupsTeaserCanvas` in `frontend/js/teaser.js`). Unlike the Movers card, this is a pure live render straight from the last simulation result's `next_week_matchups` — no baseline, no extra request — the same pattern the Wild Card bracket card uses. Each team's name/logo always use a fixed per-team color (`TEAM_COLORS`); the bar fill normally matches, but when two teams in the same matchup share a color family (e.g. two red-branded franchises), the away segment is automatically lightened so the split still reads as two distinct colors instead of one solid block — see "Next-week matchup odds" in [Algorithms](algorithms.md). The download button is disabled when `next_week_matchups` is empty (cutoff week is the last week of the season).
 
 ### `GET /api/teaser/baseline`
 

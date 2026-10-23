@@ -116,6 +116,22 @@ Running in a background thread means a simulation's `ProcessPoolExecutor` pools 
 
 ---
 
+## Next-Week Matchup Odds
+
+Every trial of the main Monte Carlo run already simulates every remaining game, including the ones in the week right after `cutoff_week` — `_run_trial_batch` (`src/simulator.py`) was already building that per-game outcome to feed into `compute_standings`, it just wasn't being kept afterward. Rather than a separate pass, a small tally (`game_outcome_counts`: `game_id -> {home_wins, away_wins, ties}`) is updated inline in the same loop, scoped to games whose `week == cutoff_week + 1`, and merged across worker batches the same way `playoff_counts`/`seed_counts`/etc. already are (`_merge_batch_results`). Dividing each count by `iterations` gives the three probabilities exposed as `SimulationResult.next_week_matchups` / the API's `next_week_matchups` (see [API Reference](api.md)).
+
+Scoped to a single week rather than every remaining week because that's the only week a "what's coming up" card needs — tallying the rest would cost nothing extra computationally (the outcomes are already simulated regardless) but would mean carrying and merging per-game data for dozens of games nobody asked for.
+
+This is intentionally a live, per-run result, not a persisted snapshot like the teaser baseline (see "Teaser Image" in [API Reference](api.md)): a different cutoff week or iteration count naturally produces a different answer, and there's no notion of "the published numbers" to pin here the way the Movers card's week-over-week deltas need.
+
+**Why there's no "game already happened mid-week" case to handle:** `_partition_games` fixes a game's real result only when its week is `<= cutoff_week` *and* it's `COMPLETED` — every game in `cutoff_week + 1` is therefore always simulated from team strength, never read from its actual (possibly already-known) result, regardless of real-world kickoff times. Advancing past a game that's already been played means raising `cutoff_week` itself, at which point that game becomes historical and the card moves on to the following week.
+
+**Same-color matchups (frontend only):** the Matchups card (`frontend/js/teaser.js`) draws each matchup as a stacked home/away/tie bar colored by each team's fixed brand color. Two teams in the same color family (the NFL has several red-branded franchises, for instance) would otherwise render as one indistinguishable block, so `_matchupBarColors` converts both teams' colors to HSL and lightens the away segment's fill whenever the two hues are within 30° of each other — the team name/logo still use the stable canonical color regardless (both default to the exact same color as each other when there's no clash). This is purely a rendering concern; the probabilities themselves are unaffected.
+
+**Day grouping (frontend only):** `next_week_matchups` carries each game's `date` (just the date — this codebase doesn't track kickoff time-of-day anywhere) so the card can group consecutive games under a day-of-week header ("THURSDAY", "SUNDAY", "MONDAY", etc.) instead of one undifferentiated list, via `_weekdayLabel` in `frontend/js/teaser.js`.
+
+---
+
 ## Tie Probability Estimation
 
 Each simulated game is a strength-weighted win/loss draw (see `_simulate_game_standalone` in `src/simulator.py`) — the model has no notion of a score margin, so a tie can't fall out of it on its own. A small slice of the random roll is reserved for "tie" before the win/loss split is computed, controlled by `tie_probability`.

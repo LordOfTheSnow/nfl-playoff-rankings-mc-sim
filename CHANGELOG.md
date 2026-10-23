@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Next-week matchup odds**: every simulation run now also reports a simulated win/loss/tie split for each game in the week after cutoff (`next_week_matchups` on `POST /api/simulate`'s result), tallied from the same trials that already simulate those games rather than a separate pass. See [API Reference](doc/api.md) / [Algorithms](doc/algorithms.md)
+- **Matchups teaser image** on the Export page: a 9:16 Story PNG listing every game in the week after cutoff, each as a stacked home/away/tie probability bar between the two teams' logo and name, grouped under day-of-week headers (Thursday/Sunday/Monday, etc. — reckoned in Eastern Time, since that's the NFL's own broadcast-day convention), drawn client-side (`frontend/js/teaser.js`) in the same style as the Movers/Wild Card cards. Team colors come from a new per-team color table; when two teams in a matchup share a color family (e.g. two red-branded franchises), the away bar segment is automatically lightened so the split stays readable
+
 ## [1.3.0] - 2026-10-19
 
 ### Added

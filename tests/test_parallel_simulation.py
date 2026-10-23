@@ -270,6 +270,9 @@ class TestMergeBatchResults:
             "seed_counts": {"Bills": {1: 2, 2: 3}, "Chiefs": {1: 4, 2: 4}},
             "division_champion_counts": {"Bills": 3, "Chiefs": 6},
             "scenario_tracker": {frozenset({("Bills", 1), ("Chiefs", 2)}): 2},
+            "game_outcome_counts": {
+                "401": {"home_wins": 4, "away_wins": 3, "ties": 0},
+            },
         }
         batch2 = {
             "playoff_counts": {"Bills": 7, "Chiefs": 6},
@@ -279,9 +282,14 @@ class TestMergeBatchResults:
                 frozenset({("Bills", 1), ("Chiefs", 2)}): 3,
                 frozenset({("Chiefs", 1), ("Bills", 2)}): 1,
             },
+            "game_outcome_counts": {
+                "401": {"home_wins": 5, "away_wins": 1, "ties": 1},
+            },
         }
 
-        playoff, seeds, div_champs, scenarios = _merge_batch_results([batch1, batch2])
+        playoff, seeds, div_champs, scenarios, game_outcomes = _merge_batch_results(
+            [batch1, batch2]
+        )
 
         assert playoff["Bills"] == 12
         assert playoff["Chiefs"] == 14
@@ -292,12 +300,13 @@ class TestMergeBatchResults:
         assert div_champs["Chiefs"] == 11
         assert scenarios[frozenset({("Bills", 1), ("Chiefs", 2)})] == 5
         assert scenarios[frozenset({("Chiefs", 1), ("Bills", 2)})] == 1
+        assert game_outcomes["401"] == {"home_wins": 9, "away_wins": 4, "ties": 1}
 
     def test_merges_empty_batches(self) -> None:
         """Handles empty batch list gracefully."""
         from src.nfl_teams import ALL_TEAMS
 
-        playoff, seeds, div_champs, scenarios = _merge_batch_results([])
+        playoff, seeds, div_champs, scenarios, game_outcomes = _merge_batch_results([])
 
         # All counts should be zero
         for team in ALL_TEAMS:
@@ -306,6 +315,96 @@ class TestMergeBatchResults:
                 assert seeds[team][s] == 0
             assert div_champs[team] == 0
         assert len(scenarios) == 0
+        assert len(game_outcomes) == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests for next-week per-game outcome tallying
+# ---------------------------------------------------------------------------
+
+
+class TestNextWeekMatchups:
+    """Tests for the per-game win/loss/tie tally (next_week_matchups)."""
+
+    def test_run_trial_batch_tallies_only_next_week(self) -> None:
+        """Only games in `next_week` are tallied; every trial is counted."""
+        games = _build_minimal_season()
+        from src.nfl_teams import ALL_TEAMS
+        strengths = {team: 1.0 for team in ALL_TEAMS}
+        games_to_sim = [g for g in games if g.status == GameStatus.SCHEDULED]
+        week_15_ids = {g.game_id for g in games_to_sim if g.week == 15}
+        other_week_ids = {g.game_id for g in games_to_sim if g.week != 15}
+
+        result = _run_trial_batch(
+            all_games=games,
+            games_to_simulate=games_to_sim,
+            strengths=strengths,
+            batch_iterations=30,
+            tie_probability=0.005,
+            noise=0.2,
+            seed=7,
+            next_week=15,
+        )
+
+        tallies = result["game_outcome_counts"]
+        assert set(tallies.keys()) == week_15_ids
+        assert week_15_ids.isdisjoint(other_week_ids)
+        for game_id in week_15_ids:
+            tally = tallies[game_id]
+            assert tally["home_wins"] + tally["away_wins"] + tally["ties"] == 30
+
+    def test_run_trial_batch_no_next_week_tallies_nothing(self) -> None:
+        """next_week=None (the default) produces an empty tally."""
+        games = _build_minimal_season()
+        from src.nfl_teams import ALL_TEAMS
+        strengths = {team: 1.0 for team in ALL_TEAMS}
+        games_to_sim = [g for g in games if g.status == GameStatus.SCHEDULED]
+
+        result = _run_trial_batch(
+            all_games=games,
+            games_to_simulate=games_to_sim,
+            strengths=strengths,
+            batch_iterations=5,
+            tie_probability=0.005,
+            noise=0.2,
+            seed=7,
+        )
+
+        assert result["game_outcome_counts"] == {}
+
+    @pytest.mark.slow
+    def test_simulator_run_reports_next_week_matchups(self) -> None:
+        """Simulator.run() exposes probabilities for the week after cutoff."""
+        games = _build_minimal_season()
+        config = SimulationConfig(iterations=200, tie_probability=0.005, noise=0.2, num_workers=1)
+        simulator = Simulator(config=config)
+
+        result = simulator.run(games)
+
+        assert result.cutoff_week == 14
+        next_week_games = {g.game_id for g in games if g.week == 15}
+        assert {m.game_id for m in result.next_week_matchups} == next_week_games
+        for matchup in result.next_week_matchups:
+            assert matchup.week == 15
+            total = (
+                matchup.home_win_probability
+                + matchup.away_win_probability
+                + matchup.tie_probability
+            )
+            assert total == pytest.approx(1.0, abs=1e-9)
+
+    @pytest.mark.slow
+    def test_simulator_run_no_next_week_when_cutoff_is_last_week(self) -> None:
+        """Empty list when cutoff_week + 1 has no scheduled games."""
+        games = _build_minimal_season()
+        config = SimulationConfig(
+            iterations=100, tie_probability=0.005, noise=0.2, num_workers=1, cutoff_week=18,
+        )
+        simulator = Simulator(config=config)
+
+        result = simulator.run(games)
+
+        assert result.next_week_matchups == []
 
 
 # ---------------------------------------------------------------------------
