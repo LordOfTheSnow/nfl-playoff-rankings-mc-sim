@@ -126,6 +126,16 @@ def _json_error(code: int, message: str, details: str = "") -> tuple[int, dict[s
     }
 
 
+def _kickoff_iso(kickoff: datetime | None) -> str | None:
+    """UTC kickoff -> ISO 8601 string ("2026-10-23T00:15:00+00:00"), or None."""
+    return kickoff.isoformat() if kickoff is not None else None
+
+
+def _pct_or_none(fraction: float | None) -> float | None:
+    """0-1 fraction -> 0-100 percent with one decimal; None passes through."""
+    return None if fraction is None else round(fraction * 100, 1)
+
+
 def _serialize_simulation_result(
     result: SimulationResult,
     games: list[Game] | None = None,
@@ -195,6 +205,25 @@ def _serialize_simulation_result(
         for team, strength in result.team_strengths.items()
     }
 
+    next_week_matchups: list[dict[str, Any]] = [
+        {
+            "game_id": m.game_id,
+            "week": m.week,
+            "date": m.date.isoformat(),
+            "home_team": m.home_team,
+            "away_team": m.away_team,
+            "home_win_probability": _pct_or_none(m.home_win_probability),
+            "away_win_probability": _pct_or_none(m.away_win_probability),
+            "tie_probability": _pct_or_none(m.tie_probability),
+            "completed": m.completed,
+            "home_score": m.home_score,
+            "away_score": m.away_score,
+            "kickoff": _kickoff_iso(m.kickoff),
+            "kickoff_time_valid": m.kickoff_time_valid,
+        }
+        for m in result.next_week_matchups
+    ]
+
     return {
         "team_results": team_results,
         "top_scenarios": scenarios,
@@ -207,6 +236,8 @@ def _serialize_simulation_result(
         "simulated_games": result.simulated_games_count,
         "data_driven_pct": round(result.data_driven_share * 100, 1),
         "data_confidence": data_confidence_label(result.data_driven_share),
+        "next_week_matchups": next_week_matchups,
+        "matchups_week": result.matchups_week,
     }
 
 
@@ -2095,6 +2126,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                     "home": is_home,
                     "status": game.status.value,
                     "date": game.date.isoformat(),
+                    "kickoff": _kickoff_iso(game.kickoff),
+                    "kickoff_time_valid": game.kickoff_time_valid,
                 }
 
                 # Add opponent strength at that point in the season

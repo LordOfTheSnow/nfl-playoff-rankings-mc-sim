@@ -19,12 +19,16 @@ espn_status_name = st.sampled_from(ESPN_STATUS_NAMES)
 # Strategy for generating a valid ESPN game ID (numeric string)
 espn_game_id = st.integers(min_value=100000000, max_value=999999999).map(str)
 
-# Strategy for generating an ESPN-format date (ISO 8601 with time)
+# Strategy for generating an ESPN-format kickoff (ISO 8601 UTC with time).
+# Hours span the whole day so night games (Thu/Sun/Mon 8:15pm ET = 00:15Z
+# the next UTC day) are covered, not just afternoon kickoffs.
 espn_date = st.builds(
-    lambda y, m, d: f"{y}-{m:02d}-{d:02d}T13:00Z",
+    lambda y, m, d, h, mi: f"{y}-{m:02d}-{d:02d}T{h:02d}:{mi:02d}Z",
     st.integers(min_value=2020, max_value=2030),
     st.integers(min_value=9, max_value=12),
     st.integers(min_value=1, max_value=28),
+    st.integers(min_value=0, max_value=23),
+    st.sampled_from([0, 5, 15, 20, 25, 30]),
 )
 
 # Strategy for generating a valid score as a string (ESPN returns scores as strings)
@@ -114,6 +118,8 @@ def espn_event(
         "competitions": [
             {
                 "competitors": [home_competitor, away_competitor],
+                # False for not-yet-scheduled (e.g. week 18 flex) games
+                "timeValid": draw(st.booleans()),
             }
         ],
     }

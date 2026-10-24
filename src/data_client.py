@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import warnings
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime
 from enum import Enum
 from typing import Any
 
@@ -114,6 +114,16 @@ class Game:
     away_points: int | None = None  # Points scored (for tiebreakers)
     quarter: int | None = None  # Current quarter for in-progress games
     clock: str | None = None  # Game clock for in-progress games (e.g., "5:32")
+    # Kickoff instant in UTC (timezone-aware). `date` above is just this
+    # truncated to its UTC calendar date, so for night games it's already
+    # the next day; anything shown to users should use `kickoff` and convert
+    # to a real timezone instead. None for data cached before this field
+    # existed (Cache.is_fresh forces a re-fetch of such weeks).
+    kickoff: datetime | None = None
+    # False while ESPN hasn't scheduled the time yet (e.g. week 18 flex
+    # games): `kickoff` is then a placeholder (midnight ET) that only
+    # carries the day, not a real kickoff time.
+    kickoff_time_valid: bool = True
 
 
 def derive_season_weeks(games: list[Game]) -> int | None:
@@ -210,9 +220,11 @@ def parse_espn_event(event: dict[str, Any]) -> Game:
     if "date" not in event:
         raise ESPNSchemaError("date", "event")
     date_str = event["date"]
-    # ESPN dates are ISO 8601 with time, e.g., "2024-09-05T20:20Z"
-    # We only need the date portion
+    # ESPN dates are ISO 8601 UTC with time, e.g., "2024-09-05T20:20Z"
     game_date = date.fromisoformat(date_str[:10])
+    kickoff = datetime.fromisoformat(date_str)
+    if kickoff.tzinfo is None:
+        kickoff = kickoff.replace(tzinfo=UTC)
 
     # Extract week number
     if "week" not in event:
@@ -328,6 +340,8 @@ def parse_espn_event(event: dict[str, Any]) -> Game:
         away_points=away_points,
         quarter=quarter,
         clock=clock,
+        kickoff=kickoff,
+        kickoff_time_valid=bool(competition.get("timeValid", True)),
     )
 
 

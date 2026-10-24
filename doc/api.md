@@ -47,6 +47,8 @@ Returns the current cache status.
 
 Triggers a fresh data fetch from ESPN's public API for the active season. Stores results in the local SQLite cache.
 
+Only weeks whose cached data is stale are re-requested from ESPN: completed games never expire, a scheduled game goes stale once its kickoff time has passed (otherwise after 24 hours), and an in-progress game after 60 seconds. A week with any game cached without a `kickoff` (data from before that column existed) also counts as stale, so the first fetch after upgrading backfills it once.
+
 **Response:**
 
 ```json
@@ -197,6 +199,9 @@ Returns a single team's full schedule with game details and current record.
       "opponent": "Cardinals",
       "home": true,
       "status": "completed",
+      "date": "2025-09-08",
+      "kickoff": "2025-09-08T00:20:00+00:00",
+      "kickoff_time_valid": true,
       "team_score": 34,
       "opponent_score": 28,
       "result": "W"
@@ -210,6 +215,8 @@ Returns a single team's full schedule with game details and current record.
   }
 }
 ```
+
+`kickoff` is the game's kickoff instant in UTC (ISO 8601), straight from ESPN; `null` only for data cached before the field existed. `kickoff_time_valid` is `false` while ESPN hasn't scheduled the time yet (e.g. week 18 flex games): `kickoff` is then a placeholder at midnight Eastern that only carries the day. `date` is just the kickoff's UTC calendar date, so for night games (8:15pm ET = 00:15Z) it's already the next day — kept for compatibility; display code should use `kickoff`. The Team Detail page shows upcoming games' kickoff in the viewer's own timezone ("Thu, Oct 22 · 8:15 PM"), or the Eastern date plus "TBD" when the time isn't valid.
 
 ---
 
@@ -358,12 +365,32 @@ Polls a background simulation job started by `POST /api/simulate`.
     "fixed_games": 240,
     "simulated_games": 32,
     "data_driven_pct": 61.4,
-    "data_confidence": "Good"
+    "data_confidence": "Good",
+    "next_week_matchups": [
+      {
+        "game_id": "401772936",
+        "week": 17,
+        "date": "2026-12-28",
+        "home_team": "Steelers",
+        "away_team": "Saints",
+        "home_win_probability": 58.0,
+        "away_win_probability": 41.8,
+        "tie_probability": 0.2,
+        "completed": false,
+        "home_score": null,
+        "away_score": null,
+        "kickoff": "2026-12-28T01:15:00+00:00",
+        "kickoff_time_valid": true
+      }
+    ],
+    "matchups_week": 17
   }
 }
 ```
 
 `data_driven_pct` / `data_confidence` are a reliability indicator, not a statistical confidence level: the share (0–100, one decimal) of the league's team ratings that is based on played games rather than the league-average prior — the mean over all 32 teams of the dampening weight `n / (n + K)` (see `doc/algorithms.md`, Bayesian Dampening) — and its label (`"Very low"` < 25%, `"Low"` < 40%, `"Moderate"` < 55%, else `"Good"`). It is shown under the "Results" line on the Simulations page and in the HTML export. Note that `low_confidence` is unrelated: it only flags a run with fewer than 1000 iterations.
+
+`next_week_matchups` covers every game in week `matchups_week`, in schedule order. `matchups_week` is `cutoff_week_used` itself while that week still has games not yet completed (e.g. the auto-detected cutoff advanced after Thursday Night Football alone), otherwise `cutoff_week_used + 1`. For each simulated game, the probabilities are a tally of which side won each simulated trial (not an extra pass, since every trial already simulates these games) — see "Next-week matchup odds" in [Algorithms](algorithms.md). Probabilities are 0-100 with one decimal and always sum to 100 for a given game; `completed` is `false` and both scores are `null`. A game in `matchups_week` that's already completed (only possible when `matchups_week == cutoff_week_used`) is a fixed input, not simulated: it has `completed: true`, its actual `home_score`/`away_score`, and all three probabilities `null`. In-progress games count as not completed and carry probabilities. `kickoff`/`kickoff_time_valid` mean the same as on `GET /api/team/{name}`; the Matchups card groups games by their kickoff's Eastern Time day. Empty when that week has no games (e.g. `cutoff_week_used` is the last week of the season) — the frontend's Export page disables the Matchups image download in that case.
 
 `status: "failed"` carries an `error` string (same message a synchronous `400`/`500` would have used) instead of `result`. `status: "cancelled"` carries neither. A `job_id` that never existed or has aged out of the server's in-memory job registry (jobs are pruned 10 minutes after finishing; still-running jobs are never pruned) returns `404`.
 
@@ -706,6 +733,8 @@ Every team name anywhere in the bundle links to that team's page.
 ## Teaser Image
 
 The Export page can download a "Biggest movers" PNG in one of three formats: landscape 1200×630 (link previews), portrait 4:5 1080×1350 (feeds), or 9:16 1080×1920 (Stories; the top ~250px is kept free of text for the platform UI, and a stylised dot plot captioned with the run's iteration count sits above the footer). Portrait files are named with a `-portrait-4x5` or `-portrait-9x16` suffix. Each shows the five teams whose playoff probability changed most since a saved baseline. The card is drawn in the browser (`frontend/js/teaser.js`) from the last simulation result and the baseline below; the server only stores and returns the baseline. The baseline is saved explicitly, one per season, so each week's deltas stay pinned to the numbers that were published.
+
+The Export page also offers a 9:16-only "Matchups" card: one row per game in `matchups_week`, each a stacked home/away/tie probability bar between the two teams' logo and name (`renderMatchupsTeaserCanvas` in `frontend/js/teaser.js`). Already-completed games show a "FINAL" label and the actual score in place of the bar, with the winner's score in their team color and the loser's grayed out; the subtitle then notes how many games are final. Below the subtitle, the card repeats the Simulations page's simulation-quality indicator ("Data-driven ratings: N% — <label>", from the result's `data_driven_pct`/`data_confidence`), omitted for results that lack those fields, followed by a fixed one-line method note (`TEASER_MATCHUPS_METHOD_NOTE`) telling viewers without app context that the odds rest on team strength from this season's results only — no home field, weather, injuries, stats. Unlike the Movers card, this is a pure live render straight from the last simulation result's `next_week_matchups` — no baseline, no extra request — the same pattern the Wild Card bracket card uses. Each team's name/logo always use a fixed per-team color (`TEAM_COLORS`); the bar fill normally matches, but when two teams in the same matchup share a color family (e.g. two red-branded franchises), the away segment is automatically lightened so the split still reads as two distinct colors instead of one solid block — see "Next-week matchup odds" in [Algorithms](algorithms.md). The download button is disabled when `next_week_matchups` is empty (cutoff week is the last week of the season).
 
 ### `GET /api/teaser/baseline`
 

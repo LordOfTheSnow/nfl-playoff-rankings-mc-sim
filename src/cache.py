@@ -24,6 +24,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _parse_kickoff(value: str | None) -> datetime | None:
+    """Parse a stored kickoff ISO string (UTC) back to an aware datetime."""
+    if value is None:
+        return None
+    kickoff = datetime.fromisoformat(value)
+    return kickoff if kickoff.tzinfo is not None else kickoff.replace(tzinfo=UTC)
+
+
 class CachePolicy:
     """TTL policies for cached game data based on game status."""
 
@@ -72,7 +80,9 @@ class Cache:
                 away_points INTEGER,
                 quarter TEXT,
                 clock TEXT,
-                fetched_at TEXT NOT NULL
+                fetched_at TEXT NOT NULL,
+                kickoff TEXT,
+                kickoff_time_valid INTEGER NOT NULL DEFAULT 1
             );
 
             CREATE INDEX IF NOT EXISTS idx_games_year_week ON games(year, week);
@@ -155,6 +165,22 @@ class Cache:
             )
             self._conn.commit()
 
+        # Add kickoff columns to games. Existing rows get a NULL kickoff,
+        # which is_fresh treats as stale so the next fetch backfills them —
+        # completed games would otherwise never be re-fetched.
+        game_cols = {
+            row[1]
+            for row in self._conn.execute("PRAGMA table_info(games)").fetchall()
+        }
+        if "kickoff" not in game_cols:
+            self._conn.execute("ALTER TABLE games ADD COLUMN kickoff TEXT")
+            self._conn.commit()
+        if "kickoff_time_valid" not in game_cols:
+            self._conn.execute(
+                "ALTER TABLE games ADD COLUMN kickoff_time_valid INTEGER NOT NULL DEFAULT 1"
+            )
+            self._conn.commit()
+
     def store_games(self, games: list[Game], year: int) -> None:
         """Store games in the cache with current UTC timestamp.
 
@@ -169,8 +195,9 @@ class Cache:
             self._conn.execute(
                 """INSERT OR REPLACE INTO games
                    (game_id, year, week, game_date, home_team, away_team, status,
-                    home_score, away_score, home_points, away_points, quarter, clock, fetched_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    home_score, away_score, home_points, away_points, quarter, clock, fetched_at,
+                    kickoff, kickoff_time_valid)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     game.game_id,
                     year,
@@ -186,6 +213,8 @@ class Cache:
                     game.quarter,
                     game.clock,
                     now,
+                    game.kickoff.isoformat() if game.kickoff is not None else None,
+                    1 if game.kickoff_time_valid else 0,
                 ),
             )
         self._conn.commit()
@@ -281,6 +310,8 @@ class Cache:
                     away_points=row["away_points"],
                     quarter=int(row["quarter"]) if row["quarter"] is not None else None,
                     clock=row["clock"],
+                    kickoff=_parse_kickoff(row["kickoff"]),
+                    kickoff_time_valid=bool(row["kickoff_time_valid"]),
                 )
             )
         return games
@@ -319,6 +350,8 @@ class Cache:
                     away_points=row["away_points"],
                     quarter=int(row["quarter"]) if row["quarter"] is not None else None,
                     clock=row["clock"],
+                    kickoff=_parse_kickoff(row["kickoff"]),
+                    kickoff_time_valid=bool(row["kickoff_time_valid"]),
                 )
             )
         return games
@@ -459,8 +492,10 @@ class Cache:
         Freshness is determined by the game status-specific TTL policy:
         - Completed games: always fresh (never expire)
         - In-progress games: fresh if fetched within 60 seconds
-        - Scheduled games (future date): fresh if fetched within 24 hours
-        - Scheduled games (today or past date): always stale — game may have been played
+        - Scheduled games (kickoff in the future): fresh if fetched within 24 hours
+        - Scheduled games (kickoff passed): always stale — game may have been played
+        - Any game without a stored kickoff (cached before that column
+          existed): stale, so the next fetch backfills it
 
         Args:
             year: The season year.
@@ -470,18 +505,18 @@ class Cache:
             True if cached data is fresh, False if stale or missing.
         """
         rows = self._conn.execute(
-            "SELECT status, fetched_at, game_date FROM games WHERE year = ? AND week = ?",
+            "SELECT status, fetched_at, kickoff FROM games WHERE year = ? AND week = ?",
             (year, week),
         ).fetchall()
 
         if not rows:
             return False
 
-        from datetime import date as date_type
-
         now = datetime.now(UTC)
-        today = now.date()
         for row in rows:
+            kickoff = _parse_kickoff(row["kickoff"])
+            if kickoff is None:
+                return False
             status = row["status"]
             fetched_at = datetime.fromisoformat(row["fetched_at"])
             if fetched_at.tzinfo is None:
@@ -495,10 +530,9 @@ class Cache:
                 if age > CachePolicy.IN_PROGRESS_TTL:
                     return False
             else:
-                # A scheduled game whose date has passed may have been played —
+                # A scheduled game whose kickoff has passed may have been played —
                 # always re-fetch so completed results aren't missed within the 24h TTL.
-                game_date = date_type.fromisoformat(row["game_date"])
-                if game_date <= today:
+                if kickoff <= now:
                     return False
                 if age > CachePolicy.SCHEDULE_TTL:
                     return False

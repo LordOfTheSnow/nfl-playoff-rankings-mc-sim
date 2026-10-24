@@ -42,3 +42,46 @@ class TestResolveTeamName:
         """A name that can't be resolved via mapping or last-word fallback is
         returned as-is (the caller logs a warning) rather than raising."""
         assert _resolve_team_name("Totally Unknown Team") == "Totally Unknown Team"
+
+
+# ---------------------------------------------------------------------------
+# Kickoff parsing
+# ---------------------------------------------------------------------------
+
+from datetime import UTC, date, datetime  # noqa: E402
+
+from hypothesis import given, settings  # noqa: E402
+
+from src.data_client import parse_espn_event  # noqa: E402
+from tests.strategies.espn_json import espn_event  # noqa: E402
+
+
+class TestParseKickoff:
+    """parse_espn_event keeps the full UTC kickoff and ESPN's timeValid."""
+
+    @given(event=espn_event())
+    @settings(max_examples=100)
+    def test_kickoff_matches_espn_date(self, event: dict) -> None:
+        game = parse_espn_event(event)
+        expected = datetime.fromisoformat(event["date"])
+        assert game.kickoff == expected
+        assert game.kickoff.tzinfo is not None
+        assert game.kickoff.utcoffset().total_seconds() == 0
+        # `date` stays the UTC calendar date of the kickoff
+        assert game.date == game.kickoff.date()
+        assert game.kickoff_time_valid == event["competitions"][0]["timeValid"]
+
+    @given(event=espn_event())
+    @settings(max_examples=20)
+    def test_missing_time_valid_defaults_to_true(self, event: dict) -> None:
+        del event["competitions"][0]["timeValid"]
+        assert parse_espn_event(event).kickoff_time_valid is True
+
+    @given(event=espn_event())
+    @settings(max_examples=20)
+    def test_thursday_night_kickoff_keeps_time(self, event: dict) -> None:
+        """2026 week 7 TNF: 8:15pm ET Thursday is 00:15Z on Friday."""
+        event["date"] = "2026-10-23T00:15Z"
+        game = parse_espn_event(event)
+        assert game.kickoff == datetime(2026, 10, 23, 0, 15, tzinfo=UTC)
+        assert game.date == date(2026, 10, 23)
