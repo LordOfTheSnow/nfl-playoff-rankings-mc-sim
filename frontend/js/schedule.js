@@ -268,7 +268,7 @@ function _buildGameRow(game) {
     case "scheduled":
     default:
       statusCell.className = "mdn-hint";
-      statusCell.textContent = game.date ? formatDate(game.date) : "TBD";
+      statusCell.textContent = formatKickoff(game);
       break;
   }
   row.appendChild(statusCell);
@@ -432,4 +432,35 @@ function formatDate(dateStr) {
     return dateStr;
   }
   return months[monthIndex] + " " + day + ", " + year;
+}
+
+/**
+ * Format a game's kickoff for display, e.g. "Thu, Oct 22 · 8:15 PM", in the
+ * viewer's own timezone. When ESPN hasn't scheduled the time yet
+ * (kickoff_time_valid false), the kickoff is only a placeholder at
+ * midnight Eastern, so just its Eastern date is shown, plus "TBD" — in the
+ * viewer's timezone that placeholder could land on the previous day.
+ * Falls back to the date-only `date` field for data without a kickoff.
+ *
+ * @param {{kickoff?: string|null, kickoff_time_valid?: boolean, date?: string}} game
+ * @param {string} [timeZone] - IANA timezone override (tests only); defaults to the viewer's own.
+ * @returns {string}
+ */
+function formatKickoff(game, timeZone) {
+  if (!game.kickoff) {
+    return game.date ? formatDate(game.date) : "TBD";
+  }
+  const kickoff = new Date(game.kickoff);
+  const timeValid = game.kickoff_time_valid !== false;
+  const day = kickoff.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone: timeValid ? timeZone : "America/New_York",
+  });
+  if (!timeValid) {
+    return day + " · TBD";
+  }
+  const time = kickoff.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone });
+  return day + " · " + time;
 }

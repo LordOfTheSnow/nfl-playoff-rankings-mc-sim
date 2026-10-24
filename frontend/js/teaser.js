@@ -835,6 +835,23 @@ function _weekdayLabel(isoDate) {
   return _WEEKDAY_NAMES[new Date(`${isoDate}T00:00:00Z`).getUTCDay()];
 }
 
+/**
+ * Day-of-week group header for a matchup, from its kickoff in Eastern Time —
+ * NFL broadcast days (Thursday/Sunday/Monday Night Football) are named in
+ * ET wherever the viewer is, and a night game's UTC date is already the
+ * next day. Falls back to the UTC `date` for results without a kickoff
+ * (simulated before the field existed).
+ *
+ * @param {{kickoff?: string|null, date: string}} matchup
+ * @returns {string}
+ */
+function _matchupDayLabel(matchup) {
+  if (!matchup.kickoff) return _weekdayLabel(matchup.date);
+  return new Date(matchup.kickoff)
+    .toLocaleDateString("en-US", { weekday: "long", timeZone: "America/New_York" })
+    .toUpperCase();
+}
+
 const _MATCHUP_BAR_LIGHTNESS_CLASH = 68;
 
 /**
@@ -1180,10 +1197,9 @@ function _drawMatchupsCard(ctx, matchups, logoByTeam, meta, format, fonts) {
     ctx.font = bodyFont.replace("%s", "28");
     ctx.fillText("No games scheduled for this week.", margin, listTop + 50);
   } else {
-    // Group consecutive games by day (THURSDAY/SUNDAY/MONDAY, etc.) — the
-    // API only carries a date, not kickoff time-of-day, so this is the
-    // finest grouping available; games already arrive in schedule order.
-    const groupLabelAt = matchups.map((m) => _weekdayLabel(m.date));
+    // Group consecutive games by Eastern Time day (THURSDAY/SUNDAY/MONDAY,
+    // etc.); games already arrive in schedule order.
+    const groupLabelAt = matchups.map((m) => _matchupDayLabel(m));
     const groupStartLabel = [];
     let prevLabel = null;
     let groupCount = 0;
@@ -1195,7 +1211,9 @@ function _drawMatchupsCard(ctx, matchups, logoByTeam, meta, format, fonts) {
       }
     }
 
-    const groupHeaderH = 40;
+    // The day label sits at the bottom of its (short) header band so it
+    // reads as belonging to the games below it, not floating between groups.
+    const groupHeaderH = 30;
     const rowH = (listBottom - listTop - gap * (n - 1) - groupCount * groupHeaderH) / n;
 
     let y = listTop;
@@ -1206,13 +1224,14 @@ function _drawMatchupsCard(ctx, matchups, logoByTeam, meta, format, fonts) {
         ctx.textBaseline = "alphabetic";
         ctx.fillStyle = "#8a8785";
         ctx.font = headingFont.replace("%s", "18");
-        ctx.fillText(label, margin, y + 16);
+        ctx.fillText(label, margin, y + 24);
         const labelW = ctx.measureText(label).width;
         ctx.fillStyle = "#ebe9e8";
-        ctx.fillRect(margin + labelW + 16, y + 9, contentW - labelW - 16, 1.5);
+        ctx.fillRect(margin + labelW + 16, y + 17, contentW - labelW - 16, 1.5);
         y += groupHeaderH;
       } else {
-        ctx.fillStyle = "#ebe9e8";
+        // Thin separator between games of the same day.
+        ctx.fillStyle = "#d6d3d0";
         ctx.fillRect(margin, y, contentW, 1);
       }
       _drawMatchupRow(

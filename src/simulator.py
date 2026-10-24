@@ -19,7 +19,7 @@ import multiprocessing
 import os
 import random
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from datetime import date
+from datetime import date, datetime
 from dataclasses import dataclass, field
 from typing import Any, Callable, TYPE_CHECKING
 
@@ -330,9 +330,9 @@ class MatchupOutcome:
     Attributes:
         game_id: The game's ESPN event id.
         week: The week number (always the matchups week).
-        date: The game's scheduled date, for grouping by day in the UI
-            (e.g. Thursday/Sunday/Monday) — kickoff time-of-day isn't
-            tracked anywhere in this codebase, only the date.
+        date: The kickoff's UTC calendar date (see Game.date) — for night
+            games already the next day, so the UI groups by `kickoff`
+            instead.
         home_team: Home team short name.
         away_team: Away team short name.
         home_win_probability: Fraction of trials the home team won (0-1),
@@ -344,6 +344,10 @@ class MatchupOutcome:
         completed: True if this game is a fixed (already-played) input.
         home_score: Final home score if completed, else None.
         away_score: Final away score if completed, else None.
+        kickoff: The game's UTC kickoff (see Game.kickoff), for grouping by
+            real broadcast day in the UI; None if unknown.
+        kickoff_time_valid: False if `kickoff` only carries the day (time
+            not yet scheduled; see Game.kickoff_time_valid).
     """
 
     game_id: str
@@ -357,6 +361,8 @@ class MatchupOutcome:
     completed: bool = False
     home_score: int | None = None
     away_score: int | None = None
+    kickoff: datetime | None = None
+    kickoff_time_valid: bool = True
 
 
 @dataclass
@@ -1034,6 +1040,8 @@ class Simulator:
                         completed=True,
                         home_score=game.home_score,
                         away_score=game.away_score,
+                        kickoff=game.kickoff,
+                        kickoff_time_valid=game.kickoff_time_valid,
                     )
                 )
                 continue
@@ -1056,6 +1064,8 @@ class Simulator:
                     tie_probability=(
                         tally["ties"] / iterations if iterations > 0 else 0.0
                     ),
+                    kickoff=game.kickoff,
+                    kickoff_time_valid=game.kickoff_time_valid,
                 )
             )
         return matchups

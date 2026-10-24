@@ -47,6 +47,8 @@ Returns the current cache status.
 
 Triggers a fresh data fetch from ESPN's public API for the active season. Stores results in the local SQLite cache.
 
+Only weeks whose cached data is stale are re-requested from ESPN: completed games never expire, a scheduled game goes stale once its kickoff time has passed (otherwise after 24 hours), and an in-progress game after 60 seconds. A week with any game cached without a `kickoff` (data from before that column existed) also counts as stale, so the first fetch after upgrading backfills it once.
+
 **Response:**
 
 ```json
@@ -197,6 +199,9 @@ Returns a single team's full schedule with game details and current record.
       "opponent": "Cardinals",
       "home": true,
       "status": "completed",
+      "date": "2025-09-08",
+      "kickoff": "2025-09-08T00:20:00+00:00",
+      "kickoff_time_valid": true,
       "team_score": 34,
       "opponent_score": 28,
       "result": "W"
@@ -210,6 +215,8 @@ Returns a single team's full schedule with game details and current record.
   }
 }
 ```
+
+`kickoff` is the game's kickoff instant in UTC (ISO 8601), straight from ESPN; `null` only for data cached before the field existed. `kickoff_time_valid` is `false` while ESPN hasn't scheduled the time yet (e.g. week 18 flex games): `kickoff` is then a placeholder at midnight Eastern that only carries the day. `date` is just the kickoff's UTC calendar date, so for night games (8:15pm ET = 00:15Z) it's already the next day — kept for compatibility; display code should use `kickoff`. The Team Detail page shows upcoming games' kickoff in the viewer's own timezone ("Thu, Oct 22 · 8:15 PM"), or the Eastern date plus "TBD" when the time isn't valid.
 
 ---
 
@@ -371,7 +378,9 @@ Polls a background simulation job started by `POST /api/simulate`.
         "tie_probability": 0.2,
         "completed": false,
         "home_score": null,
-        "away_score": null
+        "away_score": null,
+        "kickoff": "2026-12-28T01:15:00+00:00",
+        "kickoff_time_valid": true
       }
     ],
     "matchups_week": 17
@@ -381,7 +390,7 @@ Polls a background simulation job started by `POST /api/simulate`.
 
 `data_driven_pct` / `data_confidence` are a reliability indicator, not a statistical confidence level: the share (0–100, one decimal) of the league's team ratings that is based on played games rather than the league-average prior — the mean over all 32 teams of the dampening weight `n / (n + K)` (see `doc/algorithms.md`, Bayesian Dampening) — and its label (`"Very low"` < 25%, `"Low"` < 40%, `"Moderate"` < 55%, else `"Good"`). It is shown under the "Results" line on the Simulations page and in the HTML export. Note that `low_confidence` is unrelated: it only flags a run with fewer than 1000 iterations.
 
-`next_week_matchups` covers every game in week `matchups_week`, in schedule order. `matchups_week` is `cutoff_week_used` itself while that week still has games not yet completed (e.g. the auto-detected cutoff advanced after Thursday Night Football alone), otherwise `cutoff_week_used + 1`. For each simulated game, the probabilities are a tally of which side won each simulated trial (not an extra pass, since every trial already simulates these games) — see "Next-week matchup odds" in [Algorithms](algorithms.md). Probabilities are 0-100 with one decimal and always sum to 100 for a given game; `completed` is `false` and both scores are `null`. A game in `matchups_week` that's already completed (only possible when `matchups_week == cutoff_week_used`) is a fixed input, not simulated: it has `completed: true`, its actual `home_score`/`away_score`, and all three probabilities `null`. In-progress games count as not completed and carry probabilities. Empty when that week has no games (e.g. `cutoff_week_used` is the last week of the season) — the frontend's Export page disables the Matchups image download in that case.
+`next_week_matchups` covers every game in week `matchups_week`, in schedule order. `matchups_week` is `cutoff_week_used` itself while that week still has games not yet completed (e.g. the auto-detected cutoff advanced after Thursday Night Football alone), otherwise `cutoff_week_used + 1`. For each simulated game, the probabilities are a tally of which side won each simulated trial (not an extra pass, since every trial already simulates these games) — see "Next-week matchup odds" in [Algorithms](algorithms.md). Probabilities are 0-100 with one decimal and always sum to 100 for a given game; `completed` is `false` and both scores are `null`. A game in `matchups_week` that's already completed (only possible when `matchups_week == cutoff_week_used`) is a fixed input, not simulated: it has `completed: true`, its actual `home_score`/`away_score`, and all three probabilities `null`. In-progress games count as not completed and carry probabilities. `kickoff`/`kickoff_time_valid` mean the same as on `GET /api/team/{name}`; the Matchups card groups games by their kickoff's Eastern Time day. Empty when that week has no games (e.g. `cutoff_week_used` is the last week of the season) — the frontend's Export page disables the Matchups image download in that case.
 
 `status: "failed"` carries an `error` string (same message a synchronous `400`/`500` would have used) instead of `result`. `status: "cancelled"` carries neither. A `job_id` that never existed or has aged out of the server's in-memory job registry (jobs are pruned 10 minutes after finishing; still-running jobs are never pruned) returns `404`.
 

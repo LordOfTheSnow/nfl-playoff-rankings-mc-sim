@@ -126,6 +126,11 @@ def _json_error(code: int, message: str, details: str = "") -> tuple[int, dict[s
     }
 
 
+def _kickoff_iso(kickoff: datetime | None) -> str | None:
+    """UTC kickoff -> ISO 8601 string ("2026-10-23T00:15:00+00:00"), or None."""
+    return kickoff.isoformat() if kickoff is not None else None
+
+
 def _pct_or_none(fraction: float | None) -> float | None:
     """0-1 fraction -> 0-100 percent with one decimal; None passes through."""
     return None if fraction is None else round(fraction * 100, 1)
@@ -213,6 +218,8 @@ def _serialize_simulation_result(
             "completed": m.completed,
             "home_score": m.home_score,
             "away_score": m.away_score,
+            "kickoff": _kickoff_iso(m.kickoff),
+            "kickoff_time_valid": m.kickoff_time_valid,
         }
         for m in result.next_week_matchups
     ]
@@ -2119,6 +2126,8 @@ class NFLRequestHandler(BaseHTTPRequestHandler):
                     "home": is_home,
                     "status": game.status.value,
                     "date": game.date.isoformat(),
+                    "kickoff": _kickoff_iso(game.kickoff),
+                    "kickoff_time_valid": game.kickoff_time_valid,
                 }
 
                 # Add opponent strength at that point in the season

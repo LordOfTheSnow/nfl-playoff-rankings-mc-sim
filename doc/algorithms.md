@@ -128,7 +128,7 @@ This is intentionally a live, per-run result, not a persisted snapshot like the 
 
 **Same-color matchups (frontend only):** the Matchups card (`frontend/js/teaser.js`) draws each matchup as a stacked home/away/tie bar colored by each team's fixed brand color. Two teams in the same color family (the NFL has several red-branded franchises, for instance) would otherwise render as one indistinguishable block, so `_matchupBarColors` converts both teams' colors to HSL and lightens the away segment's fill whenever the two hues are within 30° of each other — the team name/logo still use the stable canonical color regardless (both default to the exact same color as each other when there's no clash). This is purely a rendering concern; the probabilities themselves are unaffected.
 
-**Day grouping (frontend only):** `next_week_matchups` carries each game's `date` (just the date — this codebase doesn't track kickoff time-of-day anywhere) so the card can group consecutive games under a day-of-week header ("THURSDAY", "SUNDAY", "MONDAY", etc.) instead of one undifferentiated list, via `_weekdayLabel` in `frontend/js/teaser.js`.
+**Day grouping (frontend only):** `next_week_matchups` carries each game's UTC `kickoff` so the card can group consecutive games under a day-of-week header ("THURSDAY", "SUNDAY", "MONDAY", etc.) instead of one undifferentiated list, via `_matchupDayLabel` in `frontend/js/teaser.js`. The day is taken in `America/New_York`, not the viewer's timezone or UTC: NFL broadcast days (Thursday/Sunday/Monday Night Football) are named in Eastern Time, and a night game's UTC date is already the next day. Results without a `kickoff` (simulated before the field existed) fall back to the UTC `date`.
 
 ---
 
