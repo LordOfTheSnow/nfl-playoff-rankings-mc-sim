@@ -26,15 +26,11 @@ Every page in the app, all in the flat, red-on-white "Modernist" design system. 
 
 ## Simulations
 
-### Playoff Probabilities (2025 season, cutoff week 16)
+### Playoff Probabilities and Seeding Probabilities (2026 season, cutoff week 6)
 
-![Playoff Probabilities tables for AFC and NFC in the Modernist Ledger redesign](img/screenshot-playoff-probabilities-new-design.png)
+![Simulations page with the Playoff Probabilities tables and Seeding Probabilities matrix for AFC and NFC](img/screenshot-simulation-results.png)
 
 *Playoff Probabilities tables for both conferences. Each row shows an inline probability bar, and the 7th seed — the current projected playoff cutoff — is highlighted with the same leader-row treatment used for division leaders in Standings.*
-
-### Seeding Probabilities matrix (2025 season, cutoff week 16)
-
-![Seeding Probabilities matrix for AFC and NFC in the Modernist Ledger redesign](img/screenshot-seeding-probabilities-new-design.png)
 
 *Seeding Probabilities matrix: each cell is tinted on a warm tan-to-maroon scale proportional to that team's probability of landing exactly that seed, switching to white text once the tint gets dark enough — never gray, and never tinted at exactly 0%. The collapsed Top Scenarios accordion sits below.*
 
@@ -85,6 +81,12 @@ Every page in the app, all in the flat, red-on-white "Modernist" design system. 
 ![NFC Wild Card teaser card: 9:16 Story PNG showing the #1 seed's bye, the three 2v7/3v6/4v5 matchups with the favorite highlighted, and a stylised bell-curve panel captioned with the run's total game simulations](img/screenshot-wildcard-nfc.png)
 
 *Wild Card teaser image downloaded from the Export page (1080×1920 PNG, for Stories; AFC has its own matching download): the conference's #1 seed on a bye, the three Wild Card matchups with the higher-strength team highlighted as favorite, and the same stylised simulation bell-curve panel used on the "Biggest movers" teaser, captioned with the run's total game simulations.*
+
+### Matchups teaser — Week 7 (2026 season, cutoff week 7)
+
+![Matchups teaser card for week 7 of the 2026 season, with one final score and simulated win probabilities for the remaining games](img/screenshot-teaser-card-next-week-matchups.png)
+
+*Matchups teaser image downloaded from the Export page (1080×1920 PNG, for Stories): every game of the upcoming week, grouped by Eastern Time broadcast day, each with its simulated home/away/tie win probability as a stacked bar. When the cutoff week is only partly played, the card stays on that week and shows the games already played with their final score (here Thursday's Bears–Patriots, 30–24).*
 
 ## Settings / Info
 

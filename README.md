@@ -13,41 +13,40 @@ A browser application that predicts NFL playoff probabilities using Monte Carlo 
 
 ## Features
 
-- Fetch NFL season data from ESPN's public JSON API
-- Handles seasons of different lengths (pre-2021: 16 games/17 weeks; 2021+: 17 games/18 weeks) throughout — season shape is derived from the loaded schedule rather than hardcoded, so standings, simulation, schedule grid, and clinching all stay correct for any season year
-- Iterative team strength ratings with Bayesian dampening
 - Monte Carlo simulation with configurable iterations, cutoff week, game noise, and tie probability (defaults to an empirical estimate from historical seasons, overridable via slider)
+- Fetch NFL season data from ESPN's public JSON API
+- Iterative team strength ratings with Bayesian dampening
+- Full NFL tiebreaker implementation (head-to-head, division/conference record, strength of victory/schedule, point-based steps) with proper step labeling in standings display
+- Simulation results: playoff probabilities, seeding matrix, top scenarios
+- Clinching scenarios solver: find all game-outcome combinations that guarantee a playoff spot (available once 4 weeks remain before the season ends — week 14 for an 18-week season)
+- CP-SAT constraint solver for mathematical clinching/elimination detection using Google OR-Tools (provably correct, available from week 1)
+- Wild Card Round view: top-7 seeds per conference as 2v7/3v6/4v5 matchups, the #1 seed's first-round bye, and an "In the Hunt" list for teams below seed 7 still alive — from either Actual standings or Simulated (most-likely) seeding, with per-team last-5 game log, current streak, and strength rating
+- Handles seasons of different lengths (pre-2021: 16 games/17 weeks; 2021+: 17 games/18 weeks) throughout — season shape is derived from the loaded schedule rather than hardcoded, so standings, simulation, schedule grid, and clinching all stay correct for any season year
 - Parallel simulation across multiple CPU cores for faster execution
 - Simulation runs as a background job with live progress (current phase, e.g. "Ranking impact games… (312/876)") and a Cancel button for stopping a long run early
-- Full NFL tiebreaker implementation (head-to-head, division/conference record, strength of victory/schedule, point-based steps) with proper step labeling in standings display
 - Interactive standings view with team logos, clinch/division/#1-seed/eliminated status tags, and hover-tooltip tiebreaker explanations
 - Team Detail page with a full-season schedule ledger, per-week team strength tracking, and postponed/canceled game handling
 - League-wide schedule grid showing all 32 teams x the season's full week range with scores, bye weeks, and postponed/canceled games
 - Statistics page: game-outcome rates (home/away/tie/overtime/one-score), score margin distribution, and longest winning/losing streaks
-- Simulation results: playoff probabilities, seeding matrix, top scenarios
-- Wild Card Round view: top-7 seeds per conference as 2v7/3v6/4v5 matchups, the #1 seed's first-round bye, and an "In the Hunt" list for teams below seed 7 still alive — from either Actual standings or Simulated (most-likely) seeding, with per-team last-5 game log, current streak, and strength rating
+- Settings / Info page: SQLite cache database metadata, server runtime environment, recent ESPN fetch attempts, and resettable lifetime run counters (games simulated, clinching resolver evaluations)
+- Season selector in the navbar for switching seasons without restarting
 - HTML export: save the current Standings, Statistics, Schedule Grid, Simulation, and Wild Card Round results as a standalone HTML page, or a ZIP bundle with an index and one page per team
 - Teaser image: a "Biggest movers" PNG from the Export page for link previews and social posts, in landscape (1200×630), portrait 4:5 (1080×1350) or 9:16 Story (1080×1920) format, showing the five teams whose playoff probability changed most since a baseline you saved explicitly (so week-over-week deltas stay pinned to the numbers you published), with team logos and the app name and version
 - Wild Card teaser images: a 9:16 Story PNG per conference (AFC/NFC) showing the projected Wild Card bracket from your last simulation run — the #1 seed's bye, the three matchups, and the favorite in each
 - Matchups teaser image: a 9:16 Story PNG from the Export page listing every game in the upcoming week with its simulated home/away/tie win probability as a stacked bar (or the final score for games already played when the cutoff week is only partly done), team logos, and automatic color disambiguation when two teams in the same matchup share a color family
-- Clinching scenarios solver: find all game-outcome combinations that guarantee a playoff spot (available once 4 weeks remain before the season ends — week 14 for an 18-week season)
-- CP-SAT constraint solver for mathematical clinching/elimination detection using Google OR-Tools (provably correct, available from week 1)
 - Solver performance export: one-click export of timing benchmarks to `doc/solver-performance.md`
-- Settings / Info page: SQLite cache database metadata, server runtime environment, recent ESPN fetch attempts, and resettable lifetime run counters (games simulated, clinching resolver evaluations)
-- Season selector in the navbar for switching seasons without restarting
 - Local SQLite caching with TTL policies
-- Entire UI — every page, the app-wide nav, and the Solver Timing History dialog — redesigned in a flat "Modernist" style (Archivo type, red accent, zero corner radius); no Bootstrap dependency remains
 - Optional Docker deployment with pre-built multi-architecture images (amd64/arm64) on GHCR
 
 ## Screenshots
 
-### Seeding Probabilities — "Modernist" redesign (2025 season, cutoff week 16)
+### Playoff Probabilities and Seeding Probabilities (2026 season, cutoff week 6)
 
-![Seeding Probabilities matrix for AFC and NFC in the Modernist Ledger redesign](/doc/img/screenshot-seeding-probabilities-new-design.png)
+![Simulation results showing Playoff Probabilities and Seeding Probabilities matrix for AFC and NFC](/doc/img/screenshot-simulation-results.png)
 
-*Seeding Probabilities matrix: each cell is tinted on a warm tan-to-maroon scale proportional to that team's probability of landing exactly that seed, switching to white text once the tint gets dark enough — never gray, and never tinted at exactly 0%.*
+*Playoff Probabilities tables for both conferences, each row with an inline probability bar and the 7th seed (the projected playoff cutoff) highlighted, followed by the Seeding Probabilities matrix: each cell is tinted on a warm tan-to-maroon scale proportional to that team's probability of landing exactly that seed, switching to white text once the tint gets dark enough — never gray, and never tinted at exactly 0%.*
 
-📸 **[See the full screenshot gallery →](doc/screenshots.md)** — Standings, Team Detail, Schedule Grid, Playoff Probabilities, Top Scenarios, Clinching Scenarios, Solver Timing History, Statistics, Wild Card Round, Teaser Image, and Settings / Info.
+📸 **[See the full screenshot gallery →](doc/screenshots.md)** — Standings, Team Detail, Schedule Grid, Playoff Probabilities, Top Scenarios, Clinching Scenarios, Solver Timing History, Statistics, Wild Card Round, Teaser Images, and Settings / Info.
 
 ## Setup
 
