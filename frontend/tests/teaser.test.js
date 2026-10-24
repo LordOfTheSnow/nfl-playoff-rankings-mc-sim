@@ -250,6 +250,57 @@ describe("_weekdayLabel", () => {
   });
 });
 
+describe("_matchupsQualityLine", () => {
+  it("matches the Simulations page's rounded percent and label", () => {
+    fc.assert(
+      fc.property(fc.double({ min: 0, max: 100, noNaN: true }), fc.constantFrom("Very low", "Low", "Moderate", "Good"), (pct, label) => {
+        expect(_matchupsQualityLine({ dataDrivenPct: pct, dataConfidence: label })).toBe(
+          `Data-driven ratings: ${Math.round(pct)}% — ${label}`,
+        );
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it("is empty when the result has no data-driven share", () => {
+    expect(_matchupsQualityLine({})).toBe("");
+    expect(_matchupsQualityLine({ dataDrivenPct: NaN, dataConfidence: "Good" })).toBe("");
+  });
+});
+
+describe("_finalScoreColors", () => {
+  const HOME = "#111111";
+  const AWAY = "#222222";
+
+  it("colors only the winner, for any non-tied score", () => {
+    fc.assert(
+      fc.property(fc.nat(70), fc.nat(70), (home, away) => {
+        fc.pre(home !== away);
+        const { homeScoreColor, awayScoreColor } = _finalScoreColors({ home_score: home, away_score: away }, HOME, AWAY);
+        if (home > away) {
+          expect(homeScoreColor).toBe(HOME);
+          expect(awayScoreColor).not.toBe(AWAY);
+        } else {
+          expect(awayScoreColor).toBe(AWAY);
+          expect(homeScoreColor).not.toBe(HOME);
+        }
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it("uses one neutral color for both sides on a tie", () => {
+    fc.assert(
+      fc.property(fc.nat(70), (score) => {
+        const { homeScoreColor, awayScoreColor } = _finalScoreColors({ home_score: score, away_score: score }, HOME, AWAY);
+        expect(homeScoreColor).toBe(awayScoreColor);
+        expect([HOME, AWAY]).not.toContain(homeScoreColor);
+      }),
+      { numRuns: 100 },
+    );
+  });
+});
+
 describe("Matchups card on the Export page", () => {
   afterEach(() => {
     window._simulationResults = null;

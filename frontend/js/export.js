@@ -81,8 +81,8 @@ async function renderExport(contentEl) {
       </div>
       <div class="mdn-card" style="margin:20px 0">
         <h3>Matchups image</h3>
-        <p>A 9:16 Story card listing every game in the week after cutoff, each with its simulated home/away/tie win probability.</p>
-        <button type="button" class="mdn-btn mdn-btn-primary" id="matchups-teaser-btn" ${hasMatchups ? "" : "disabled"} ${hasMatchups ? "" : 'title="No games scheduled for the week after cutoff."'}>Download Matchups (.png)</button>
+        <p>A 9:16 Story card listing every game in the upcoming week, each with its simulated home/away/tie win probability. If the cutoff week is only partly played, it shows that week instead, with final scores for the games already played.</p>
+        <button type="button" class="mdn-btn mdn-btn-primary" id="matchups-teaser-btn" ${hasMatchups ? "" : "disabled"} ${hasMatchups ? "" : 'title="No games scheduled for the matchups week."'}>Download Matchups (.png)</button>
         <span id="matchups-teaser-status" class="mdn-hint"></span>
       </div>
     </div>
@@ -119,7 +119,8 @@ async function _downloadMatchupsTeaser() {
     } catch (_err) {
       // Season/version are optional on the card; omit them if this fails.
     }
-    const nextWeek = sim.cutoff_week_used + 1;
+    // Older cached results predate matchups_week; they were always cutoff + 1.
+    const nextWeek = sim.matchups_week ?? sim.cutoff_week_used + 1;
     const blob = await buildMatchupsTeaserBlob(matchups, {
       season: status.season_year,
       cutoffWeek: sim.cutoff_week_used,
@@ -127,6 +128,8 @@ async function _downloadMatchupsTeaser() {
       iterations: sim.iterations_run,
       totalGameSimulations: sim.iterations_run * sim.simulated_games,
       version: status.version,
+      dataDrivenPct: sim.data_driven_pct,
+      dataConfidence: sim.data_confidence,
     });
 
     const filename = `nfl-playoff-rankings-mc-sim-teaser-matchups-${status.season_year}-week${nextWeek}-9x16.png`;

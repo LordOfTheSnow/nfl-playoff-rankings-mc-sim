@@ -859,12 +859,90 @@ function _matchupBarColors(homeHex, awayHex) {
   };
 }
 
+// One-line method note on the Matchups card (must fit the card's 968px
+// content width at 24px; _fitFont shrinks it otherwise).
+const TEASER_MATCHUPS_METHOD_NOTE =
+  "Team strength from this season's results only — no home field, weather, injuries, stats.";
+
+const _FINAL_SCORE_LOSER_COLOR = "#b5b2b0";
+const _FINAL_SCORE_TIE_COLOR = "#332f2d";
+
+/**
+ * Score colors for a completed matchup row: the winner's number in their
+ * team color, the loser's grayed out; both a neutral dark on a tie.
+ *
+ * @param {{home_score: number, away_score: number}} matchup
+ * @param {string} homeHex
+ * @param {string} awayHex
+ * @returns {{homeScoreColor: string, awayScoreColor: string}}
+ */
+function _finalScoreColors(matchup, homeHex, awayHex) {
+  if (matchup.home_score === matchup.away_score) {
+    return { homeScoreColor: _FINAL_SCORE_TIE_COLOR, awayScoreColor: _FINAL_SCORE_TIE_COLOR };
+  }
+  const homeWon = matchup.home_score > matchup.away_score;
+  return {
+    homeScoreColor: homeWon ? homeHex : _FINAL_SCORE_LOSER_COLOR,
+    awayScoreColor: homeWon ? _FINAL_SCORE_LOSER_COLOR : awayHex,
+  };
+}
+
+/**
+ * Draw a completed game's middle section in place of the probability bar:
+ * a large "home – away" score on the row's vertical midline (the same line
+ * the team names are drawn on), with a small "FINAL" label just above it.
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {{barX: number, barW: number, midY: number, barH: number, h: number}} geom
+ * @param {{home_score: number, away_score: number}} matchup
+ * @param {string} homeColor
+ * @param {string} awayColor
+ * @param {{headingFont: string, bodyFont: string}} fonts
+ */
+function _drawFinalScore(ctx, geom, matchup, homeColor, awayColor, fonts) {
+  const { headingFont, bodyFont } = fonts;
+  const { barX, barW, midY, barH, h } = geom;
+  const centerX = barX + barW / 2;
+  const { homeScoreColor, awayScoreColor } = _finalScoreColors(matchup, homeColor, awayColor);
+  // Capped so a short week's tall rows don't blow the score up past the
+  // team names (which are width-capped by _fitFont the same way).
+  const scorePx = Math.min(56, Math.max(20, Math.round(barH * 1.5)));
+
+  ctx.textBaseline = "alphabetic";
+  ctx.textAlign = "center";
+  ctx.font = headingFont.replace("%s", String(Math.min(18, Math.max(11, Math.round(h * 0.13)))));
+  ctx.fillStyle = "#8a8785";
+  ctx.fillText("FINAL", centerX, midY - scorePx * 0.45 - 6);
+
+  const homeText = String(matchup.home_score);
+  const awayText = String(matchup.away_score);
+  const sepText = " – ";
+  ctx.font = headingFont.replace("%s", String(scorePx));
+  const homeW = ctx.measureText(homeText).width;
+  const sepW = ctx.measureText(sepText).width;
+  const awayW = ctx.measureText(awayText).width;
+  let x = centerX - (homeW + sepW + awayW) / 2;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  const scoreY = midY;
+  ctx.fillStyle = homeScoreColor;
+  ctx.fillText(homeText, x, scoreY);
+  x += homeW;
+  ctx.fillStyle = "#8a8785";
+  ctx.fillText(sepText, x, scoreY);
+  x += sepW;
+  ctx.fillStyle = awayScoreColor;
+  ctx.fillText(awayText, x, scoreY);
+  ctx.textBaseline = "alphabetic";
+}
+
 /**
  * Draw one matchup row: home logo + name, a stacked home/away/tie
  * probability bar, away name + logo. The away% label is anchored to where
  * the away segment of the bar starts, pulled back toward the bar's center
  * if that would run its text into the tie% label (measured with the real
- * font metrics via ctx.measureText, not estimated).
+ * font metrics via ctx.measureText, not estimated). A completed game
+ * (matchup.completed) shows its final score there instead of the bar.
  *
  * @param {CanvasRenderingContext2D} ctx
  * @param {{x: number, y: number, w: number, h: number}} box
@@ -913,6 +991,13 @@ function _drawMatchupRow(ctx, box, matchup, homeLogo, awayLogo, fonts) {
   // Stacked bar: home | away | tie, left to right.
   const barH = Math.max(18, Math.round(h * 0.3));
   const barY = y + h / 2 + 4;
+  const labelY = barY - 10;
+
+  if (matchup.completed) {
+    _drawFinalScore(ctx, { barX, barW, midY: y + h / 2, barH, h }, matchup, homeColor, awayColor, fonts);
+    return;
+  }
+
   const homeW = (matchup.home_win_probability / 100) * barW;
   const awayW = (matchup.away_win_probability / 100) * barW;
   const tieW = Math.max(0, barW - homeW - awayW);
@@ -927,7 +1012,6 @@ function _drawMatchupRow(ctx, box, matchup, homeLogo, awayLogo, fonts) {
   // the right edge, away anchored at the boundary between its own segment
   // and home's — unless that would overlap the tie label, in which case
   // it's pulled back just far enough to clear it.
-  const labelY = barY - 10;
   const labelFontPx = Math.max(13, Math.round(h * 0.16));
   ctx.textBaseline = "alphabetic";
 
@@ -954,13 +1038,30 @@ function _drawMatchupRow(ctx, box, matchup, homeLogo, awayLogo, fonts) {
 }
 
 /**
- * Draw the Matchups card onto a fresh canvas: one row per game in the week
- * after cutoff, each a stacked home/away/tie probability bar between the
- * two teams' logo and name. Same header/footer/bell-panel language as the
- * Movers and Wild Card cards.
+ * "Data-driven ratings: N% — <label>" line for the Matchups card, the same
+ * simulation-quality indicator the Simulations page shows under its Results
+ * line (_renderDataConfidence in simulation.js). Empty when the result
+ * lacks the field (e.g. produced before it existed).
+ *
+ * @param {{dataDrivenPct?: number, dataConfidence?: string}} meta
+ * @returns {string}
+ */
+function _matchupsQualityLine(meta) {
+  const pct = meta.dataDrivenPct;
+  if (typeof pct !== "number" || !Number.isFinite(pct)) return "";
+  const label = meta.dataConfidence ? ` — ${meta.dataConfidence}` : "";
+  return `Data-driven ratings: ${Math.round(pct)}%${label}`;
+}
+
+/**
+ * Draw the Matchups card onto a fresh canvas: one row per game in the
+ * matchups week (see matchups_week in doc/api.md), each a stacked home/away/tie probability bar between the
+ * two teams' logo and name — or, for a game already played, its final
+ * score. Same header/footer/bell-panel language as the Movers and Wild
+ * Card cards.
  *
  * @param {Array<{game_id: string, week: number, date: string, home_team: string, away_team: string, home_win_probability: number, away_win_probability: number, tie_probability: number}>} matchups
- * @param {{season: number, cutoffWeek: number, nextWeek: number, version?: string, iterations?: number, totalGameSimulations?: number}} meta
+ * @param {{season: number, cutoffWeek: number, nextWeek: number, version?: string, iterations?: number, totalGameSimulations?: number, dataDrivenPct?: number, dataConfidence?: string}} meta
  * @param {typeof TEASER_FORMATS.story} [format=TEASER_FORMATS.story] - 9:16 only; other formats aren't supported.
  * @returns {Promise<HTMLCanvasElement>}
  */
@@ -997,7 +1098,7 @@ async function renderMatchupsTeaserCanvas(matchups, meta, format = TEASER_FORMAT
  * @param {CanvasRenderingContext2D} ctx
  * @param {Array<Object>} matchups
  * @param {Object<string, HTMLCanvasElement|null>} logoByTeam
- * @param {{season: number, cutoffWeek: number, nextWeek: number, version?: string, iterations?: number, totalGameSimulations?: number}} meta
+ * @param {{season: number, cutoffWeek: number, nextWeek: number, version?: string, iterations?: number, totalGameSimulations?: number, dataDrivenPct?: number, dataConfidence?: string}} meta
  * @param {typeof TEASER_FORMATS.story} format
  * @param {{headingFont: string, bodyFont: string}} fonts
  */
@@ -1005,7 +1106,9 @@ function _drawMatchupsCard(ctx, matchups, logoByTeam, meta, format, fonts) {
   const { headingFont, bodyFont } = fonts;
   const W = format.width;
   const H = format.height;
-  const top = 60;
+  // Tighter than the Movers/Wild Card cards' 60: the band has no content
+  // above the header art, and the list below needs the room more.
+  const top = 28;
   const margin = 56;
   const contentW = W - 2 * margin;
 
@@ -1036,11 +1139,28 @@ function _drawMatchupsCard(ctx, matchups, logoByTeam, meta, format, fonts) {
   ctx.font = _fitFont(ctx, headingFont, headline, 80, contentW);
   ctx.fillText(headline, margin, bandBottom + 100);
   ctx.fillStyle = "#332f2d";
-  ctx.font = bodyFont.replace("%s", "28");
-  const subtitle = meta.iterations
+  const finalCount = matchups.filter((m) => m.completed).length;
+  let subtitle = meta.iterations
     ? `Win probabilities across ${meta.iterations.toLocaleString("en-US")} simulations per game (home vs. away vs. tie)`
     : "Win probabilities across simulated games (home vs. away vs. tie)";
+  if (finalCount > 0) subtitle += ` · ${finalCount} ${finalCount === 1 ? "game" : "games"} final`;
+  ctx.font = _fitFont(ctx, bodyFont, subtitle, 28, contentW);
   ctx.fillText(subtitle, margin, bandBottom + 148);
+
+  // Simulation-quality line, then the method explainer for viewers who
+  // see the card on social media without any context about the app. The
+  // game list starts below whichever lines were drawn.
+  let textY = bandBottom + 148;
+  const qualityLine = _matchupsQualityLine(meta);
+  if (qualityLine) {
+    textY += 38;
+    ctx.font = _fitFont(ctx, headingFont, qualityLine, 24, contentW);
+    ctx.fillText(qualityLine, margin, textY);
+  }
+  textY += 36;
+  ctx.fillStyle = "#6b6866";
+  ctx.font = _fitFont(ctx, bodyFont, TEASER_MATCHUPS_METHOD_NOTE, 24, contentW);
+  ctx.fillText(TEASER_MATCHUPS_METHOD_NOTE, margin, textY);
 
   // Footer baselines (same convention as Movers/Wild Card). Unlike those
   // two cards, there's no "stylised simulation" bell panel here — this
@@ -1050,7 +1170,7 @@ function _drawMatchupsCard(ctx, matchups, logoByTeam, meta, format, fonts) {
   const footerDiscY = H - format.bottomSafe;
   const footerTop = footerNameY - 28;
 
-  const listTop = bandBottom + 190;
+  const listTop = textY + 42;
   const listBottom = footerTop - 32;
   const gap = 6;
   const n = matchups.length;

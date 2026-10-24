@@ -19,6 +19,7 @@ from src.data_client import Game, GameStatus
 from src.simulator import (
     SimulationConfig,
     Simulator,
+    _matchups_week,
     _merge_batch_results,
     _run_trial_batch,
     _split_iterations,
@@ -382,6 +383,7 @@ class TestNextWeekMatchups:
         result = simulator.run(games)
 
         assert result.cutoff_week == 14
+        assert result.matchups_week == 15
         next_week_games = {g.game_id for g in games if g.week == 15}
         assert {m.game_id for m in result.next_week_matchups} == next_week_games
         for matchup in result.next_week_matchups:
@@ -394,8 +396,8 @@ class TestNextWeekMatchups:
             assert total == pytest.approx(1.0, abs=1e-9)
 
     @pytest.mark.slow
-    def test_simulator_run_no_next_week_when_cutoff_is_last_week(self) -> None:
-        """Empty list when cutoff_week + 1 has no scheduled games."""
+    def test_simulator_run_unplayed_explicit_cutoff_reports_that_week(self) -> None:
+        """An explicit cutoff week with unplayed games is itself the matchups week."""
         games = _build_minimal_season()
         config = SimulationConfig(
             iterations=100, tie_probability=0.005, noise=0.2, num_workers=1, cutoff_week=18,
@@ -404,7 +406,101 @@ class TestNextWeekMatchups:
 
         result = simulator.run(games)
 
-        assert result.next_week_matchups == []
+        assert result.matchups_week == 18
+        assert {m.game_id for m in result.next_week_matchups} == {
+            g.game_id for g in games if g.week == 18
+        }
+        assert not any(m.completed for m in result.next_week_matchups)
+
+    def test_build_matchups_empty_past_last_week(self) -> None:
+        """Empty list when the matchups week has no games (season over)."""
+        games = _build_minimal_season()
+        simulator = Simulator(config=SimulationConfig(iterations=100, num_workers=1))
+        fixed, _ = simulator._partition_games(games, 18)
+
+        assert simulator._build_next_week_matchups(games, fixed, {}, 100, 19) == []
+
+
+def _partially_play_week_15(games: list[Game], played: int) -> list[Game]:
+    """Mark the first `played` week-15 games as completed (TNF-style)."""
+    out: list[Game] = []
+    remaining = played
+    for g in games:
+        if g.week == 15 and remaining > 0:
+            remaining -= 1
+            g = _make_completed_game(g.game_id, 15, g.home_team, g.away_team, 24, 17)
+        out.append(g)
+    return out
+
+
+class TestMatchupsWeek:
+    """Which week the Matchups card reports on (_matchups_week)."""
+
+    def test_fully_played_cutoff_week_moves_to_next_week(self) -> None:
+        games = _build_minimal_season()
+        to_sim = [g for g in games if g.status != GameStatus.COMPLETED]
+        assert _matchups_week(to_sim, 14) == 15
+
+    def test_partially_played_cutoff_week_stays(self) -> None:
+        games = _partially_play_week_15(_build_minimal_season(), played=1)
+        to_sim = [g for g in games if g.status != GameStatus.COMPLETED]
+        assert _matchups_week(to_sim, 15) == 15
+
+    def test_cutoff_zero_reports_week_one(self) -> None:
+        games = _build_minimal_season()
+        assert _matchups_week(games, 0) == 1
+
+    def test_partial_week_mixes_final_scores_and_probabilities(self) -> None:
+        """Completed games carry scores; the rest carry tallied odds."""
+        games = _partially_play_week_15(_build_minimal_season(), played=2)
+        simulator = Simulator(config=SimulationConfig(iterations=100, num_workers=1))
+        fixed, to_sim = simulator._partition_games(games, 15)
+        from src.nfl_teams import ALL_TEAMS
+        batch = _run_trial_batch(
+            all_games=games,
+            games_to_simulate=to_sim,
+            strengths={team: 1.0 for team in ALL_TEAMS},
+            batch_iterations=100,
+            tie_probability=0.005,
+            noise=0.2,
+            seed=3,
+            next_week=15,
+        )
+
+        matchups = simulator._build_next_week_matchups(
+            games, fixed, batch["game_outcome_counts"], 100, 15
+        )
+
+        week_15 = [g for g in games if g.week == 15]
+        assert [m.game_id for m in matchups] == [g.game_id for g in week_15]
+        completed = [m for m in matchups if m.completed]
+        assert len(completed) == 2
+        for m in completed:
+            assert (m.home_score, m.away_score) == (24, 17)
+            assert m.home_win_probability is None
+            assert m.away_win_probability is None
+            assert m.tie_probability is None
+        for m in matchups:
+            if m.completed:
+                continue
+            assert m.home_score is None and m.away_score is None
+            total = m.home_win_probability + m.away_win_probability + m.tie_probability
+            assert total == pytest.approx(1.0, abs=1e-9)
+
+    @pytest.mark.slow
+    def test_simulator_run_auto_cutoff_on_partial_week(self) -> None:
+        """Auto cutoff advancing on one played game keeps that week's games."""
+        games = _partially_play_week_15(_build_minimal_season(), played=1)
+        config = SimulationConfig(iterations=100, tie_probability=0.005, noise=0.2, num_workers=1)
+
+        result = Simulator(config=config).run(games)
+
+        assert result.cutoff_week == 15
+        assert result.matchups_week == 15
+        assert {m.game_id for m in result.next_week_matchups} == {
+            g.game_id for g in games if g.week == 15
+        }
+        assert sum(m.completed for m in result.next_week_matchups) == 1
 
 
 # ---------------------------------------------------------------------------

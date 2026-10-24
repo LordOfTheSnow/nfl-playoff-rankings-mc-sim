@@ -126,6 +126,11 @@ def _json_error(code: int, message: str, details: str = "") -> tuple[int, dict[s
     }
 
 
+def _pct_or_none(fraction: float | None) -> float | None:
+    """0-1 fraction -> 0-100 percent with one decimal; None passes through."""
+    return None if fraction is None else round(fraction * 100, 1)
+
+
 def _serialize_simulation_result(
     result: SimulationResult,
     games: list[Game] | None = None,
@@ -202,9 +207,12 @@ def _serialize_simulation_result(
             "date": m.date.isoformat(),
             "home_team": m.home_team,
             "away_team": m.away_team,
-            "home_win_probability": round(m.home_win_probability * 100, 1),
-            "away_win_probability": round(m.away_win_probability * 100, 1),
-            "tie_probability": round(m.tie_probability * 100, 1),
+            "home_win_probability": _pct_or_none(m.home_win_probability),
+            "away_win_probability": _pct_or_none(m.away_win_probability),
+            "tie_probability": _pct_or_none(m.tie_probability),
+            "completed": m.completed,
+            "home_score": m.home_score,
+            "away_score": m.away_score,
         }
         for m in result.next_week_matchups
     ]
@@ -222,6 +230,7 @@ def _serialize_simulation_result(
         "data_driven_pct": round(result.data_driven_share * 100, 1),
         "data_confidence": data_confidence_label(result.data_driven_share),
         "next_week_matchups": next_week_matchups,
+        "matchups_week": result.matchups_week,
     }
 
 
