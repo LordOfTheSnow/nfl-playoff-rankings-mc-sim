@@ -19,7 +19,7 @@ import multiprocessing
 import os
 import random
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from dataclasses import dataclass, field
 from typing import Any, Callable, TYPE_CHECKING
 
@@ -1003,8 +1003,10 @@ class Simulator:
     ) -> list[MatchupOutcome]:
         """Turn raw per-game tallies into win/loss/tie probabilities.
 
-        Kept in schedule order (the order all_games already has, which
-        follows ESPN's own game order within a week — see data_client.py).
+        Sorted chronologically by kickoff (falling back to the UTC date when
+        kickoff is unknown), not ESPN's event order: ESPN moves a game down
+        its list once it's final, which would shuffle a partially played
+        week. The sort is stable, so same-kickoff games keep ESPN's order.
         Games in `next_week` that are fixed inputs (only possible when
         next_week == cutoff_week, i.e. a partially-played cutoff week) carry
         their actual score instead of probabilities.
@@ -1022,10 +1024,15 @@ class Simulator:
             that week has no games.
         """
         fixed_ids = {g.game_id for g in fixed_games}
+        week_games = sorted(
+            (g for g in all_games if g.week == next_week),
+            key=lambda g: (
+                g.kickoff
+                or datetime.combine(g.date, datetime.min.time(), tzinfo=UTC)
+            ),
+        )
         matchups: list[MatchupOutcome] = []
-        for game in all_games:
-            if game.week != next_week:
-                continue
+        for game in week_games:
             if game.game_id in fixed_ids:
                 matchups.append(
                     MatchupOutcome(

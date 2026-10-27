@@ -241,12 +241,13 @@ describe("_matchupBarColors", () => {
   });
 });
 
-describe("_weekdayLabel", () => {
-  it("maps a date-only ISO string to its UTC weekday", () => {
-    expect(_weekdayLabel("2026-10-29")).toBe("THURSDAY");
-    expect(_weekdayLabel("2026-11-01")).toBe("SUNDAY");
-    expect(_weekdayLabel("2026-11-02")).toBe("MONDAY");
-    expect(_weekdayLabel("2026-12-25")).toBe("FRIDAY");
+describe("_dayHeaderLabel", () => {
+  it("formats weekday, short month, day and year in the given timezone", () => {
+    expect(_dayHeaderLabel(new Date("2026-10-29T00:00:00Z"), "UTC")).toBe("THURSDAY OCT 29, 2026");
+    expect(_dayHeaderLabel(new Date("2026-11-01T00:00:00Z"), "UTC")).toBe("SUNDAY NOV 1, 2026");
+    expect(_dayHeaderLabel(new Date("2026-12-25T00:00:00Z"), "UTC")).toBe("FRIDAY DEC 25, 2026");
+    // Same instant, previous evening in Eastern Time.
+    expect(_dayHeaderLabel(new Date("2027-01-01T01:15:00Z"), "America/New_York")).toBe("THURSDAY DEC 31, 2026");
   });
 });
 

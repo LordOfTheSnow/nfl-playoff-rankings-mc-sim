@@ -1,7 +1,7 @@
 /**
  * Kickoff display tests: Team Detail's formatKickoff (viewer-local time,
  * Eastern date for not-yet-scheduled games) and the Matchups card's
- * _matchupDayLabel (Eastern Time broadcast day).
+ * _matchupDayLabel (Eastern Time broadcast day and date).
  */
 
 import { describe, it, expect } from "vitest";
@@ -28,19 +28,19 @@ function utcKickoff(hourMin, hourMax) {
 describe("_matchupDayLabel", () => {
   it("names prime-time games by their Eastern broadcast day", () => {
     // 2026 week 7: TNF, SNF, MNF all kick off after midnight UTC.
-    expect(_matchupDayLabel({ kickoff: "2026-10-23T00:15:00+00:00", date: "2026-10-23" })).toBe("THURSDAY");
-    expect(_matchupDayLabel({ kickoff: "2026-10-26T00:20:00+00:00", date: "2026-10-26" })).toBe("SUNDAY");
-    expect(_matchupDayLabel({ kickoff: "2026-10-27T00:15:00+00:00", date: "2026-10-27" })).toBe("MONDAY");
+    expect(_matchupDayLabel({ kickoff: "2026-10-23T00:15:00+00:00", date: "2026-10-23" })).toBe("THURSDAY OCT 22, 2026");
+    expect(_matchupDayLabel({ kickoff: "2026-10-26T00:20:00+00:00", date: "2026-10-26" })).toBe("SUNDAY OCT 25, 2026");
+    expect(_matchupDayLabel({ kickoff: "2026-10-27T00:15:00+00:00", date: "2026-10-27" })).toBe("MONDAY OCT 26, 2026");
     // International morning game, and MNF after the November DST change (EST).
-    expect(_matchupDayLabel({ kickoff: "2026-10-25T13:30:00+00:00", date: "2026-10-25" })).toBe("SUNDAY");
-    expect(_matchupDayLabel({ kickoff: "2026-11-03T01:15:00+00:00", date: "2026-11-03" })).toBe("MONDAY");
+    expect(_matchupDayLabel({ kickoff: "2026-10-25T13:30:00+00:00", date: "2026-10-25" })).toBe("SUNDAY OCT 25, 2026");
+    expect(_matchupDayLabel({ kickoff: "2026-11-03T01:15:00+00:00", date: "2026-11-03" })).toBe("MONDAY NOV 2, 2026");
   });
 
   it("puts 00:00-03:59 UTC kickoffs on the previous day (evening in ET, EDT or EST)", () => {
     fc.assert(
       fc.property(utcKickoff(0, 3), (kickoff) => {
         const expected = WEEKDAYS[(kickoff.getUTCDay() + 6) % 7];
-        expect(_matchupDayLabel({ kickoff: kickoff.toISOString(), date: "1970-01-01" })).toBe(expected);
+        expect(_matchupDayLabel({ kickoff: kickoff.toISOString(), date: "1970-01-01" }).split(" ")[0]).toBe(expected);
       }),
       { numRuns: 100 },
     );
@@ -49,7 +49,7 @@ describe("_matchupDayLabel", () => {
   it("keeps 10:00-23:59 UTC kickoffs on the same day", () => {
     fc.assert(
       fc.property(utcKickoff(10, 23), (kickoff) => {
-        expect(_matchupDayLabel({ kickoff: kickoff.toISOString(), date: "1970-01-01" })).toBe(
+        expect(_matchupDayLabel({ kickoff: kickoff.toISOString(), date: "1970-01-01" }).split(" ")[0]).toBe(
           WEEKDAYS[kickoff.getUTCDay()],
         );
       }),
@@ -58,8 +58,8 @@ describe("_matchupDayLabel", () => {
   });
 
   it("falls back to the UTC date when there's no kickoff", () => {
-    expect(_matchupDayLabel({ date: "2026-10-23" })).toBe("FRIDAY");
-    expect(_matchupDayLabel({ kickoff: null, date: "2026-10-25" })).toBe("SUNDAY");
+    expect(_matchupDayLabel({ date: "2026-10-23" })).toBe("FRIDAY OCT 23, 2026");
+    expect(_matchupDayLabel({ kickoff: null, date: "2026-10-25" })).toBe("SUNDAY OCT 25, 2026");
   });
 });
 

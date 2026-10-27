@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-10-27
+
+### Changed
+- **Matchups card day headers** now include the date, e.g. "SUNDAY OCT 25, 2026" instead of just "SUNDAY" (still the Eastern Time broadcast day)
+- **Matchups card probability bar** now reads home | tie | away: the tie segment and its percentage sit between the two teams, and the away percentage is right-aligned at the bar's end, next to the away team (the subtitle now reads "home vs. tie vs. away" to match)
+
+### Fixed
+- **Matchups card order**: games on the Matchups teaser image are now always listed in kickoff order. They previously followed ESPN's event order, which moves a game toward the end of its day once it's final, so in a partly played week a finished game could jump below games that started later
+
 ## [1.4.0] - 2026-10-24
 
 ### Added
@@ -494,7 +503,8 @@ Full "Modernist" redesign of every page (flat red-on-white style, Bootstrap remo
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.2.1...v1.2.2

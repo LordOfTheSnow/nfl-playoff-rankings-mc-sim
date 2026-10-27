@@ -11,7 +11,8 @@ Validates that:
 from __future__ import annotations
 
 import random
-from datetime import date
+from dataclasses import replace
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -486,6 +487,28 @@ class TestMatchupsWeek:
             assert m.home_score is None and m.away_score is None
             total = m.home_win_probability + m.away_win_probability + m.tie_probability
             assert total == pytest.approx(1.0, abs=1e-9)
+
+    def test_matchups_sorted_by_kickoff_not_espn_order(self) -> None:
+        """A game ESPN moved to the end once final keeps its kickoff slot."""
+        games = _partially_play_week_15(_build_minimal_season(), played=1)
+        week_15 = [g for g in games if g.week == 15]
+        # Give week 15 ascending kickoffs, then move the (completed) first
+        # game to the end of the list the way ESPN does once it's final.
+        timed = {
+            g.game_id: replace(g, kickoff=datetime(2025, 12, 14, 18, i, tzinfo=UTC))
+            for i, g in enumerate(week_15)
+        }
+        reordered = [timed.get(g.game_id, g) for g in games]
+        first = timed[week_15[0].game_id]
+        reordered.remove(first)
+        reordered.append(first)
+        simulator = Simulator(config=SimulationConfig(iterations=100, num_workers=1))
+        fixed, _ = simulator._partition_games(reordered, 15)
+
+        matchups = simulator._build_next_week_matchups(reordered, fixed, {}, 100, 15)
+
+        assert [m.game_id for m in matchups] == [g.game_id for g in week_15]
+        assert matchups[0].completed
 
     @pytest.mark.slow
     def test_simulator_run_auto_cutoff_on_partial_week(self) -> None:
