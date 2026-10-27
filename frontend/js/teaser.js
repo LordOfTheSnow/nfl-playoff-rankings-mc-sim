@@ -821,35 +821,40 @@ function _hueDist(h1, h2) {
   return d > 180 ? 360 - d : d;
 }
 
-const _WEEKDAY_NAMES = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
-
 /**
- * Day-of-week label for a matchup's group header, from its "YYYY-MM-DD" date.
- * Parsed as UTC midnight (how the Date constructor reads a date-only ISO
- * string) so the result doesn't depend on the browser's local timezone.
+ * Group-header label for an instant's calendar day in `timeZone`, e.g.
+ * "SUNDAY OCT 25, 2026" (assembled from parts, since en-US's own long
+ * format puts a comma after the weekday).
  *
- * @param {string} isoDate
+ * @param {Date} instant
+ * @param {string} timeZone
  * @returns {string}
  */
-function _weekdayLabel(isoDate) {
-  return _WEEKDAY_NAMES[new Date(`${isoDate}T00:00:00Z`).getUTCDay()];
+function _dayHeaderLabel(instant, timeZone) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      weekday: "long", month: "short", day: "numeric", year: "numeric", timeZone,
+    })
+      .formatToParts(instant)
+      .map((p) => [p.type, p.value]),
+  );
+  return `${parts.weekday} ${parts.month} ${parts.day}, ${parts.year}`.toUpperCase();
 }
 
 /**
- * Day-of-week group header for a matchup, from its kickoff in Eastern Time —
- * NFL broadcast days (Thursday/Sunday/Monday Night Football) are named in
- * ET wherever the viewer is, and a night game's UTC date is already the
- * next day. Falls back to the UTC `date` for results without a kickoff
- * (simulated before the field existed).
+ * Day group header for a matchup ("SUNDAY OCT 25, 2026"), from its kickoff
+ * in Eastern Time — NFL broadcast days (Thursday/Sunday/Monday Night
+ * Football) are named in ET wherever the viewer is, and a night game's UTC
+ * date is already the next day. Falls back to the UTC `date` for results
+ * without a kickoff (simulated before the field existed), parsed as UTC
+ * midnight so it doesn't depend on the browser's timezone.
  *
  * @param {{kickoff?: string|null, date: string}} matchup
  * @returns {string}
  */
 function _matchupDayLabel(matchup) {
-  if (!matchup.kickoff) return _weekdayLabel(matchup.date);
-  return new Date(matchup.kickoff)
-    .toLocaleDateString("en-US", { weekday: "long", timeZone: "America/New_York" })
-    .toUpperCase();
+  if (!matchup.kickoff) return _dayHeaderLabel(new Date(`${matchup.date}T00:00:00Z`), "UTC");
+  return _dayHeaderLabel(new Date(matchup.kickoff), "America/New_York");
 }
 
 const _MATCHUP_BAR_LIGHTNESS_CLASH = 68;
@@ -954,11 +959,11 @@ function _drawFinalScore(ctx, geom, matchup, homeColor, awayColor, fonts) {
 }
 
 /**
- * Draw one matchup row: home logo + name, a stacked home/away/tie
- * probability bar, away name + logo. The away% label is anchored to where
- * the away segment of the bar starts, pulled back toward the bar's center
- * if that would run its text into the tie% label (measured with the real
- * font metrics via ctx.measureText, not estimated). A completed game
+ * Draw one matchup row: home logo + name, a stacked home/tie/away
+ * probability bar, away name + logo. The home% and away% labels sit flush
+ * with the bar's left and right edges; the tie% label is centered over the
+ * tie segment, clamped between them (measured with the real font metrics
+ * via ctx.measureText, not estimated). A completed game
  * (matchup.completed) shows its final score there instead of the bar.
  *
  * @param {CanvasRenderingContext2D} ctx
@@ -1020,15 +1025,14 @@ function _drawMatchupRow(ctx, box, matchup, homeLogo, awayLogo, fonts) {
   const tieW = Math.max(0, barW - homeW - awayW);
   ctx.fillStyle = homeBarColor;
   ctx.fillRect(barX, barY, homeW, barH);
-  ctx.fillStyle = awayBarColor;
-  ctx.fillRect(barX + homeW, barY, awayW, barH);
   ctx.fillStyle = "#c9c6c4";
-  ctx.fillRect(barX + homeW + awayW, barY, tieW, barH);
+  ctx.fillRect(barX + homeW, barY, tieW, barH);
+  ctx.fillStyle = awayBarColor;
+  ctx.fillRect(barX + homeW + tieW, barY, awayW, barH);
 
-  // Percent labels above the bar. Home at the left edge, tie flush with
-  // the right edge, away anchored at the boundary between its own segment
-  // and home's — unless that would overlap the tie label, in which case
-  // it's pulled back just far enough to clear it.
+  // Percent labels above the bar, in the same order as its segments: home
+  // flush with the left edge, away flush with the right edge, and tie
+  // centered over its own segment — clamped so it keeps clear of both.
   const labelFontPx = Math.max(13, Math.round(h * 0.16));
   ctx.textBaseline = "alphabetic";
 
@@ -1039,19 +1043,19 @@ function _drawMatchupRow(ctx, box, matchup, homeLogo, awayLogo, fonts) {
   ctx.font = headingFont.replace("%s", String(labelFontPx));
   ctx.fillStyle = homeColor;
   ctx.fillText(homeText, barX, labelY);
+  const homeTextW = ctx.measureText(homeText).width;
+
+  ctx.fillStyle = awayColor;
+  const awayTextW = ctx.measureText(awayText).width;
+  ctx.fillText(awayText, barX + barW - awayTextW, labelY);
 
   ctx.font = bodyFont.replace("%s", String(Math.max(11, labelFontPx - 3)));
   ctx.fillStyle = "#8a8785";
   const tieTextW = ctx.measureText(tieText).width;
-  ctx.fillText(tieText, barX + barW - tieTextW, labelY);
-
-  ctx.font = headingFont.replace("%s", String(labelFontPx));
-  ctx.fillStyle = awayColor;
-  const awayTextW = ctx.measureText(awayText).width;
-  const boundary = barX + homeW;
-  const maxRight = barX + barW - tieTextW - 10;
-  const awayLeft = boundary + awayTextW > maxRight ? maxRight - awayTextW : boundary;
-  ctx.fillText(awayText, Math.max(barX, awayLeft), labelY);
+  const minLeft = barX + homeTextW + 10;
+  const maxLeft = barX + barW - awayTextW - 10 - tieTextW;
+  const tieLeft = barX + homeW + tieW / 2 - tieTextW / 2;
+  ctx.fillText(tieText, Math.min(Math.max(tieLeft, minLeft), maxLeft), labelY);
 }
 
 /**
@@ -1158,8 +1162,8 @@ function _drawMatchupsCard(ctx, matchups, logoByTeam, meta, format, fonts) {
   ctx.fillStyle = "#332f2d";
   const finalCount = matchups.filter((m) => m.completed).length;
   let subtitle = meta.iterations
-    ? `Win probabilities across ${meta.iterations.toLocaleString("en-US")} simulations per game (home vs. away vs. tie)`
-    : "Win probabilities across simulated games (home vs. away vs. tie)";
+    ? `Win probabilities across ${meta.iterations.toLocaleString("en-US")} simulations per game (home vs. tie vs. away)`
+    : "Win probabilities across simulated games (home vs. tie vs. away)";
   if (finalCount > 0) subtitle += ` · ${finalCount} ${finalCount === 1 ? "game" : "games"} final`;
   ctx.font = _fitFont(ctx, bodyFont, subtitle, 28, contentW);
   ctx.fillText(subtitle, margin, bandBottom + 148);
@@ -1197,8 +1201,8 @@ function _drawMatchupsCard(ctx, matchups, logoByTeam, meta, format, fonts) {
     ctx.font = bodyFont.replace("%s", "28");
     ctx.fillText("No games scheduled for this week.", margin, listTop + 50);
   } else {
-    // Group consecutive games by Eastern Time day (THURSDAY/SUNDAY/MONDAY,
-    // etc.); games already arrive in schedule order.
+    // Group consecutive games by Eastern Time day ("SUNDAY OCT 25, 2026",
+    // etc.); games already arrive in kickoff order.
     const groupLabelAt = matchups.map((m) => _matchupDayLabel(m));
     const groupStartLabel = [];
     let prevLabel = null;
