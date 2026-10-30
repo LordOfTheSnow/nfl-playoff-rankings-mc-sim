@@ -148,3 +148,49 @@ The exported file ([`solver-performance.md`](solver-performance.md)) contains a 
 2. Click "Export Performance Data"
 3. Commit the updated `doc/solver-performance.md`
 4. Your hardware's results will appear alongside others for comparison
+
+## Windows Desktop Build
+
+A portable Windows build is attached to every GitHub release as `nfl-playoff-rankings-mc-sim-<tag>-windows-x64.zip`: a PyInstaller *onedir* folder (`nfl-playoff-rankings-mc-sim.exe` + `_internal/`), zipped. It is unsigned.
+
+### Desktop launcher (`src/desktop.py`)
+
+`src/desktop.py` is the build's entry point. You can also run it from source: `python -m src.desktop` (needs tkinter), or `python -m src.desktop --no-window` for the server only. It differs from `python -m src` as follows:
+
+| | `python -m src` | `src.desktop` |
+|---|---|---|
+| Bind address | all interfaces, port 8080 | `127.0.0.1`; saved port (initially 8765), or `--port`; `--no-window` defaults to a free port |
+| Cache DB, perf export, log, settings | working directory / `doc/` | per-user data dir: `%LOCALAPPDATA%\nfl-playoff-rankings-mc-sim\` (else `$XDG_DATA_HOME` or `~/.local/share`), or `--data-dir` |
+| Static files | `--static-dir frontend` | bundled `frontend/` (`sys._MEIPASS` when frozen, repo root otherwise) |
+| UI | your browser | your browser + a tkinter control window |
+
+**Startup.** The launcher reads the port from `settings.json` in the data dir. If something on that port answers `GET /api/status` with this app's shape (`version` and `season_year`), the app is already running. The launcher then just opens the browser on it and exits. Otherwise it opens the control window, which starts the server on that port and opens the browser.
+
+**Control window.** A tkinter window titled with the app version. It shows the URL, a port field with *Apply*, and the buttons *Open in browser*, *Open data folder* and *Quit*. Closing the window quits the app.
+- **Apply** starts a new server on the new port first. Only if that works does it stop the old one, carrying over the active season. It then saves the port and opens the browser.
+- **A taken port** leaves the current server running, and the window says the port is in use. At startup, with no server yet, *Open in browser* is disabled until a port works.
+- **Simulation jobs** live in the server's memory, so switching ports drops them.
+- **Quitting** stops the server and terminates any simulation workers still running.
+
+**Port in use on Windows.** `HTTPServer` sets `SO_REUSEADDR`. On Windows (unlike Linux/macOS), that lets a second socket bind a port another program already listens on, so a taken port would silently appear to work. The launcher's `LocalServer` subclass therefore disables `allow_reuse_address` on Windows and sets `SO_EXCLUSIVEADDRUSE`, so `bind` fails with `OSError` instead.
+
+### Packaging (`packaging/windows/`)
+
+- `nfl-playoff-rankings-mc-sim.spec`: windowed (`console=False`, so no console window besides the control window), bundles `frontend/`, `icon.ico` (the control window's icon) and the package metadata (`server.py` reads its version from it), and pulls in all of OR-Tools with `collect_all("ortools")` for its native DLLs.
+- `nfl_playoff_rankings_mc_sim.py`: the entry script. It replaces the missing `sys.stdout`/`sys.stderr` of a windowed process with `os.devnull`, then calls `multiprocessing.freeze_support()` before anything else. Windows uses the `spawn` start method (see [Platform Notes](#platform-notes)), so every simulation worker relaunches the exe. Without `freeze_support()`, each worker would start a second app instead of running its task.
+- `icon.ico`: generated from `frontend/favicon.svg` (16–256 px).
+- `smoke_test.py`: launches a build with `--no-window --port <free> --data-dir <tmp>`, checks `/api/status` and `/`, fetches the 2025 season, runs a 200-iteration, 2-worker simulation, and calls `/api/cp-clinch-all`. That last call catches a missing OR-Tools: the server runs without it, but the CP solver answers 503. It uses only the stdlib, and works against the exe or `python -m src.desktop`.
+
+Build locally on Windows (PyInstaller can't cross-compile):
+
+```bash
+pip install ".[windows]"
+pyinstaller --noconfirm packaging/windows/nfl-playoff-rankings-mc-sim.spec
+python packaging/windows/smoke_test.py -- dist/nfl-playoff-rankings-mc-sim/nfl-playoff-rankings-mc-sim.exe
+```
+
+### CI (`.github/workflows/windows-build.yml`)
+
+The workflow runs on `windows-latest` with Python 3.13: install `.[windows]`, run PyInstaller, smoke test, zip, upload as a workflow artifact, and `gh release upload` to the tag's release.
+
+`release.yml` calls it as a reusable workflow after it creates a new release, the same way it calls the Docker build. It can't use an `on: release` trigger, because releases created with `GITHUB_TOKEN` don't fire workflow events. You can also run it manually (`workflow_dispatch`) for a tag, or for a branch with *upload* off to test packaging changes. Tags older than v1.5.0 predate `packaging/windows/` and can't be built.

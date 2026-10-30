@@ -2546,15 +2546,18 @@ class NFLSimulatorServer(ThreadingMixIn, HTTPServer):
         static_dir: str = "frontend",
         db_path: str = "nfl_cache.db",
         perf_export_path: str | None = None,
+        host: str = "",
     ) -> None:
         """Initialize the server with configuration.
 
         Args:
-            port: Port number to listen on (default 8080).
+            port: Port number to listen on (default 8080; 0 picks a free port).
             season_year: NFL season year (default: current year).
             static_dir: Directory containing frontend static files (default "frontend").
             db_path: Path to the SQLite cache database file (default "nfl_cache.db").
             perf_export_path: Path for the solver performance export file (default None).
+            host: Interface to bind (default "" = all interfaces; the desktop
+                launcher passes "127.0.0.1").
         """
         if season_year is None:
             season_year = datetime.now().year
@@ -2574,7 +2577,7 @@ class NFLSimulatorServer(ThreadingMixIn, HTTPServer):
         except Exception:
             self.version = "unknown"
 
-        server_address = ("", port)
+        server_address = (host, port)
         super().__init__(server_address, NFLRequestHandler)
 
     def start(self) -> None:

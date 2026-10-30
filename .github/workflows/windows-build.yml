@@ -1,0 +1,97 @@
+name: Build Windows Desktop App
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Git tag (e.g. v1.4.1)"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Git tag to build (e.g. v1.5.0), or a branch name with upload off. Defaults to latest tag."
+        required: false
+        type: string
+      upload:
+        description: "Attach the ZIP to the tag's GitHub release"
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  resolve-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag
+        id: resolve
+        run: |
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            # No tag provided (manual dispatch without input) — find latest v* tag
+            TAG=$(git tag --list 'v*' --sort=-v:refname | head -n1)
+          fi
+          if [ -z "$TAG" ]; then
+            echo "::error::No version tag found"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+  build-windows-x64:
+    needs: resolve-tag
+    runs-on: windows-latest
+
+    permissions:
+      contents: write
+
+    env:
+      TAG: ${{ needs.resolve-tag.outputs.tag }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve-tag.outputs.tag }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: python -m pip install ".[windows]"
+
+      - name: Build with PyInstaller
+        run: pyinstaller --noconfirm packaging/windows/nfl-playoff-rankings-mc-sim.spec
+
+      - name: Smoke test
+        run: python packaging/windows/smoke_test.py -- dist/nfl-playoff-rankings-mc-sim/nfl-playoff-rankings-mc-sim.exe
+
+      - name: Zip
+        id: zip
+        shell: pwsh
+        run: |
+          $zip = "nfl-playoff-rankings-mc-sim-$($env:TAG -replace '/', '-')-windows-x64.zip"
+          Compress-Archive -Path dist/nfl-playoff-rankings-mc-sim -DestinationPath $zip
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+
+      # archive: false uploads the ZIP as-is (no ZIP inside a ZIP), so the
+      # artifact is byte-for-byte the file attached to the release.
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ steps.zip.outputs.zip }}
+          archive: false
+
+      - name: Attach to release
+        if: github.event_name != 'workflow_dispatch' || inputs.upload
+        run: gh release upload "${{ env.TAG }}" "${{ steps.zip.outputs.zip }}" --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

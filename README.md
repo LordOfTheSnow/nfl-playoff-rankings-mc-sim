@@ -5,7 +5,7 @@
 [![Docker Image](https://img.shields.io/badge/ghcr.io-nfl--playoff--rankings--mc--sim-blue?logo=docker)](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/pkgs/container/nfl-playoff-rankings-mc-sim)
 [![Build Status](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/actions/workflows/docker-publish.yml)
 
-**v1.4.1**
+**v1.5.0**
 
 A browser application that predicts NFL playoff probabilities using Monte Carlo simulation. It fetches real game data from ESPN's public API, computes strength-of-schedule-weighted team ratings, simulates remaining games, applies official NFL tiebreaker rules, and presents probability distributions through an interactive browser UI.
 
@@ -88,6 +88,30 @@ Then open http://localhost:8080 in your browser.
 3. Click **Go to Simulations →**, configure simulation parameters (iterations, cutoff week, noise) and click **Simulate**
 4. View results on the same **Simulations** page — click any team for candidate details
 
+## Windows desktop app (optional)
+
+Every release from v1.5.0 on includes an experimental Windows build, `nfl-playoff-rankings-mc-sim-vX.Y.Z-windows-x64.zip`, on its [GitHub Releases](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/releases) page. It doesn't need Python or Docker, but uses the browser to display the app's frontend:
+
+1. Download the ZIP and extract it anywhere (e.g. your Desktop).
+2. Run `nfl-playoff-rankings-mc-sim.exe` in the extracted `nfl-playoff-rankings-mc-sim` folder.
+
+The app opens in your default browser at `http://127.0.0.1:8765/`, plus a small control window that keeps it running:
+
+![Windows control window showing the app's URL, a port field with Apply, and Open in browser, Open data folder and Quit buttons](/doc/img/screenshot-windows-app-starter.png)
+
+- **Port:** change the port and click **Apply** if 8765 is taken or you prefer another one. The app restarts on that port, reopens the browser and remembers the choice. Simulation results shown at the old address are lost.
+- **Open in browser:** reopens the app if you closed its tab.
+- **Open data folder:** opens the folder with the cache and `app.log`.
+- **Quit**, or closing the window, stops the app. Closing the browser tab does not.
+
+Starting the exe again while the app is running just opens the browser on it.
+
+**The build is not code-signed**, so on first launch Windows SmartScreen may show "Windows protected your PC". Click **More info → Run anyway**.
+
+- **Requirements:** Windows 10/11 x64 and any current browser.
+- **Data:** the cache database (`nfl_cache.db`), the log file (`app.log`), the saved port (`settings.json`) and solver-performance exports are stored in `%LOCALAPPDATA%\nfl-playoff-rankings-mc-sim\`. They survive upgrading to a new release (extract the new ZIP and delete the old folder).
+- The app's server listens only on `127.0.0.1`, so it is not reachable from other machines and triggers no firewall prompt.
+
 ## Docker (optional)
 
 Docker is entirely optional. The existing pip-based setup (virtual environment + `pip install`) described above remains fully supported and is the recommended workflow for local development.
@@ -133,7 +157,7 @@ pytest tests/ -v
 - [Screenshot Gallery](doc/screenshots.md) — Every page in the app
 - [API Reference](doc/api.md) — All HTTP endpoints, parameters, and response formats
 - [Algorithms](doc/algorithms.md) — Team strength ratings, clinching scenarios solver, CP solver
-- [Technical](doc/technical.md) — Parallel simulation, solver performance export
+- [Technical](doc/technical.md) — Parallel simulation, solver performance export, Windows desktop build
 - [Solver Performance](doc/solver-performance.md) — Cross-platform benchmark results
 - [Clinching Solver Consolidation](doc/clinching-solver-consolidation.md) — Investigation notes on duplicated game-simulation logic between the main simulator and the clinching solver
 
