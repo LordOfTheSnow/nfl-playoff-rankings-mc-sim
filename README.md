@@ -100,6 +100,7 @@ The build is not code-signed, so on first launch Windows SmartScreen may show "W
 - **Requirements:** Windows 10/11 x64. The window uses the Microsoft Edge WebView2 Runtime, which comes with current Windows. If it is missing, the app opens in your default browser instead and shows a small dialog. Click **OK** there to quit.
 - **Data:** the cache database (`nfl_cache.db`), the log file (`app.log`) and solver-performance exports are stored in `%LOCALAPPDATA%\nfl-playoff-sim\`. They survive upgrading to a new release (extract the new ZIP and delete the old folder).
 - **Downloads:** Export and Teaser images open a normal Windows "Save as" dialog.
+- **Troubleshooting:** if the app opens in your browser instead of its own window, the reason is in `app.log`. As a manual workaround, right-click the downloaded ZIP → **Properties** → tick **Unblock**, then extract it again. The app already clears Windows' "downloaded from the internet" mark from its own files at startup, which normally makes this unnecessary.
 - The app's server listens only on `127.0.0.1` (a random free port), so it is not reachable from other machines and triggers no firewall prompt.
 
 ## Docker (optional)

@@ -108,8 +108,60 @@ class DesktopApi:
         return True
 
 
+def _unblock_bundled_dlls() -> None:
+    """Remove the "downloaded from the internet" mark from the frozen build's own DLLs.
+
+    Extracting a downloaded ZIP with Explorer copies its Mark of the Web (a
+    `Zone.Identifier` alternate data stream) onto every file, and the .NET
+    Framework refuses to load marked assemblies -- pythonnet then fails with
+    "Failed to resolve Python.Runtime.Loader.Initialize" and no window opens.
+    Deleting the stream is what Explorer's "Unblock" does; the user already
+    chose to run this exe, so this only covers its own bundled files.
+    """
+    if sys.platform != "win32" or not getattr(sys, "frozen", False):
+        return
+    bundle_dir = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    unblocked = 0
+    for dll in bundle_dir.rglob("*.dll"):
+        try:
+            os.remove(f"{dll}:Zone.Identifier")
+            unblocked += 1
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            logger.warning("Could not unblock %s: %s", dll, exc)
+    if unblocked:
+        logger.info("Removed the download mark from %d bundled DLLs", unblocked)
+
+
+def _webview2_installed() -> bool | None:
+    """Whether the Edge WebView2 Runtime is installed (None if it can't be checked).
+
+    Uses the registry keys Microsoft documents for detecting the Evergreen runtime.
+    """
+    if sys.platform != "win32":
+        return None
+    import winreg
+
+    client = r"Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+    for root, key in (
+        (winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\WOW6432Node\{client}"),
+        (winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\{client}"),
+        (winreg.HKEY_CURRENT_USER, rf"Software\{client}"),
+    ):
+        try:
+            with winreg.OpenKey(root, key) as handle:
+                version, _ = winreg.QueryValueEx(handle, "pv")
+        except OSError:
+            continue
+        if version and version != "0.0.0.0":
+            return True
+    return False
+
+
 def _show_window(url: str) -> bool:
     """Show the app in a native window; return False if the webview could not start."""
+    _unblock_bundled_dlls()
     try:
         import webview
 
@@ -125,16 +177,17 @@ def _show_window(url: str) -> bool:
         return False
 
 
-def _browser_fallback(url: str, server_thread: threading.Thread) -> None:
+def _browser_fallback(url: str, server_thread: threading.Thread, log_path: Path) -> None:
     """Open the default browser and keep serving until the user quits."""
     webbrowser.open(url)
     if sys.platform == "win32":
         import ctypes
 
-        message = (
-            f"The app window could not be opened (is the Microsoft Edge WebView2 Runtime installed?).\n\n"
-            f"It is running in your browser instead:\n{url}\n\nClick OK to quit."
-        )
+        if _webview2_installed() is False:
+            reason = "The app window needs the Microsoft Edge WebView2 Runtime, which is not installed."
+        else:
+            reason = f"The app window could not be opened. Details are in:\n{log_path}"
+        message = f"{reason}\n\nThe app is running in your browser instead:\n{url}\n\nClick OK to quit."
         ctypes.windll.user32.MessageBoxW(0, message, WINDOW_TITLE, 0x40)  # MB_ICONINFORMATION
     else:
         print(f"Running at {url} — press Ctrl+C to quit.")
@@ -182,7 +235,7 @@ def main(argv: list[str] | None = None) -> None:
             print(url, flush=True)
             server_thread.join()
         elif not _show_window(url):
-            _browser_fallback(url, server_thread)
+            _browser_fallback(url, server_thread, data_dir / "app.log")
     except KeyboardInterrupt:
         pass
     finally:

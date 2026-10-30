@@ -80,3 +80,33 @@ def test_save_file_cancelled(monkeypatch):
     api = desktop.DesktopApi()
     api.window = FakeWindow()
     assert api.save_file("x.png", "") is False
+
+
+def test_unblock_bundled_dlls_removes_zone_identifier(monkeypatch, tmp_path):
+    # On NTFS "a.dll:Zone.Identifier" is an alternate data stream; elsewhere
+    # it's an ordinary file with that name, which exercises the same os.remove.
+    (tmp_path / "sub").mkdir()
+    marked = tmp_path / "sub" / "a.dll"
+    marked.write_bytes(b"")
+    Path(f"{marked}:Zone.Identifier").write_text("[ZoneTransfer]\nZoneId=3\n")
+    (tmp_path / "b.dll").write_bytes(b"")
+    monkeypatch.setattr("sys.platform", "win32")
+    monkeypatch.setattr("sys.frozen", True, raising=False)
+    monkeypatch.setattr("sys._MEIPASS", str(tmp_path), raising=False)
+
+    desktop._unblock_bundled_dlls()
+
+    assert not Path(f"{marked}:Zone.Identifier").exists()
+    assert marked.exists()
+
+
+def test_unblock_bundled_dlls_skips_source_runs(monkeypatch, tmp_path):
+    marker = tmp_path / "a.dll:Zone.Identifier"
+    marker.write_text("")
+    monkeypatch.setattr("sys.platform", "win32")
+    monkeypatch.setattr("sys.frozen", False, raising=False)
+    monkeypatch.setattr("sys._MEIPASS", str(tmp_path), raising=False)
+
+    desktop._unblock_bundled_dlls()
+
+    assert marker.exists()
