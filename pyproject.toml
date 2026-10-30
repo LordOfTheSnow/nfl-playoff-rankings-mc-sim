@@ -16,6 +16,10 @@ dev = [
     "httpx==0.28.1",
     "ortools>=9.9",
 ]
+windows = [
+    "pywebview>=5.0",
+    "pyinstaller>=6.10",
+]
 
 [build-system]
 requires = ["setuptools>=75.0.0"]

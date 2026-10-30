@@ -88,6 +88,20 @@ Then open http://localhost:8080 in your browser.
 3. Click **Go to Simulations →**, configure simulation parameters (iterations, cutoff week, noise) and click **Simulate**
 4. View results on the same **Simulations** page — click any team for candidate details
 
+## Windows desktop app (optional)
+
+Every release from v1.5.0 on includes a Windows build, `nfl-playoff-sim-vX.Y.Z-windows-x64.zip`, on its [GitHub Releases](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/releases) page. It doesn't need Python or Docker:
+
+1. Download the ZIP and extract it anywhere (e.g. your Desktop).
+2. Run `nfl-playoff-sim.exe` in the extracted `nfl-playoff-sim` folder. The app opens in its own window.
+
+The build is not code-signed, so on first launch Windows SmartScreen may show "Windows protected your PC". Click **More info → Run anyway**.
+
+- **Requirements:** Windows 10/11 x64. The window uses the Microsoft Edge WebView2 Runtime, which comes with current Windows. If it is missing, the app opens in your default browser instead and shows a small dialog. Click **OK** there to quit.
+- **Data:** the cache database (`nfl_cache.db`), the log file (`app.log`) and solver-performance exports are stored in `%LOCALAPPDATA%\nfl-playoff-sim\`. They survive upgrading to a new release (extract the new ZIP and delete the old folder).
+- **Downloads:** Export and Teaser images open a normal Windows "Save as" dialog.
+- The app's server listens only on `127.0.0.1` (a random free port), so it is not reachable from other machines and triggers no firewall prompt.
+
 ## Docker (optional)
 
 Docker is entirely optional. The existing pip-based setup (virtual environment + `pip install`) described above remains fully supported and is the recommended workflow for local development.
@@ -133,7 +147,7 @@ pytest tests/ -v
 - [Screenshot Gallery](doc/screenshots.md) — Every page in the app
 - [API Reference](doc/api.md) — All HTTP endpoints, parameters, and response formats
 - [Algorithms](doc/algorithms.md) — Team strength ratings, clinching scenarios solver, CP solver
-- [Technical](doc/technical.md) — Parallel simulation, solver performance export
+- [Technical](doc/technical.md) — Parallel simulation, solver performance export, Windows desktop build
 - [Solver Performance](doc/solver-performance.md) — Cross-platform benchmark results
 - [Clinching Solver Consolidation](doc/clinching-solver-consolidation.md) — Investigation notes on duplicated game-simulation logic between the main simulator and the clinching solver
 

@@ -109,3 +109,41 @@ describe("Export view", () => {
     expect(notification.textContent).toContain("Server error (HTTP 409)");
   });
 });
+
+describe("Export download helper", () => {
+  afterEach(() => {
+    delete window.pywebview;
+  });
+
+  it("hands the file to the desktop app's Save-As bridge when present", async () => {
+    let saved = null;
+    window.pywebview = {
+      api: { save_file: (filename, data) => { saved = { filename, data }; return Promise.resolve(true); } },
+    };
+    let anchorClicked = false;
+    const originalClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () { anchorClicked = true; };
+    try {
+      await _downloadBlob(new Blob(["hello"], { type: "text/plain" }), "x.txt");
+    } finally {
+      HTMLAnchorElement.prototype.click = originalClick;
+    }
+
+    expect(saved.filename).toBe("x.txt");
+    expect(atob(saved.data)).toBe("hello");
+    expect(anchorClicked).toBe(false);
+  });
+
+  it("falls back to an anchor download in a regular browser", async () => {
+    let downloadName = null;
+    const originalClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () { downloadName = this.download; };
+    try {
+      await _downloadBlob(new Blob(["hello"]), "y.zip");
+    } finally {
+      HTMLAnchorElement.prototype.click = originalClick;
+    }
+
+    expect(downloadName).toBe("y.zip");
+  });
+});

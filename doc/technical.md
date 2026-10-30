@@ -148,3 +148,43 @@ The exported file ([`solver-performance.md`](solver-performance.md)) contains a 
 2. Click "Export Performance Data"
 3. Commit the updated `doc/solver-performance.md`
 4. Your hardware's results will appear alongside others for comparison
+
+## Windows Desktop Build
+
+A portable Windows build is attached to every GitHub release as `nfl-playoff-sim-<tag>-windows-x64.zip`: a PyInstaller *onedir* folder (`nfl-playoff-sim.exe` + `_internal/`), zipped. It is unsigned.
+
+### Desktop launcher (`src/desktop.py`)
+
+`src/desktop.py` is the build's entry point. You can also run it from source: `python -m src.desktop`, or `python -m src.desktop --no-window` for the server only. It differs from `python -m src` as follows:
+
+| | `python -m src` | `src.desktop` |
+|---|---|---|
+| Bind address | all interfaces, port 8080 | `127.0.0.1`, a free port (`--port 0`, the default) |
+| Cache DB, perf export, log | working directory / `doc/` | per-user data dir: `%LOCALAPPDATA%\nfl-playoff-sim\` (else `$XDG_DATA_HOME` or `~/.local/share`), or `--data-dir` |
+| Static files | `--static-dir frontend` | bundled `frontend/` (`sys._MEIPASS` when frozen, repo root otherwise) |
+| UI | your browser | a pywebview window |
+
+The server runs in a background thread, and the main thread runs pywebview (forced to the Edge WebView2 backend on Windows, so it never falls back to an IE renderer). If the window can't start, the launcher opens the default browser and blocks on a Windows message box, which stops the server when you click OK. On shutdown it closes the server, cache and data client, and terminates any simulation worker processes still running.
+
+**Downloads.** An embedded webview has no browser download UI, so pywebview's `js_api` exposes `save_file(filename, base64)`. That opens a native Save dialog and writes the decoded bytes. `_downloadBlob` in `frontend/js/export.js` (used by HTML/ZIP export and all Teaser images) uses `window.pywebview.api.save_file` when it exists. Otherwise, as in a regular browser or Docker, it falls back to the usual temporary `<a download>`.
+
+### Packaging (`packaging/windows/`)
+
+- `nfl-playoff-sim.spec`: windowed (`console=False`), bundles `frontend/` and the package metadata (`server.py` reads its version from it), and pulls in all of OR-Tools with `collect_all("ortools")` for its native DLLs.
+- `nfl_playoff_sim.py`: the entry script. It replaces the missing `sys.stdout`/`sys.stderr` of a windowed process with `os.devnull`, then calls `multiprocessing.freeze_support()` before anything else. Windows uses the `spawn` start method (see [Platform Notes](#platform-notes)), so every simulation worker relaunches the exe. Without `freeze_support()`, each worker would start a second app instead of running its task.
+- `icon.ico`: generated from `frontend/favicon.svg` (16–256 px).
+- `smoke_test.py`: launches a build with `--no-window --port <free> --data-dir <tmp>`, checks `/api/status` and `/`, fetches the 2025 season, and runs a 200-iteration, 2-worker simulation. It uses only the stdlib, and works against the exe or `python -m src.desktop`.
+
+Build locally on Windows (PyInstaller can't cross-compile):
+
+```bash
+pip install ".[windows]"
+pyinstaller --noconfirm packaging/windows/nfl-playoff-sim.spec
+python packaging/windows/smoke_test.py -- dist/nfl-playoff-sim/nfl-playoff-sim.exe
+```
+
+### CI (`.github/workflows/windows-build.yml`)
+
+The workflow runs on `windows-latest` with Python 3.13: install `.[windows]`, run PyInstaller, smoke test, zip, upload as a workflow artifact, and `gh release upload` to the tag's release.
+
+`release.yml` calls it as a reusable workflow after it creates a new release, the same way it calls the Docker build. It can't use an `on: release` trigger, because releases created with `GITHUB_TOKEN` don't fire workflow events. You can also run it manually (`workflow_dispatch`) for a tag, or for a branch with *upload* off to test packaging changes. Tags older than v1.5.0 predate `packaging/windows/` and can't be built.

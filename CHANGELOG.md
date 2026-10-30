@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Windows desktop app**: each release now attaches `nfl-playoff-sim-vX.Y.Z-windows-x64.zip`, a portable (unzip and run) Windows build. It runs the app in a native window (Edge WebView2, falling back to the default browser if WebView2 is missing), with its server bound to `127.0.0.1` on a free port and its cache/log in `%LOCALAPPDATA%\nfl-playoff-sim\`. Export and Teaser downloads open a native Save-As dialog there. The build is made by a new `windows-build.yml` workflow (PyInstaller, smoke-tested headless before upload), chained from the release workflow like the Docker image. Run it from source with `python -m src.desktop` (`pip install ".[windows]"` for the window). See [Technical](doc/technical.md#windows-desktop-build)
+
 ## [1.4.1] - 2026-10-27
 
 ### Changed
