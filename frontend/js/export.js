@@ -133,7 +133,7 @@ async function _downloadMatchupsTeaser() {
     });
 
     const filename = `nfl-playoff-rankings-mc-sim-teaser-matchups-${status.season_year}-week${nextWeek}-9x16.png`;
-    await _downloadBlob(blob, filename);
+    _downloadBlob(blob, filename);
   } catch (err) {
     App.showError(err.message || "Matchups image generation failed.");
   } finally {
@@ -172,7 +172,7 @@ async function _downloadWildcardTeaser(conference) {
     });
 
     const filename = `nfl-playoff-rankings-mc-sim-teaser-wildcard-${conference.toLowerCase()}-${status.season_year}-week${data.cutoff_week}-9x16.png`;
-    await _downloadBlob(blob, filename);
+    _downloadBlob(blob, filename);
   } catch (err) {
     App.showError(err.message || "Wild Card image generation failed.");
   } finally {
@@ -242,7 +242,7 @@ async function _downloadTeaser() {
 
     const suffix = format.portrait ? `-${format.id}` : "";
     const filename = `nfl-playoff-rankings-mc-sim-teaser-${baseline.season}-week${sim.cutoff_week_used}${suffix}.png`;
-    await _downloadBlob(blob, filename);
+    _downloadBlob(blob, filename);
   } catch (err) {
     App.showError(err.message || "Teaser generation failed.");
   } finally {
@@ -315,7 +315,7 @@ async function _runExport(kind) {
       ? await API.exportPage(payload)
       : await API.exportBundle(payload);
     const filename = `nfl-playoff-rankings-mc-sim-export-${season}.${kind === "page" ? "html" : "zip"}`;
-    await _downloadBlob(blob, filename);
+    _downloadBlob(blob, filename);
     if (statusEl) statusEl.textContent = "";
   } catch (err) {
     if (statusEl) statusEl.textContent = "";
@@ -324,21 +324,12 @@ async function _runExport(kind) {
 }
 
 /**
- * Save a Blob under `filename`. Inside the Windows desktop app (src/desktop.py)
- * this goes through the pywebview bridge's native Save-As dialog, since an
- * embedded webview has no browser download UI; elsewhere it triggers a regular
- * browser download via a temporary anchor element.
+ * Trigger a browser download of a Blob via a temporary anchor element.
  *
  * @param {Blob} blob
  * @param {string} filename
- * @returns {Promise<void>}
  */
-async function _downloadBlob(blob, filename) {
-  const bridge = window.pywebview && window.pywebview.api;
-  if (bridge && typeof bridge.save_file === "function") {
-    await bridge.save_file(filename, await _blobToBase64(blob));
-    return;
-  }
+function _downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -347,19 +338,4 @@ async function _downloadBlob(blob, filename) {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
-}
-
-/**
- * Base64-encode a Blob's bytes (without the `data:...;base64,` prefix).
- *
- * @param {Blob} blob
- * @returns {Promise<string>}
- */
-function _blobToBase64(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(",", 2)[1] || "");
-    reader.onerror = () => reject(reader.error || new Error("Could not read file data."));
-    reader.readAsDataURL(blob);
-  });
 }

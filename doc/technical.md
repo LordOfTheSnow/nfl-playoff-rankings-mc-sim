@@ -151,29 +151,33 @@ The exported file ([`solver-performance.md`](solver-performance.md)) contains a 
 
 ## Windows Desktop Build
 
-A portable Windows build is attached to every GitHub release as `nfl-playoff-sim-<tag>-windows-x64.zip`: a PyInstaller *onedir* folder (`nfl-playoff-sim.exe` + `_internal/`), zipped. It is unsigned.
+A portable Windows build is attached to every GitHub release as `nfl-playoff-rankings-mc-sim-<tag>-windows-x64.zip`: a PyInstaller *onedir* folder (`nfl-playoff-rankings-mc-sim.exe` + `_internal/`), zipped. It is unsigned.
 
 ### Desktop launcher (`src/desktop.py`)
 
-`src/desktop.py` is the build's entry point. You can also run it from source: `python -m src.desktop`, or `python -m src.desktop --no-window` for the server only. It differs from `python -m src` as follows:
+`src/desktop.py` is the build's entry point. You can also run it from source: `python -m src.desktop` (needs tkinter), or `python -m src.desktop --no-window` for the server only. It differs from `python -m src` as follows:
 
 | | `python -m src` | `src.desktop` |
 |---|---|---|
-| Bind address | all interfaces, port 8080 | `127.0.0.1`, a free port (`--port 0`, the default) |
-| Cache DB, perf export, log | working directory / `doc/` | per-user data dir: `%LOCALAPPDATA%\nfl-playoff-sim\` (else `$XDG_DATA_HOME` or `~/.local/share`), or `--data-dir` |
+| Bind address | all interfaces, port 8080 | `127.0.0.1`; saved port (initially 8765), or `--port`; `--no-window` defaults to a free port |
+| Cache DB, perf export, log, settings | working directory / `doc/` | per-user data dir: `%LOCALAPPDATA%\nfl-playoff-rankings-mc-sim\` (else `$XDG_DATA_HOME` or `~/.local/share`), or `--data-dir` |
 | Static files | `--static-dir frontend` | bundled `frontend/` (`sys._MEIPASS` when frozen, repo root otherwise) |
-| UI | your browser | a pywebview window |
+| UI | your browser | your browser + a tkinter control window |
 
-**Mark of the Web.** Extracting a downloaded ZIP with Explorer copies its `Zone.Identifier` alternate data stream onto every file. The .NET Framework refuses to load assemblies marked that way, so pythonnet fails with `Failed to resolve Python.Runtime.Loader.Initialize` and no window opens. The CI smoke test can't catch this, because it runs headless on files that were never downloaded. Before importing pywebview, a frozen Windows build therefore deletes that stream from every `.dll` in its own bundle, which is what Explorer's *Unblock* does. A failure to do so is logged, not fatal. The browser-fallback dialog mentions WebView2 only if the runtime's documented registry keys are absent; otherwise it points to `app.log`.
+**Startup.** The launcher reads the port from `settings.json` in the data dir. If something on that port answers `GET /api/status` with this app's shape (`version` and `season_year`), the app is already running. The launcher then just opens the browser on it and exits. Otherwise it opens the control window, which starts the server on that port and opens the browser.
 
-The server runs in a background thread, and the main thread runs pywebview (forced to the Edge WebView2 backend on Windows, so it never falls back to an IE renderer). If the window can't start, the launcher opens the default browser and blocks on a Windows message box, which stops the server when you click OK. On shutdown it closes the server, cache and data client, and terminates any simulation worker processes still running.
+**Control window.** A tkinter window titled with the app version. It shows the URL, a port field with *Apply*, and the buttons *Open in browser*, *Open data folder* and *Quit*. Closing the window quits the app.
+- **Apply** starts a new server on the new port first. Only if that works does it stop the old one, carrying over the active season. It then saves the port and opens the browser.
+- **A taken port** leaves the current server running, and the window says the port is in use. At startup, with no server yet, *Open in browser* is disabled until a port works.
+- **Simulation jobs** live in the server's memory, so switching ports drops them.
+- **Quitting** stops the server and terminates any simulation workers still running.
 
-**Downloads.** An embedded webview has no browser download UI, so pywebview's `js_api` exposes `save_file(filename, base64)`. That opens a native Save dialog and writes the decoded bytes. `_downloadBlob` in `frontend/js/export.js` (used by HTML/ZIP export and all Teaser images) uses `window.pywebview.api.save_file` when it exists. Otherwise, as in a regular browser or Docker, it falls back to the usual temporary `<a download>`.
+**Port in use on Windows.** `HTTPServer` sets `SO_REUSEADDR`. On Windows (unlike Linux/macOS), that lets a second socket bind a port another program already listens on, so a taken port would silently appear to work. The launcher's `LocalServer` subclass therefore disables `allow_reuse_address` on Windows and sets `SO_EXCLUSIVEADDRUSE`, so `bind` fails with `OSError` instead.
 
 ### Packaging (`packaging/windows/`)
 
-- `nfl-playoff-sim.spec`: windowed (`console=False`), bundles `frontend/` and the package metadata (`server.py` reads its version from it), and pulls in all of OR-Tools with `collect_all("ortools")` for its native DLLs.
-- `nfl_playoff_sim.py`: the entry script. It replaces the missing `sys.stdout`/`sys.stderr` of a windowed process with `os.devnull`, then calls `multiprocessing.freeze_support()` before anything else. Windows uses the `spawn` start method (see [Platform Notes](#platform-notes)), so every simulation worker relaunches the exe. Without `freeze_support()`, each worker would start a second app instead of running its task.
+- `nfl-playoff-rankings-mc-sim.spec`: windowed (`console=False`, so no console window besides the control window), bundles `frontend/`, `icon.ico` (the control window's icon) and the package metadata (`server.py` reads its version from it), and pulls in all of OR-Tools with `collect_all("ortools")` for its native DLLs.
+- `nfl_playoff_rankings_mc_sim.py`: the entry script. It replaces the missing `sys.stdout`/`sys.stderr` of a windowed process with `os.devnull`, then calls `multiprocessing.freeze_support()` before anything else. Windows uses the `spawn` start method (see [Platform Notes](#platform-notes)), so every simulation worker relaunches the exe. Without `freeze_support()`, each worker would start a second app instead of running its task.
 - `icon.ico`: generated from `frontend/favicon.svg` (16–256 px).
 - `smoke_test.py`: launches a build with `--no-window --port <free> --data-dir <tmp>`, checks `/api/status` and `/`, fetches the 2025 season, runs a 200-iteration, 2-worker simulation, and calls `/api/cp-clinch-all`. That last call catches a missing OR-Tools: the server runs without it, but the CP solver answers 503. It uses only the stdlib, and works against the exe or `python -m src.desktop`.
 
@@ -181,8 +185,8 @@ Build locally on Windows (PyInstaller can't cross-compile):
 
 ```bash
 pip install ".[windows]"
-pyinstaller --noconfirm packaging/windows/nfl-playoff-sim.spec
-python packaging/windows/smoke_test.py -- dist/nfl-playoff-sim/nfl-playoff-sim.exe
+pyinstaller --noconfirm packaging/windows/nfl-playoff-rankings-mc-sim.spec
+python packaging/windows/smoke_test.py -- dist/nfl-playoff-rankings-mc-sim/nfl-playoff-rankings-mc-sim.exe
 ```
 
 ### CI (`.github/workflows/windows-build.yml`)

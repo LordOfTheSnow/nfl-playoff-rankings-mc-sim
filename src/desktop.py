@@ -1,32 +1,35 @@
-"""Desktop launcher: runs the server in-process and shows it in a native window.
+"""Desktop launcher: runs the server in-process, opens the browser, shows a control window.
 
 This is the entry point of the Windows build (see packaging/windows/), but it
 also runs from source for development:
 
-    python -m src.desktop               # native window (needs pywebview)
+    python -m src.desktop               # browser + control window (needs tkinter)
     python -m src.desktop --no-window   # server only, e.g. for the CI smoke test
 
-Unlike `python -m src`, the server binds to 127.0.0.1 on a free port (unless
---port is given), and the cache DB, solver-performance export and log file
-live in a per-user data directory rather than the working directory.
+Unlike `python -m src`, the server binds to 127.0.0.1 only, and the cache DB,
+solver-performance export, log file and settings live in a per-user data
+directory rather than the working directory.
 
-The window is a pywebview (Edge WebView2) window. Its js_api exposes
-`save_file(filename, base64)` so the frontend's downloads (Export, Teaser
-images) can go through a native Save-As dialog -- see `_downloadBlob` in
-frontend/js/export.js. If the webview cannot start (e.g. no WebView2 runtime),
-the app falls back to the default browser and keeps the server alive until a
-message box is dismissed.
+The app runs in the user's default browser. A small tkinter control window
+keeps it alive: it shows the URL and version, lets the user change the port
+(remembered in settings.json; first launch uses DEFAULT_PORT), reopen the
+browser, open the data folder, and quit -- closing the window quits too. If the
+saved port already answers as this app, a second launch just opens the browser
+on it and exits.
 """
 
 from __future__ import annotations
 
 import argparse
-import base64
+import json
 import logging
 import multiprocessing
 import os
+import socket
+import subprocess
 import sys
 import threading
+import urllib.request
 import webbrowser
 from datetime import datetime
 from pathlib import Path
@@ -35,8 +38,10 @@ from src.server import NFLSimulatorServer
 
 logger = logging.getLogger(__name__)
 
-APP_DIR_NAME = "nfl-playoff-sim"
+APP_DIR_NAME = "nfl-playoff-rankings-mc-sim"
 WINDOW_TITLE = "NFL Playoff Rankings Sim"
+DEFAULT_PORT = 8765
+SETTINGS_FILE = "settings.json"
 
 
 def default_data_dir() -> Path:
@@ -47,28 +52,49 @@ def default_data_dir() -> Path:
     return Path(base) / APP_DIR_NAME
 
 
+def _bundle_dir() -> Path:
+    """Where bundled resources live: _internal/ when frozen, the repo root otherwise."""
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    return Path(__file__).resolve().parent.parent
+
+
 def default_static_dir() -> Path:
     """The frontend/ directory: bundled next to the code when frozen, repo root otherwise."""
-    if getattr(sys, "frozen", False):
-        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "frontend"
-    return Path(__file__).resolve().parent.parent / "frontend"
+    return _bundle_dir() / "frontend"
+
+
+def app_version() -> str:
+    """Installed package version, as NFLSimulatorServer reports it."""
+    try:
+        from importlib.metadata import version
+
+        return version("nfl-playoff-rankings-mc-sim")
+    except Exception:
+        return "unknown"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments for the desktop launcher."""
     parser = argparse.ArgumentParser(
-        prog="nfl-playoff-sim",
+        prog="nfl-playoff-rankings-mc-sim",
         description="NFL Playoff Rankings Monte Carlo Simulator — desktop app",
     )
-    parser.add_argument("--port", type=int, default=0, help="Port to listen on (default: a free port)")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help=f"Port to listen on (default: the saved port, initially {DEFAULT_PORT}; "
+        "with --no-window, a free port)",
+    )
     parser.add_argument(
         "--season",
         type=int,
         default=datetime.now().year,
         help=f"NFL season year (default: {datetime.now().year})",
     )
-    parser.add_argument("--data-dir", type=str, default=None, help="Directory for the cache DB and log file")
-    parser.add_argument("--no-window", action="store_true", help="Run the server only, without a window")
+    parser.add_argument("--data-dir", type=str, default=None, help="Directory for the cache DB, log and settings")
+    parser.add_argument("--no-window", action="store_true", help="Run the server only: no browser, no window")
     return parser.parse_args(argv)
 
 
@@ -84,134 +110,208 @@ def _configure_logging(data_dir: Path) -> None:
     )
 
 
-class DesktopApi:
-    """Methods callable from the page as `window.pywebview.api.<name>()`."""
-
-    def __init__(self) -> None:
-        # Underscore-prefixed: pywebview exposes every public attribute of js_api to
-        # JavaScript by walking it recursively, which would descend into the
-        # native WinForms window (endless recursion, UI-thread errors in app.log).
-        self._window = None
-
-    def save_file(self, filename: str, data_base64: str) -> bool:
-        """Ask for a target path with a native Save dialog and write the file.
-
-        Returns True if the file was written, False if the dialog was cancelled.
-        """
-        import webview
-
-        save_mode = getattr(getattr(webview, "FileDialog", None), "SAVE", None) or webview.SAVE_DIALOG
-        result = self._window.create_file_dialog(save_mode, save_filename=filename)
-        if not result:
-            return False
-        # Backends differ: some return a path string, some a 1-tuple.
-        path = result if isinstance(result, str) else result[0]
-        Path(path).write_bytes(base64.b64decode(data_base64))
-        logger.info("Saved %s", path)
-        return True
+def valid_port(port: object) -> bool:
+    """Ports the user may pick: unprivileged TCP ports."""
+    return isinstance(port, int) and not isinstance(port, bool) and 1024 <= port <= 65535
 
 
-def _unblock_bundled_dlls() -> None:
-    """Remove the "downloaded from the internet" mark from the frozen build's own DLLs.
-
-    Extracting a downloaded ZIP with Explorer copies its Mark of the Web (a
-    `Zone.Identifier` alternate data stream) onto every file, and the .NET
-    Framework refuses to load marked assemblies -- pythonnet then fails with
-    "Failed to resolve Python.Runtime.Loader.Initialize" and no window opens.
-    Deleting the stream is what Explorer's "Unblock" does; the user already
-    chose to run this exe, so this only covers its own bundled files.
-    """
-    if sys.platform != "win32" or not getattr(sys, "frozen", False):
-        return
-    bundle_dir = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
-    unblocked = 0
-    for dll in bundle_dir.rglob("*.dll"):
-        try:
-            os.remove(f"{dll}:Zone.Identifier")
-            unblocked += 1
-        except FileNotFoundError:
-            continue
-        except OSError as exc:
-            logger.warning("Could not unblock %s: %s", dll, exc)
-    if unblocked:
-        logger.info("Removed the download mark from %d bundled DLLs", unblocked)
-
-
-def _webview2_installed() -> bool | None:
-    """Whether the Edge WebView2 Runtime is installed (None if it can't be checked).
-
-    Uses the registry keys Microsoft documents for detecting the Evergreen runtime.
-    """
-    if sys.platform != "win32":
-        return None
-    import winreg
-
-    client = r"Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
-    for root, key in (
-        (winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\WOW6432Node\{client}"),
-        (winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\{client}"),
-        (winreg.HKEY_CURRENT_USER, rf"Software\{client}"),
-    ):
-        try:
-            with winreg.OpenKey(root, key) as handle:
-                version, _ = winreg.QueryValueEx(handle, "pv")
-        except OSError:
-            continue
-        if version and version != "0.0.0.0":
-            return True
-    return False
-
-
-def _show_window(url: str) -> bool:
-    """Show the app in a native window; return False if the webview could not start."""
-    _unblock_bundled_dlls()
+def load_port(data_dir: Path) -> int:
+    """The saved port from settings.json, or DEFAULT_PORT if none/invalid."""
     try:
-        import webview
+        port = json.loads((data_dir / SETTINGS_FILE).read_text(encoding="utf-8")).get("port")
+    except (OSError, ValueError, AttributeError):
+        return DEFAULT_PORT
+    return port if valid_port(port) else DEFAULT_PORT
 
-        api = DesktopApi()
-        api._window = webview.create_window(
-            WINDOW_TITLE, url, js_api=api, width=1400, height=900, min_size=(900, 600)
-        )
-        # Force Edge WebView2: never silently fall back to an IE-based renderer.
-        webview.start(gui="edgechromium" if sys.platform == "win32" else None)
-        return True
+
+def save_port(data_dir: Path, port: int) -> None:
+    """Remember the port in settings.json, keeping any other settings."""
+    path = data_dir / SETTINGS_FILE
+    try:
+        settings = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(settings, dict):
+            settings = {}
+    except (OSError, ValueError):
+        settings = {}
+    settings["port"] = port
+    path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+
+
+def url_for(port: int) -> str:
+    return f"http://127.0.0.1:{port}/"
+
+
+def is_running_instance(port: int, timeout: float = 1.0) -> bool:
+    """Whether this app is already serving on 127.0.0.1:<port>."""
+    try:
+        with urllib.request.urlopen(url_for(port) + "api/status", timeout=timeout) as resp:
+            status = json.loads(resp.read())
     except Exception:
-        logger.exception("Could not start the native window; falling back to the default browser")
         return False
+    # Any other local web server would have to fake the exact /api/status shape.
+    return isinstance(status, dict) and "season_year" in status and "version" in status
 
 
-def _browser_fallback(url: str, server_thread: threading.Thread, log_path: Path) -> None:
-    """Open the default browser and keep serving until the user quits."""
-    webbrowser.open(url)
-    if sys.platform == "win32":
-        import ctypes
+class LocalServer(NFLSimulatorServer):
+    """NFLSimulatorServer that refuses a port another program already uses.
 
-        if _webview2_installed() is False:
-            reason = "The app window needs the Microsoft Edge WebView2 Runtime, which is not installed."
-        else:
-            reason = f"The app window could not be opened. Details are in:\n{log_path}"
-        message = f"{reason}\n\nThe app is running in your browser instead:\n{url}\n\nClick OK to quit."
-        ctypes.windll.user32.MessageBoxW(0, message, WINDOW_TITLE, 0x40)  # MB_ICONINFORMATION
-    else:
-        print(f"Running at {url} — press Ctrl+C to quit.")
-        try:
-            server_thread.join()
-        except KeyboardInterrupt:
-            pass
+    HTTPServer sets SO_REUSEADDR, which on Windows lets a second socket bind a
+    port that is already taken -- a busy port would then silently "work" while
+    the other program keeps receiving the connections. Ask for exclusive use
+    there instead (Linux/macOS REUSEADDR doesn't allow that, so keep it).
+    """
+
+    allow_reuse_address = sys.platform != "win32"
+
+    def server_bind(self) -> None:
+        if sys.platform == "win32":
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 
-def _shutdown(server: NFLSimulatorServer) -> None:
-    server.shutdown()
-    server.server_close()
-    server.cache.close()
-    server.data_client.close()
+class ServerHandle:
+    """One running LocalServer and its serving thread."""
+
+    def __init__(self, server: LocalServer) -> None:
+        self.server = server
+        self.port: int = server.server_address[1]
+        self.url = url_for(self.port)
+        self.thread = threading.Thread(target=server.serve_forever, name="http-server", daemon=True)
+        self.thread.start()
+
+    @classmethod
+    def start(cls, port: int, season_year: int, data_dir: Path) -> ServerHandle:
+        """Bind 127.0.0.1:<port> (0 = any free port) and serve. Raises OSError if the port is taken."""
+        server = LocalServer(
+            port=port,
+            season_year=season_year,
+            static_dir=str(default_static_dir()),
+            db_path=str(data_dir / "nfl_cache.db"),
+            perf_export_path=str(data_dir / "solver-performance.md"),
+            host="127.0.0.1",
+        )
+        handle = cls(server)
+        logger.info(
+            "Server v%s listening on %s (season %d, data in %s)", server.version, handle.url, season_year, data_dir
+        )
+        return handle
+
+    def stop(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+        self.server.cache.close()
+        self.server.data_client.close()
+
+
+def _terminate_workers() -> None:
     # Simulation workers may still be mid-run; don't leave them orphaned.
     for child in multiprocessing.active_children():
         child.terminate()
 
 
+def _open_folder(path: Path) -> None:
+    if sys.platform == "win32":
+        os.startfile(path)  # type: ignore[attr-defined]  # Windows-only
+    else:
+        subprocess.Popen(["xdg-open", str(path)])
+
+
+class ControlWindow:
+    """The small tkinter window that keeps the app running."""
+
+    def __init__(self, data_dir: Path, season_year: int, port: int) -> None:
+        import tkinter as tk
+        from tkinter import ttk
+
+        self.data_dir = data_dir
+        self.season_year = season_year
+        self.handle: ServerHandle | None = None
+
+        self.root = tk.Tk()
+        self.root.title(f"{WINDOW_TITLE} v{app_version()}")
+        self.root.resizable(False, False)
+        icon = _bundle_dir() / "icon.ico"
+        if sys.platform == "win32" and icon.is_file():
+            self.root.iconbitmap(str(icon))
+        self.root.protocol("WM_DELETE_WINDOW", self.quit)
+
+        frame = ttk.Frame(self.root, padding=12)
+        frame.grid()
+        self.status = ttk.Label(frame, wraplength=360, justify="left")
+        self.status.grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 10))
+
+        ttk.Label(frame, text="Port:").grid(row=1, column=0, sticky="w")
+        self.port_var = tk.StringVar(value=str(port))
+        port_entry = ttk.Entry(frame, textvariable=self.port_var, width=7)
+        port_entry.grid(row=1, column=1, sticky="w", padx=(4, 4))
+        port_entry.bind("<Return>", lambda _event: self.apply_port())
+        ttk.Button(frame, text="Apply", command=self.apply_port).grid(row=1, column=2, sticky="w")
+
+        buttons = ttk.Frame(frame)
+        buttons.grid(row=2, column=0, columnspan=4, sticky="w", pady=(12, 0))
+        self.open_button = ttk.Button(buttons, text="Open in browser", command=self.open_browser)
+        self.open_button.grid(row=0, column=0, padx=(0, 6))
+        ttk.Button(buttons, text="Open data folder", command=lambda: _open_folder(self.data_dir)).grid(
+            row=0, column=1, padx=(0, 6)
+        )
+        ttk.Button(buttons, text="Quit", command=self.quit).grid(row=0, column=2)
+
+        self._start_on(port, open_browser=True)
+
+    def _start_on(self, port: int, open_browser: bool) -> bool:
+        """Switch the server to <port>; on failure keep the current one running."""
+        try:
+            new_handle = ServerHandle.start(port, self.season_year, self.data_dir)
+        except OSError as exc:
+            logger.warning("Could not listen on port %d: %s", port, exc)
+            current = f"\n\nStill running at {self.handle.url}" if self.handle else ""
+            self.status.configure(
+                text=f"Port {port} is in use by another program. Choose another port and click Apply.{current}"
+            )
+            self.open_button.state(["!disabled"] if self.handle else ["disabled"])
+            return False
+
+        if self.handle is not None:
+            # Keep the season the user switched to in the UI.
+            self.season_year = self.handle.server.season_year
+            new_handle.server.season_year = self.season_year
+            self.handle.stop()
+            _terminate_workers()
+        self.handle = new_handle
+        save_port(self.data_dir, port)
+        self.status.configure(text=f"Running at {new_handle.url}\n\nClose this window to quit the app.")
+        self.open_button.state(["!disabled"])
+        if open_browser:
+            self.open_browser()
+        return True
+
+    def apply_port(self) -> None:
+        text = self.port_var.get().strip()
+        port = int(text) if text.isdigit() else None
+        if port is None or not valid_port(port):
+            self.status.configure(text="Enter a port number between 1024 and 65535.")
+            return
+        if self.handle is not None and port == self.handle.port:
+            return
+        self._start_on(port, open_browser=True)
+
+    def open_browser(self) -> None:
+        if self.handle is not None:
+            webbrowser.open(self.handle.url)
+
+    def quit(self) -> None:
+        logger.info("Shutting down")
+        if self.handle is not None:
+            self.handle.stop()
+        _terminate_workers()
+        self.root.destroy()
+
+    def run(self) -> None:
+        self.root.mainloop()
+
+
 def main(argv: list[str] | None = None) -> None:
-    """Start the server on localhost and show it in a window (or browser)."""
+    """Start the server on localhost; open the browser and the control window."""
     multiprocessing.freeze_support()
     args = parse_args(argv)
 
@@ -219,30 +319,25 @@ def main(argv: list[str] | None = None) -> None:
     data_dir.mkdir(parents=True, exist_ok=True)
     _configure_logging(data_dir)
 
-    server = NFLSimulatorServer(
-        port=args.port,
-        season_year=args.season,
-        static_dir=str(default_static_dir()),
-        db_path=str(data_dir / "nfl_cache.db"),
-        perf_export_path=str(data_dir / "solver-performance.md"),
-        host="127.0.0.1",
-    )
-    url = f"http://127.0.0.1:{server.server_address[1]}/"
-    logger.info("Server v%s listening on %s (season %d, data in %s)", server.version, url, args.season, data_dir)
+    if args.no_window:
+        handle = ServerHandle.start(args.port or 0, args.season, data_dir)
+        print(handle.url, flush=True)
+        try:
+            handle.thread.join()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            handle.stop()
+            _terminate_workers()
+        return
 
-    server_thread = threading.Thread(target=server.serve_forever, name="http-server", daemon=True)
-    server_thread.start()
+    port = args.port if valid_port(args.port) else load_port(data_dir)
+    if is_running_instance(port):
+        logger.info("Already running on port %d; opening the browser", port)
+        webbrowser.open(url_for(port))
+        return
 
-    try:
-        if args.no_window:
-            print(url, flush=True)
-            server_thread.join()
-        elif not _show_window(url):
-            _browser_fallback(url, server_thread, data_dir / "app.log")
-    except KeyboardInterrupt:
-        pass
-    finally:
-        _shutdown(server)
+    ControlWindow(data_dir, args.season, port).run()
 
 
 if __name__ == "__main__":

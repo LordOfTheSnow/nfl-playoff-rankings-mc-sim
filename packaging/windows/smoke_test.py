@@ -1,7 +1,7 @@
 """Smoke-test a desktop build: start it headless, fetch data, run a small simulation.
 
 Usage:
-    python packaging/windows/smoke_test.py -- dist/nfl-playoff-sim/nfl-playoff-sim.exe
+    python packaging/windows/smoke_test.py -- dist/nfl-playoff-rankings-mc-sim/nfl-playoff-rankings-mc-sim.exe
     python packaging/windows/smoke_test.py -- python -m src.desktop     # from source
 
 Everything after `--` is the command to launch; `--no-window --port <port>

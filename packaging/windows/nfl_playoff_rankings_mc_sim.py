@@ -1,4 +1,4 @@
-"""PyInstaller entry script for the Windows desktop build (see nfl-playoff-sim.spec)."""
+"""PyInstaller entry script for the Windows desktop build (see nfl-playoff-rankings-mc-sim.spec)."""
 
 import multiprocessing
 import os

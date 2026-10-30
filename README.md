@@ -90,18 +90,25 @@ Then open http://localhost:8080 in your browser.
 
 ## Windows desktop app (optional)
 
-Every release from v1.5.0 on includes a Windows build, `nfl-playoff-sim-vX.Y.Z-windows-x64.zip`, on its [GitHub Releases](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/releases) page. It doesn't need Python or Docker:
+Every release from v1.5.0 on includes a Windows build, `nfl-playoff-rankings-mc-sim-vX.Y.Z-windows-x64.zip`, on its [GitHub Releases](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/releases) page. It doesn't need Python or Docker:
 
 1. Download the ZIP and extract it anywhere (e.g. your Desktop).
-2. Run `nfl-playoff-sim.exe` in the extracted `nfl-playoff-sim` folder. The app opens in its own window.
+2. Run `nfl-playoff-rankings-mc-sim.exe` in the extracted `nfl-playoff-rankings-mc-sim` folder.
+
+The app opens in your default browser at `http://127.0.0.1:8765/`, plus a small control window that keeps it running:
+
+- **Port:** change the port and click **Apply** if 8765 is taken or you prefer another one. The app restarts on that port, reopens the browser and remembers the choice. Simulation results shown at the old address are lost.
+- **Open in browser:** reopens the app if you closed its tab.
+- **Open data folder:** opens the folder with the cache and `app.log`.
+- **Quit**, or closing the window, stops the app. Closing the browser tab does not.
+
+Starting the exe again while the app is running just opens the browser on it.
 
 The build is not code-signed, so on first launch Windows SmartScreen may show "Windows protected your PC". Click **More info → Run anyway**.
 
-- **Requirements:** Windows 10/11 x64. The window uses the Microsoft Edge WebView2 Runtime, which comes with current Windows. If it is missing, the app opens in your default browser instead and shows a small dialog. Click **OK** there to quit.
-- **Data:** the cache database (`nfl_cache.db`), the log file (`app.log`) and solver-performance exports are stored in `%LOCALAPPDATA%\nfl-playoff-sim\`. They survive upgrading to a new release (extract the new ZIP and delete the old folder).
-- **Downloads:** Export and Teaser images open a normal Windows "Save as" dialog.
-- **Troubleshooting:** if the app opens in your browser instead of its own window, the reason is in `app.log`. As a manual workaround, right-click the downloaded ZIP → **Properties** → tick **Unblock**, then extract it again. The app already clears Windows' "downloaded from the internet" mark from its own files at startup, which normally makes this unnecessary.
-- The app's server listens only on `127.0.0.1` (a random free port), so it is not reachable from other machines and triggers no firewall prompt.
+- **Requirements:** Windows 10/11 x64 and any current browser.
+- **Data:** the cache database (`nfl_cache.db`), the log file (`app.log`), the saved port (`settings.json`) and solver-performance exports are stored in `%LOCALAPPDATA%\nfl-playoff-rankings-mc-sim\`. They survive upgrading to a new release (extract the new ZIP and delete the old folder).
+- The app's server listens only on `127.0.0.1`, so it is not reachable from other machines and triggers no firewall prompt.
 
 ## Docker (optional)
 
