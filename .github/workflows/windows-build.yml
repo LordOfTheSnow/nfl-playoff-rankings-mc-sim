@@ -80,15 +80,19 @@ jobs:
         id: zip
         shell: pwsh
         run: |
-          $zip = "nfl-playoff-sim-$($env:TAG -replace '/', '-')-windows-x64.zip"
+          $base = "nfl-playoff-sim-$($env:TAG -replace '/', '-')-windows-x64"
+          $zip = "$base.zip"
           Compress-Archive -Path dist/nfl-playoff-sim -DestinationPath $zip
           "zip=$zip" >> $env:GITHUB_OUTPUT
+          "base=$base" >> $env:GITHUB_OUTPUT
 
+      # Artifacts are always zipped by GitHub, so upload the folder, not the
+      # ZIP (which would download as a ZIP inside a ZIP).
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v5
         with:
-          name: ${{ steps.zip.outputs.zip }}
-          path: ${{ steps.zip.outputs.zip }}
+          name: ${{ steps.zip.outputs.base }}
+          path: dist/
 
       - name: Attach to release
         if: github.event_name != 'push' && (github.event_name != 'workflow_dispatch' || inputs.upload)

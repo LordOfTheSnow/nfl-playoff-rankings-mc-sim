@@ -88,7 +88,10 @@ class DesktopApi:
     """Methods callable from the page as `window.pywebview.api.<name>()`."""
 
     def __init__(self) -> None:
-        self.window = None
+        # Underscore-prefixed: pywebview exposes every public attribute of js_api to
+        # JavaScript by walking it recursively, which would descend into the
+        # native WinForms window (endless recursion, UI-thread errors in app.log).
+        self._window = None
 
     def save_file(self, filename: str, data_base64: str) -> bool:
         """Ask for a target path with a native Save dialog and write the file.
@@ -98,7 +101,7 @@ class DesktopApi:
         import webview
 
         save_mode = getattr(getattr(webview, "FileDialog", None), "SAVE", None) or webview.SAVE_DIALOG
-        result = self.window.create_file_dialog(save_mode, save_filename=filename)
+        result = self._window.create_file_dialog(save_mode, save_filename=filename)
         if not result:
             return False
         # Backends differ: some return a path string, some a 1-tuple.
@@ -166,7 +169,7 @@ def _show_window(url: str) -> bool:
         import webview
 
         api = DesktopApi()
-        api.window = webview.create_window(
+        api._window = webview.create_window(
             WINDOW_TITLE, url, js_api=api, width=1400, height=900, min_size=(900, 600)
         )
         # Force Edge WebView2: never silently fall back to an IE-based renderer.

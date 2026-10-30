@@ -62,7 +62,7 @@ def test_save_file_writes_decoded_bytes(tmp_path, monkeypatch):
     fake_webview = types.SimpleNamespace(SAVE_DIALOG=30)
     monkeypatch.setitem(sys.modules, "webview", fake_webview)
     api = desktop.DesktopApi()
-    api.window = FakeWindow()
+    api._window = FakeWindow()
 
     assert api.save_file("export.zip", base64.b64encode(b"PK\x03\x04").decode()) is True
     assert target.read_bytes() == b"PK\x03\x04"
@@ -78,7 +78,7 @@ def test_save_file_cancelled(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "webview", types.SimpleNamespace(SAVE_DIALOG=30))
     api = desktop.DesktopApi()
-    api.window = FakeWindow()
+    api._window = FakeWindow()
     assert api.save_file("x.png", "") is False
 
 
@@ -110,3 +110,10 @@ def test_unblock_bundled_dlls_skips_source_runs(monkeypatch, tmp_path):
     desktop._unblock_bundled_dlls()
 
     assert marker.exists()
+
+
+def test_desktop_api_exposes_only_save_file():
+    # pywebview walks every public attribute of js_api recursively; anything
+    # else public (e.g. the window) would be traversed into native objects.
+    public = [name for name in dir(desktop.DesktopApi()) if not name.startswith("_")]
+    assert public == ["save_file"]
