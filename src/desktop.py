@@ -236,7 +236,8 @@ class ControlWindow:
         self.root.protocol("WM_DELETE_WINDOW", self.quit)
 
         frame = ttk.Frame(self.root, padding=12)
-        frame.grid()
+        # Keep the content left-aligned when _fit_title makes the window wider.
+        frame.grid(sticky="nw")
         self.status = ttk.Label(frame, wraplength=360, justify="left")
         self.status.grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 10))
 
@@ -257,6 +258,23 @@ class ControlWindow:
         ttk.Button(buttons, text="Quit", command=self.quit).grid(row=0, column=2)
 
         self._start_on(port, open_browser=True)
+        self._fit_title()
+
+    def _fit_title(self) -> None:
+        """Widen the window so the title bar shows the whole title (incl. version).
+
+        Tk sizes the window to its widgets only, which leaves the title clipped.
+        TkCaptionFont is the system's title-bar font; the extra allowance covers
+        the window icon, the minimize/maximize/close buttons and padding, scaled
+        from 96 dpi to the display's DPI.
+        """
+        from tkinter import font
+
+        self.root.update_idletasks()
+        scale = self.root.winfo_fpixels("1i") / 96
+        title_width = font.nametofont("TkCaptionFont").measure(self.root.title())
+        width = max(self.root.winfo_reqwidth(), title_width + int(190 * scale))
+        self.root.minsize(width, self.root.winfo_reqheight())
 
     def _start_on(self, port: int, open_browser: bool) -> bool:
         """Switch the server to <port>; on failure keep the current one running."""
