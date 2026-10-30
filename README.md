@@ -90,12 +90,14 @@ Then open http://localhost:8080 in your browser.
 
 ## Windows desktop app (optional)
 
-Every release from v1.5.0 on includes a Windows build, `nfl-playoff-rankings-mc-sim-vX.Y.Z-windows-x64.zip`, on its [GitHub Releases](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/releases) page. It doesn't need Python or Docker:
+Every release from v1.5.0 on includes an experimental Windows build, `nfl-playoff-rankings-mc-sim-vX.Y.Z-windows-x64.zip`, on its [GitHub Releases](https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/releases) page. It doesn't need Python or Docker, but uses the browser to display the app's frontend:
 
 1. Download the ZIP and extract it anywhere (e.g. your Desktop).
 2. Run `nfl-playoff-rankings-mc-sim.exe` in the extracted `nfl-playoff-rankings-mc-sim` folder.
 
 The app opens in your default browser at `http://127.0.0.1:8765/`, plus a small control window that keeps it running:
+
+![Windows control window showing the app's URL, a port field with Apply, and Open in browser, Open data folder and Quit buttons](/doc/img/screenshot-windows-app-starter.png)
 
 - **Port:** change the port and click **Apply** if 8765 is taken or you prefer another one. The app restarts on that port, reopens the browser and remembers the choice. Simulation results shown at the old address are lost.
 - **Open in browser:** reopens the app if you closed its tab.
@@ -104,7 +106,7 @@ The app opens in your default browser at `http://127.0.0.1:8765/`, plus a small 
 
 Starting the exe again while the app is running just opens the browser on it.
 
-The build is not code-signed, so on first launch Windows SmartScreen may show "Windows protected your PC". Click **More info → Run anyway**.
+**The build is not code-signed**, so on first launch Windows SmartScreen may show "Windows protected your PC". Click **More info → Run anyway**.
 
 - **Requirements:** Windows 10/11 x64 and any current browser.
 - **Data:** the cache database (`nfl_cache.db`), the log file (`app.log`), the saved port (`settings.json`) and solver-performance exports are stored in `%LOCALAPPDATA%\nfl-playoff-rankings-mc-sim\`. They survive upgrading to a new release (extract the new ZIP and delete the old folder).
