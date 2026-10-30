@@ -7,8 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-30
+
 ### Added
-- **Windows desktop app**: each release now attaches `nfl-playoff-rankings-mc-sim-vX.Y.Z-windows-x64.zip`, a portable (unzip and run) Windows build. Running the exe opens the app in your default browser, plus a small control window showing the URL and version. The window has a port field (default 8765, remembered), *Open in browser*, *Open data folder* and *Quit*; closing the window stops the app. Starting the exe again while it's running just opens the browser. The server listens only on `127.0.0.1`, and the cache, log and settings live in `%LOCALAPPDATA%\nfl-playoff-rankings-mc-sim\`. The build is made by a new `windows-build.yml` workflow (PyInstaller, smoke-tested headless before upload), chained from the release workflow like the Docker image. Run it from source with `python -m src.desktop`. See [Technical](doc/technical.md#windows-desktop-build)
+- **Windows desktop app**: each release now attaches `nfl-playoff-rankings-mc-sim-vX.Y.Z-windows-x64.zip`, an experimental, portable (unzip and run) Windows build. Running the exe opens the app in your default browser, plus a small control window showing the URL and version. The window has a port field (default 8765, remembered), *Open in browser*, *Open data folder* and *Quit*; closing the window stops the app. Starting the exe again while it's running just opens the browser. The server listens only on `127.0.0.1`, and the cache, log and settings live in `%LOCALAPPDATA%\nfl-playoff-rankings-mc-sim\`. The build is made by a new `windows-build.yml` workflow (PyInstaller, smoke-tested headless before upload), chained from the release workflow like the Docker image. Run it from source with `python -m src.desktop`. See [Technical](doc/technical.md#windows-desktop-build)
 
 ## [1.4.1] - 2026-10-27
 
@@ -506,7 +508,8 @@ Full "Modernist" redesign of every page (flat red-on-white style, Bootstrap remo
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.2.2...v1.3.0
