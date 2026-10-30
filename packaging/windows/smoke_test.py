@@ -105,6 +105,18 @@ def main() -> int:
             print(f"Simulation completed: {len(teams)} teams", flush=True)
             if len(teams) != 32:
                 raise RuntimeError("expected 32 team results")
+
+            # The CP solver answers 503 if OR-Tools failed to import (e.g. its
+            # native DLLs in ortools/.libs weren't bundled); the server itself
+            # still runs fine without it, so check explicitly.
+            try:
+                clinch = _request(base, "GET", "/api/cp-clinch-all?cutoff_week=17&time_limit=30", timeout=300)
+            except urllib.error.HTTPError as exc:
+                raise RuntimeError(f"CP solver unavailable (HTTP {exc.code}): {exc.read()[:200]!r}") from exc
+            solved = sum(len(teams) for teams in clinch["conferences"].values())
+            print(f"CP solver OK: {solved} teams solved", flush=True)
+            if solved != 32:
+                raise RuntimeError("expected CP results for 32 teams")
         finally:
             _kill_tree(proc)
     print("Smoke test passed")

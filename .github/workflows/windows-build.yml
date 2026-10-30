@@ -87,12 +87,14 @@ jobs:
           "base=$base" >> $env:GITHUB_OUTPUT
 
       # Artifacts are always zipped by GitHub, so upload the folder, not the
-      # ZIP (which would download as a ZIP inside a ZIP).
+      # ZIP (which would download as a ZIP inside a ZIP). Hidden files must be
+      # included: OR-Tools keeps its native DLLs in ortools/.libs.
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v5
         with:
           name: ${{ steps.zip.outputs.base }}
           path: dist/
+          include-hidden-files: true
 
       - name: Attach to release
         if: github.event_name != 'push' && (github.event_name != 'workflow_dispatch' || inputs.upload)

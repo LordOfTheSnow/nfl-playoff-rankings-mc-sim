@@ -175,7 +175,7 @@ The server runs in a background thread, and the main thread runs pywebview (forc
 - `nfl-playoff-sim.spec`: windowed (`console=False`), bundles `frontend/` and the package metadata (`server.py` reads its version from it), and pulls in all of OR-Tools with `collect_all("ortools")` for its native DLLs.
 - `nfl_playoff_sim.py`: the entry script. It replaces the missing `sys.stdout`/`sys.stderr` of a windowed process with `os.devnull`, then calls `multiprocessing.freeze_support()` before anything else. Windows uses the `spawn` start method (see [Platform Notes](#platform-notes)), so every simulation worker relaunches the exe. Without `freeze_support()`, each worker would start a second app instead of running its task.
 - `icon.ico`: generated from `frontend/favicon.svg` (16–256 px).
-- `smoke_test.py`: launches a build with `--no-window --port <free> --data-dir <tmp>`, checks `/api/status` and `/`, fetches the 2025 season, and runs a 200-iteration, 2-worker simulation. It uses only the stdlib, and works against the exe or `python -m src.desktop`.
+- `smoke_test.py`: launches a build with `--no-window --port <free> --data-dir <tmp>`, checks `/api/status` and `/`, fetches the 2025 season, runs a 200-iteration, 2-worker simulation, and calls `/api/cp-clinch-all`. That last call catches a missing OR-Tools: the server runs without it, but the CP solver answers 503. It uses only the stdlib, and works against the exe or `python -m src.desktop`.
 
 Build locally on Windows (PyInstaller can't cross-compile):
 
