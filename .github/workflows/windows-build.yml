@@ -80,21 +80,17 @@ jobs:
         id: zip
         shell: pwsh
         run: |
-          $base = "nfl-playoff-sim-$($env:TAG -replace '/', '-')-windows-x64"
-          $zip = "$base.zip"
+          $zip = "nfl-playoff-sim-$($env:TAG -replace '/', '-')-windows-x64.zip"
           Compress-Archive -Path dist/nfl-playoff-sim -DestinationPath $zip
           "zip=$zip" >> $env:GITHUB_OUTPUT
-          "base=$base" >> $env:GITHUB_OUTPUT
 
-      # Artifacts are always zipped by GitHub, so upload the folder, not the
-      # ZIP (which would download as a ZIP inside a ZIP). Hidden files must be
-      # included: OR-Tools keeps its native DLLs in ortools/.libs.
+      # archive: false uploads the ZIP as-is (no ZIP inside a ZIP), so the
+      # artifact is byte-for-byte the file attached to the release.
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
-          name: ${{ steps.zip.outputs.base }}
-          path: dist/
-          include-hidden-files: true
+          path: ${{ steps.zip.outputs.zip }}
+          archive: false
 
       - name: Attach to release
         if: github.event_name != 'push' && (github.event_name != 'workflow_dispatch' || inputs.upload)
