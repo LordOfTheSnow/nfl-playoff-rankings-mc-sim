@@ -80,7 +80,7 @@ jobs:
         id: zip
         shell: pwsh
         run: |
-          $zip = "nfl-playoff-sim-$env:TAG-windows-x64.zip"
+          $zip = "nfl-playoff-sim-$($env:TAG -replace '/', '-')-windows-x64.zip"
           Compress-Archive -Path dist/nfl-playoff-sim -DestinationPath $zip
           "zip=$zip" >> $env:GITHUB_OUTPUT
 
