@@ -1,8 +1,6 @@
 name: Build Windows Desktop App
 
 on:
-  push:  # TEMP: test builds on the feature branch -- revert before merge
-    branches: [feat/windows-build]
   workflow_call:
     inputs:
       tag:
@@ -35,7 +33,7 @@ jobs:
       - name: Resolve tag
         id: resolve
         run: |
-          TAG="${{ inputs.tag || (github.event_name == 'push' && github.ref_name) || '' }}"
+          TAG="${{ inputs.tag }}"
           if [ -z "$TAG" ]; then
             # No tag provided (manual dispatch without input) — find latest v* tag
             TAG=$(git tag --list 'v*' --sort=-v:refname | head -n1)
@@ -93,7 +91,7 @@ jobs:
           archive: false
 
       - name: Attach to release
-        if: github.event_name != 'push' && (github.event_name != 'workflow_dispatch' || inputs.upload)
+        if: github.event_name != 'workflow_dispatch' || inputs.upload
         run: gh release upload "${{ env.TAG }}" "${{ steps.zip.outputs.zip }}" --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
