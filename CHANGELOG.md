@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-11-09
+
 ### Fixed
 - **Simulated Wild Card bracket**: seeds 1-4 now always go to one team per division (each division's most likely winner), with seeds 5-7 going to the three best remaining teams by playoff probability. Previously seeds were handed out without regard to divisions, so a division runner-up could take a division winner's seed while another division had no winner at all. Applies to the Wild Card page and the HTML export. See [Algorithms](doc/algorithms.md)
 
@@ -511,7 +513,8 @@ Full "Modernist" redesign of every page (flat red-on-white style, Bootstrap remo
 - Property-based test strategies using Hypothesis
 - 104 unit/integration tests passing
 
-[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/LordOfTheSnow/nfl-playoff-rankings-mc-sim/compare/v1.3.0...v1.4.0
