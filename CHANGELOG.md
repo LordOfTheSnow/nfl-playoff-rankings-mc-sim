@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Simulated Wild Card bracket**: seeds 1-4 now always go to one team per division (each division's most likely winner), with seeds 5-7 going to the three best remaining teams by playoff probability. Previously seeds were handed out without regard to divisions, so a division runner-up could take a division winner's seed while another division had no winner at all. Applies to the Wild Card page and the HTML export. See [Algorithms](doc/algorithms.md)
+
 ## [1.5.0] - 2026-10-30
 
 ### Added

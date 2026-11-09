@@ -11,9 +11,9 @@ genuinely new pieces of domain logic are:
   game-by-game form (_handle_get_statistics computes season-wide longest
   streaks across the league, not a single team's current one).
 - assign_modal_seeds: Simulated mode needs one internally-consistent 7-team
-  bracket (no duplicate seeds) out of each team's independent per-seed
-  probability distribution; nothing else in the app collapses a seeding
-  matrix down to a single bracket.
+  bracket (no duplicate seeds, one division winner per division) out of each
+  team's independent per-seed probability distribution; nothing else in the
+  app collapses a seeding matrix down to a single bracket.
 
 See design_handoff_wildcard/README.md for the full screen spec this feeds.
 """
@@ -27,6 +27,8 @@ from src.data_client import Game, GameStatus
 from src.standings import Conference, TeamStanding, rank_conference
 
 _CONFERENCES = ("AFC", "NFC")
+_DIVISION_WINNER_SEEDS = (1, 2, 3, 4)
+_WILD_CARD_SEEDS = (5, 6, 7)
 
 
 @dataclass
@@ -77,15 +79,44 @@ def last5_and_streak(team: str, games: list[Game]) -> tuple[list[str], StreakInf
     return last5, StreakInfo(result=streak_result, length=streak_len)
 
 
+def _playoff_probability(team_result: dict[str, Any]) -> float:
+    return float(team_result.get("playoff_probability", 0) or 0)
+
+
+def _division_title_probability(team_result: dict[str, Any]) -> float:
+    """A team's chance of winning its division: only division winners can
+    hold seeds 1-4, so this is the sum of its seed 1-4 probabilities."""
+    seed_probs = team_result.get("seed_probabilities") or {}
+    return sum(float(seed_probs.get(str(s), 0) or 0) for s in _DIVISION_WINNER_SEEDS)
+
+
+def _claim_modal_seeds(
+    teams: list[dict[str, Any]],
+    seeds: tuple[int, ...],
+    assigned: dict[str, int],
+) -> None:
+    """Teams, highest playoff_probability first, each claim the seed out of
+    `seeds` their own seed_probabilities ranks highest among those unclaimed.
+    """
+    taken: set[int] = set()
+    for t in sorted(teams, key=lambda t: -_playoff_probability(t)):
+        seed_probs = t.get("seed_probabilities") or {}
+        candidates = sorted(seeds, key=lambda s: -float(seed_probs.get(str(s), 0) or 0))
+        for seed in candidates:
+            if seed not in taken:
+                taken.add(seed)
+                assigned[t["team"]] = seed
+                break
+
+
 def assign_modal_seeds(team_results: list[dict[str, Any]], conference: str) -> dict[str, int]:
     """Greedy modal-seed assignment for one conference's Simulated bracket.
 
-    Teams are processed in order of overall playoff_probability (highest
-    first); each claims the seed (1-7) its own seed_probabilities ranks
-    highest among those not already claimed. By construction, exactly the
-    7 teams with the highest playoff_probability in the conference end up
-    assigned a seed — any other team's candidate list is exhausted once
-    those 7 teams have claimed every seed.
+    Mirrors the NFL's bracket structure: each division's most likely winner
+    claims one of seeds 1-4, then the 3 remaining teams with the highest
+    playoff_probability claim seeds 5-7. A likely division winner therefore
+    makes the bracket even if its playoff_probability ranks below 7th in the
+    conference.
 
     Args:
         team_results: The simulation result's full team_results list (all
@@ -96,22 +127,24 @@ def assign_modal_seeds(team_results: list[dict[str, Any]], conference: str) -> d
         {team_name: seed} for exactly the 7 teams assigned a seed.
     """
     conf_teams = [t for t in team_results if t.get("conference") == conference]
-    ordered = sorted(conf_teams, key=lambda t: -float(t.get("playoff_probability", 0) or 0))
 
-    taken: set[int] = set()
+    divisions: dict[Any, list[dict[str, Any]]] = {}
+    for t in conf_teams:
+        divisions.setdefault(t.get("division"), []).append(t)
+
+    winners = [
+        max(teams, key=lambda t: (_division_title_probability(t), _playoff_probability(t)))
+        for teams in divisions.values()
+    ]
+    winner_names = {t["team"] for t in winners}
+    wild_cards = sorted(
+        (t for t in conf_teams if t["team"] not in winner_names),
+        key=lambda t: -_playoff_probability(t),
+    )[:len(_WILD_CARD_SEEDS)]
+
     assigned: dict[str, int] = {}
-    for t in ordered:
-        seed_probs = t.get("seed_probabilities") or {}
-        candidates = sorted(
-            range(1, 8),
-            key=lambda s: -float(seed_probs.get(str(s), 0) or 0),
-        )
-        for seed in candidates:
-            if seed not in taken:
-                taken.add(seed)
-                assigned[t["team"]] = seed
-                break
-
+    _claim_modal_seeds(winners, _DIVISION_WINNER_SEEDS, assigned)
+    _claim_modal_seeds(wild_cards, _WILD_CARD_SEEDS, assigned)
     return assigned
 
 

@@ -355,14 +355,23 @@ A Monte Carlo run gives each team an independent probability distribution
 over seeds 1-7 (`seed_probabilities`) — these don't sum to a single
 consistent 7-team bracket on their own (two teams can each have seed 3 as
 their most likely seed). `wildcard.assign_modal_seeds` collapses this into
-one internally-consistent bracket with a greedy assignment: teams are
-processed in order of overall `playoff_probability` descending, and each
-claims its own highest-probability seed that's still unclaimed.
+one internally-consistent bracket in two steps that mirror the NFL's bracket
+structure:
 
-This is a presentation choice, not a new probability model — by
-construction, exactly the 7 teams with the highest `playoff_probability` in
-the conference end up with a seed, since an 8th-ranked team's candidate list
-is exhausted once those 7 have claimed every seed. An alternative (solving
+1. Each division's most likely winner takes one of seeds 1-4. Only division
+   winners can hold those seeds, so a team's division-title probability is
+   the sum of its seed 1-4 probabilities (no separate field is needed).
+2. The 3 remaining teams with the highest `playoff_probability` take seeds
+   5-7.
+
+Within each step, teams are processed in order of `playoff_probability`
+descending, and each claims its own highest-probability seed from that
+step's range that's still unclaimed.
+
+This is a presentation choice, not a new probability model. The bracket is
+not necessarily the conference's top 7 by `playoff_probability`: a weak
+division's likely winner gets in even when it ranks lower, as under real NFL
+rules. An alternative (solving
 for the assignment that maximizes total likelihood across all 7 teams, e.g.
 via the Hungarian algorithm) was considered and rejected: this is a cosmetic
 single-bracket display, not a statistic the app reports elsewhere, so the
