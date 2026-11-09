@@ -27,8 +27,11 @@ from tests.strategies.games import completed_game_list
 
 # --- assign_modal_seeds -----------------------------------------------------
 
+_DIVISIONS = ("East", "North", "South", "West")
+
+
 @st.composite
-def _team_result(draw: st.DrawFn, name: str, conference: str) -> dict:
+def _team_result(draw: st.DrawFn, name: str, conference: str, division: str) -> dict:
     seed_probs = {
         str(s): draw(st.floats(min_value=0, max_value=100, allow_nan=False))
         for s in range(1, 8)
@@ -36,6 +39,7 @@ def _team_result(draw: st.DrawFn, name: str, conference: str) -> dict:
     return {
         "team": name,
         "conference": conference,
+        "division": division,
         "playoff_probability": draw(st.floats(min_value=0, max_value=100, allow_nan=False)),
         "seed_probabilities": seed_probs,
     }
@@ -43,10 +47,18 @@ def _team_result(draw: st.DrawFn, name: str, conference: str) -> dict:
 
 @st.composite
 def conference_team_results(draw: st.DrawFn) -> list[dict]:
+    """A full conference: 16 teams, 4 per division."""
     names = draw(
-        st.lists(st.text(min_size=1, max_size=8), min_size=1, max_size=20, unique=True)
+        st.lists(st.text(min_size=1, max_size=8), min_size=16, max_size=16, unique=True)
     )
-    return [draw(_team_result(name, "AFC")) for name in names]
+    return [
+        draw(_team_result(name, "AFC", _DIVISIONS[i // 4]))
+        for i, name in enumerate(names)
+    ]
+
+
+def _title_probability(team_result: dict) -> float:
+    return sum(team_result["seed_probabilities"][str(s)] for s in range(1, 5))
 
 
 @given(conference_team_results())
@@ -66,9 +78,70 @@ def test_assign_modal_seeds_in_range_1_to_7(team_results: list[dict]) -> None:
 
 @given(conference_team_results())
 @settings(max_examples=200)
-def test_assign_modal_seeds_exactly_min_seven_or_fewer(team_results: list[dict]) -> None:
+def test_assign_modal_seeds_assigns_exactly_seven(team_results: list[dict]) -> None:
     assigned = assign_modal_seeds(team_results, "AFC")
-    assert len(assigned) == min(7, len(team_results))
+    assert len(assigned) == 7
+
+
+@given(conference_team_results())
+@settings(max_examples=200)
+def test_assign_modal_seeds_division_winners_hold_seeds_1_to_4(team_results: list[dict]) -> None:
+    assigned = assign_modal_seeds(team_results, "AFC")
+    by_name = {t["team"]: t for t in team_results}
+    winners = [by_name[name] for name, seed in assigned.items() if seed <= 4]
+
+    assert sorted(t["division"] for t in winners) == sorted(_DIVISIONS)
+    for winner in winners:
+        rivals = [t for t in team_results if t["division"] == winner["division"]]
+        assert _title_probability(winner) == max(_title_probability(t) for t in rivals)
+
+
+@given(conference_team_results())
+@settings(max_examples=200)
+def test_assign_modal_seeds_wild_cards_are_best_remaining(team_results: list[dict]) -> None:
+    assigned = assign_modal_seeds(team_results, "AFC")
+    wild_cards = [t for t in team_results if assigned.get(t["team"], 0) >= 5]
+    left_out = [t for t in team_results if t["team"] not in assigned]
+
+    assert len(wild_cards) == 3
+    lowest_wild_card = min(t["playoff_probability"] for t in wild_cards)
+    assert all(t["playoff_probability"] <= lowest_wild_card for t in left_out)
+
+
+def test_assign_modal_seeds_runner_up_cannot_take_division_winner_seed() -> None:
+    """Regression for issue #52, using the AFC numbers from that report: the
+    Patriots, last to pick, were left with seed 3 despite the Bills winning
+    the AFC East, and the AFC West got no division winner at all."""
+    rows = [
+        ("Jaguars", "South", 97.1, (13.5, 20.6, 24.9, 36.1, 0.3, 0.7, 1.1)),
+        ("Bills", "East", 96.9, (30.6, 21.7, 18.8, 14.8, 3.4, 4.0, 3.6)),
+        ("Broncos", "West", 95.7, (24.0, 18.0, 13.9, 6.7, 19.3, 8.9, 4.9)),
+        ("Steelers", "North", 91.0, (13.3, 16.8, 16.4, 11.3, 11.5, 13.1, 8.6)),
+        ("Chiefs", "West", 90.5, (11.5, 9.9, 8.9, 6.1, 27.4, 16.3, 10.3)),
+        ("Bengals", "North", 82.4, (5.7, 8.5, 9.2, 7.4, 18.2, 18.9, 14.5)),
+        ("Patriots", "East", 60.4, (1.1, 2.4, 3.5, 7.0, 10.6, 15.4, 20.4)),
+        ("Browns", "North", 51.7, (0.4, 1.7, 3.3, 4.7, 7.3, 15.1, 19.3)),
+    ]
+    team_results = [
+        {
+            "team": name,
+            "conference": "AFC",
+            "division": division,
+            "playoff_probability": playoff,
+            "seed_probabilities": {str(s + 1): p for s, p in enumerate(seeds)},
+        }
+        for name, division, playoff, seeds in rows
+    ]
+
+    assert assign_modal_seeds(team_results, "AFC") == {
+        "Bills": 1,
+        "Broncos": 2,
+        "Steelers": 3,
+        "Jaguars": 4,
+        "Chiefs": 5,
+        "Bengals": 6,
+        "Patriots": 7,
+    }
 
 
 @given(conference_team_results())
@@ -184,7 +257,7 @@ def test_build_simulated_conference_seeds_are_1_to_16() -> None:
         {
             "team": name,
             "conference": "AFC",
-            "division": "East",
+            "division": _DIVISIONS[i // 4],
             "record": "0-0-0",
             "playoff_probability": 100.0 - i,
             "seed_probabilities": {str(s): (100.0 if s == i % 7 + 1 else 0.0) for s in range(1, 8)},

@@ -651,11 +651,13 @@ team entry carries `playoff_pct` (Simulated) instead of `eliminated`
 trailing same-result run (not capped at 5), or `null` if the team hasn't
 played a game yet within the cutoff.
 
-For Simulated mode, seeds 1-7 come from a greedy modal-seed assignment:
-teams ordered by `playoff_probability` descending, each claiming its own
-highest-probability seed that's still unclaimed (`src.wildcard.assign_modal_seeds`)
-— this is a presentation convenience for showing one internally-consistent
-bracket, not a new probability model.
+For Simulated mode, seeds 1-7 come from a greedy modal-seed assignment
+(`src.wildcard.assign_modal_seeds`): each division's most likely winner takes
+one of seeds 1-4, and the 3 remaining teams with the highest
+`playoff_probability` take seeds 5-7. Within each group, teams ordered by
+`playoff_probability` descending each claim their own highest-probability
+seed that's still unclaimed — this is a presentation convenience for showing
+one internally-consistent bracket, not a new probability model.
 
 **Errors:** `400` invalid JSON body, invalid `source`, or (for `source:
 "simulated"`) missing/malformed `simulation_result`; `409` no cached data
