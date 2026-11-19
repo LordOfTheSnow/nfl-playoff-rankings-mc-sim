@@ -1,5 +1,5 @@
 # Stage 1: builder — install the package and its dependencies
-FROM python:3.14-slim AS builder
+FROM python:3.15-slim AS builder
 
 WORKDIR /build
 
@@ -9,7 +9,7 @@ COPY src/ src/
 RUN pip install --no-cache-dir --root-user-action=ignore .
 
 # Stage 2: runtime — minimal image with only what's needed to run
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 WORKDIR /app
 
